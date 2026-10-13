@@ -1,3 +1,5 @@
+import { kraoReserved } from './krao-reserved.js'
+
 const atpSpecific = [
   'at',
   'atp',
@@ -1051,6 +1053,7 @@ export const reservedSubdomains: Record<string, boolean> = [
   ...atpSpecific,
   ...commonlyReserved,
   ...famousAccounts,
+  ...kraoReserved,
 ].reduce((acc, cur) => {
   return {
     ...acc,
