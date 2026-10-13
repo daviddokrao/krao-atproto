@@ -37,7 +37,7 @@
     "jest": "^30.5.2"
   },
   "scripts": {
-    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include io.krao.actor.getChainProfiles io.krao.actor.resolveNft io.krao.feed.getTips io.krao.gate.getRules io.krao.gate.getContent io.krao.gate.putContent",
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include io.krao.actor.getChainProfiles io.krao.actor.resolveNft io.krao.feed.getTips io.krao.feed.getTipTotals io.krao.gate.getRules io.krao.gate.getContent io.krao.gate.putContent",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
     "start": "node --enable-source-maps dist/bin.js"

@@ -131,6 +131,32 @@ check(
   JSON.stringify(usdc),
 )
 
+// Feed batch lookup: totals per post, untipped posts omitted
+const untipped = (
+  await createRecord(recipient, 'app.bsky.feed.post', {
+    text: 'No tips here',
+    createdAt: new Date().toISOString(),
+  })
+).data
+const batch = await xrpc(INDEXER, 'io.krao.feed.getTipTotals', {
+  query: { subjects: [post.uri, untipped.uri] },
+})
+const byAsset = (totals = []) =>
+  JSON.stringify([...totals].sort((a, b) => a.asset.localeCompare(b.asset)))
+const batchTotals = batch.data.subjects?.find(
+  (s) => s.subject === post.uri,
+)?.totals
+check(
+  'getTipTotals returns the same totals for the post',
+  !!batchTotals && byAsset(batchTotals) === byAsset(res.data.totals),
+  JSON.stringify(batchTotals),
+)
+check(
+  'getTipTotals omits a post without tips',
+  batch.data.subjects?.length === 1,
+  String(batch.data.subjects?.length),
+)
+
 const received = (await tipsReceived()) - receivedBefore
 check(
   'recipient profile counts the 2 verified tips',

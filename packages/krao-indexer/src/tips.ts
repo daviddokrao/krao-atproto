@@ -212,6 +212,38 @@ export async function tipTotals(
   }))
 }
 
+/** Sums of verified tips per asset for each post that has any */
+export async function tipTotalsForSubjects(db: Database, subjects: string[]) {
+  if (!subjects.length) return []
+  const rows = await db
+    .selectFrom('tip')
+    .select(['subject', 'asset', 'amount'])
+    .where('subject', 'in', subjects)
+    .where('status', '=', 'verified')
+    .execute()
+  const bySubject = new Map<
+    string,
+    Map<string, { amount: bigint; count: number }>
+  >()
+  for (const row of rows) {
+    if (!row.subject) continue
+    const totals = bySubject.get(row.subject) ?? new Map()
+    const t = totals.get(row.asset) ?? { amount: 0n, count: 0 }
+    t.amount += BigInt(row.amount)
+    t.count += 1
+    totals.set(row.asset, t)
+    bySubject.set(row.subject, totals)
+  }
+  return [...bySubject].map(([subject, totals]) => ({
+    subject,
+    totals: [...totals].map(([asset, t]) => ({
+      asset,
+      amount: t.amount.toString(),
+      count: t.count,
+    })),
+  }))
+}
+
 export async function verifiedTipCounts(db: Database, dids: string[]) {
   if (!dids.length) return new Map<string, number>()
   const rows = await db

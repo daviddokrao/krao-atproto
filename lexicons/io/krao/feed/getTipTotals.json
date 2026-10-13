@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.feed.getTipTotals",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get verified tip totals for a set of posts, eg to show them in a feed. Posts without a verified tip are omitted.",
+      "parameters": {
+        "type": "params",
+        "required": ["subjects"],
+        "properties": {
+          "subjects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "at-uri"
+            },
+            "maxLength": 25
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["subjects"],
+          "properties": {
+            "subjects": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#subjectTotals" }
+            }
+          }
+        }
+      }
+    },
+    "subjectTotals": {
+      "type": "object",
+      "required": ["subject", "totals"],
+      "properties": {
+        "subject": { "type": "string", "format": "at-uri" },
+        "totals": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "io.krao.feed.defs#tipTotal" }
+        }
+      }
+    }
+  }
+}
