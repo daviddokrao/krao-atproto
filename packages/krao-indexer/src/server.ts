@@ -19,6 +19,7 @@ import {
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
+import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, io } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
 import { fetchNftImageAsPng } from './nft-image.js'
@@ -56,11 +57,20 @@ export function createApp(
     gateDid: string
     /** Feed generator DID; the "latest" feed is served when set */
     feedGenDid?: string
+    /** Klipy API key for GIF search; without it GIF search is unavailable */
+    klipyApiKey?: string
     /** Public URL of this service, for links it hands out (default: from the request) */
     publicUrl?: string
   },
 ): Express {
-  const { handleResolverUrl, appviewUrl, gateDid, feedGenDid, publicUrl } = opts
+  const {
+    handleResolverUrl,
+    appviewUrl,
+    gateDid,
+    feedGenDid,
+    publicUrl,
+    klipyApiKey,
+  } = opts
   const server = createServer([], {})
 
   /*
@@ -401,6 +411,8 @@ export function createApp(
    * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
    * image named by the token's own on-chain metadata is fetched.
    */
+  addGifRoutes(app, klipyApiKey)
+
   // Link previews, compatible with Bluesky's cardyb (see link-meta.ts)
   const imageProxyUrl = (req: express.Request) => (imageUrl: string) => {
     const base = publicUrl ?? `${req.protocol}://${req.get('host')}`

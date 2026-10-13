@@ -14,6 +14,7 @@ const indexer = await KraoIndexer.create({
   feedGenDid: process.env.KRAO_FEEDGEN_DID,
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
+  klipyApiKey: process.env.KRAO_KLIPY_API_KEY,
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://public.api.bsky.app',
 })
