@@ -5,6 +5,13 @@ import { mockMailer } from './util.js'
 
 const KRAO_INDEXER_PORT = 2589
 
+/*
+ * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
+ * the krao.vssa.com demo): account DID documents then point at it instead of
+ * localhost. The services still reach each other on localhost.
+ */
+const PDS_HOSTNAME = process.env.KRAO_DEV_PDS_HOSTNAME || 'localhost'
+
 const run = async () => {
   console.log(`
 ██████╗
@@ -19,8 +26,13 @@ const run = async () => {
   const network = await TestNetwork.create({
     pds: {
       port: 2583,
-      hostname: 'localhost',
-      enableDidDocWithSession: true,
+      hostname: PDS_HOSTNAME,
+      /*
+       * The dev-env maps the PDS public URL to localhost in its resolvers, so
+       * a session's DID doc would send a remote browser to localhost. Without
+       * it, clients keep using the URL they signed in with.
+       */
+      enableDidDocWithSession: PDS_HOSTNAME === 'localhost',
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
     },
     bsky: {
