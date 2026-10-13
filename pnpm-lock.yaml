@@ -1010,6 +1010,18 @@ importers:
         specifier: workspace:^
         version: link:../../xrpc-server
 
+  packages/krao-e2e:
+    dependencies:
+      '@krao/wallet':
+        specifier: workspace:^
+        version: link:../krao-wallet
+      '@noble/curves':
+        specifier: ^1.7.0
+        version: 1.8.0
+      uint8arrays:
+        specifier: ^5.0.0
+        version: 5.1.1
+
   packages/krao-indexer:
     dependencies:
       '@atproto/identity':

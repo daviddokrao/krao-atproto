@@ -1,0 +1,189 @@
+// Shared helpers for the Krao end-to-end checks. They talk to the local
+// dev-env (`make run-dev-env`) and the Anvil Base fork (`krao-anvil`).
+import {
+  evmAddressFromPublicKey,
+  formatSignInMessage,
+  hashEvmMessage,
+} from '@krao/wallet'
+import { secp256k1 } from '@noble/curves/secp256k1'
+import * as ui8 from 'uint8arrays'
+
+export const PDS = process.env.KRAO_PDS_URL ?? 'http://localhost:2583'
+export const INDEXER = process.env.KRAO_INDEXER_URL ?? 'http://localhost:2589'
+export const GATE = process.env.KRAO_GATE_URL ?? INDEXER
+export const GATE_DID = process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.test'
+export const RPC = process.env.KRAO_RPC_URL ?? 'http://localhost:8545'
+
+export const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+export const ETH_ASSET = 'eip155:8453/slip44:60'
+export const USDC_ASSET = `eip155:8453/erc20:${USDC}`
+
+// Anvil's well-known, publicly documented dev keys (local chain only)
+export const ANVIL_KEYS = [
+  'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+  '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+  '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+]
+
+// Accounts created by scripts/seed-local.mjs and the dev-env mock data
+export const ACCOUNTS = {
+  krao: ['krao.test', 'krao-dev-pass'],
+  minh: ['defi-minh.test', 'krao-dev-pass'],
+  mai: ['dao-mai.test', 'krao-dev-pass'],
+  lan: ['nft-lan.test', 'krao-dev-pass'],
+  alice: ['alice.test', 'hunter2'],
+}
+
+/** An EVM wallet from a hex private key, or a random one */
+export function wallet(hexKey) {
+  const key = hexKey
+    ? ui8.fromString(hexKey, 'base16')
+    : secp256k1.utils.randomPrivateKey()
+  const address = evmAddressFromPublicKey(secp256k1.getPublicKey(key, false))
+  const sign = (message) => {
+    const s = secp256k1.sign(hashEvmMessage(message), key)
+    const v = (s.recovery + 27).toString(16)
+    return '0x' + ui8.toString(s.toCompactRawBytes(), 'base16') + v
+  }
+  return { address, account: `eip155:8453:${address}`, sign }
+}
+
+export async function xrpc(base, method, { token, body, query } = {}) {
+  const url = new URL(`/xrpc/${method}`, base)
+  for (const [k, v] of Object.entries(query ?? {})) {
+    for (const x of [v].flat()) url.searchParams.append(k, x)
+  }
+  const res = await fetch(url, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return {
+    ok: res.ok,
+    status: res.status,
+    data: await res.json().catch(() => ({})),
+  }
+}
+
+export async function rpc(method, params) {
+  const res = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  })
+  const body = await res.json()
+  if (body.error) throw new Error(`${method}: ${body.error.message}`)
+  return body.result
+}
+
+export async function login([identifier, password]) {
+  const res = await xrpc(PDS, 'com.atproto.server.createSession', {
+    body: { identifier, password },
+  })
+  if (!res.ok) {
+    throw new Error(
+      `Cannot sign in as ${identifier} (${res.data.error}). ` +
+        'Did you run `node scripts/seed-local.mjs` after starting the dev-env?',
+    )
+  }
+  return res.data
+}
+
+export function createRecord(session, collection, record, { rkey } = {}) {
+  return xrpc(PDS, 'com.atproto.repo.createRecord', {
+    token: session.accessJwt,
+    body: {
+      repo: session.did,
+      collection,
+      rkey,
+      validate: true,
+      record: { $type: collection, ...record },
+    },
+  })
+}
+
+export function putRecord(session, collection, rkey, record) {
+  return xrpc(PDS, 'com.atproto.repo.putRecord', {
+    token: session.accessJwt,
+    body: {
+      repo: session.did,
+      collection,
+      rkey,
+      validate: true,
+      record: { $type: collection, ...record },
+    },
+  })
+}
+
+export function deleteRecord(session, uri) {
+  const [collection, rkey] = uri.split('/').slice(-2)
+  return xrpc(PDS, 'com.atproto.repo.deleteRecord', {
+    token: session.accessJwt,
+    body: { repo: session.did, collection, rkey },
+  })
+}
+
+/** An io.krao.actor.wallet record whose SIWE proof is signed by `signer` */
+export function walletRecord(did, w, signer = w) {
+  const message = formatSignInMessage({
+    domain: 'krao.io',
+    chain: 'Ethereum',
+    address: w.address,
+    statement: 'Link this wallet to my Krao account.',
+    uri: did,
+    version: '1',
+    chainId: '8453',
+    nonce: Math.random().toString(36).slice(2, 12),
+    issuedAt: new Date().toISOString(),
+    resources: [],
+  })
+  return {
+    account: w.account,
+    proof: { type: 'siwe', message, signature: signer.sign(message) },
+    createdAt: new Date().toISOString(),
+  }
+}
+
+export function linkWallet(session, w) {
+  return createRecord(
+    session,
+    'io.krao.actor.wallet',
+    walletRecord(session.did, w),
+  )
+}
+
+export async function serviceAuth(session, lxm, aud = GATE_DID) {
+  const res = await xrpc(PDS, 'com.atproto.server.getServiceAuth', {
+    token: session.accessJwt,
+    query: { aud, lxm },
+  })
+  return res.data.token
+}
+
+/** Sets an ERC-20 balance on the Anvil fork (absolute, not a top-up) */
+export function dealErc20(address, token, amount) {
+  return rpc('anvil_dealERC20', [address, token, '0x' + amount.toString(16)])
+}
+
+export const pad32 = (hex) =>
+  hex.replace(/^0x/, '').toLowerCase().padStart(64, '0')
+
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+export const sameAccount = (a, b) => a?.toLowerCase() === b?.toLowerCase()
+
+/** PASS/FAIL reporter; `done()` exits non-zero if any check failed */
+export function checker() {
+  let failures = 0
+  const check = (name, cond, detail = '') => {
+    if (!cond) failures++
+    console.log(
+      `${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`,
+    )
+  }
+  const done = () => process.exit(failures ? 1 : 0)
+  return { check, done }
+}

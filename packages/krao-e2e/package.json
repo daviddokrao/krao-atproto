@@ -1,0 +1,19 @@
+{
+  "name": "@krao/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "End-to-end checks of the Krao features against the local dev-env and an Anvil Base fork",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@krao/wallet": "workspace:^",
+    "@noble/curves": "^1.7.0",
+    "uint8arrays": "^5.0.0"
+  },
+  "scripts": {
+    "e2e": "node run-all.mjs"
+  }
+}

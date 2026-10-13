@@ -130,6 +130,7 @@ export default [
     files: [
       '**/vite.config.js',
       'packages/dev-env/bin.js',
+      'packages/krao-e2e/*.mjs',
       'packages/lex-cli/bin.js',
       'packages/lex/*/scripts/*.js',
       'packages/pds/scripts/*.js',
