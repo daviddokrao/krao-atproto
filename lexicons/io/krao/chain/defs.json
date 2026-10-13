@@ -1,0 +1,74 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.chain.defs",
+  "description": "Shared blockchain primitives for Krao. Chains, accounts and assets use CAIP identifiers so EVM and non-EVM chains share one schema.",
+  "defs": {
+    "chainId": {
+      "type": "string",
+      "description": "CAIP-2 chain ID, eg 'eip155:1' (Ethereum mainnet), 'eip155:8453' (Base) or 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' (Solana mainnet).",
+      "maxLength": 128
+    },
+    "accountId": {
+      "type": "string",
+      "description": "CAIP-10 account ID: a chain ID plus an address, eg 'eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb'.",
+      "maxLength": 256
+    },
+    "assetId": {
+      "type": "string",
+      "description": "CAIP-19 asset ID, eg 'eip155:1/slip44:60' (ETH) or 'eip155:8453/erc20:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' (USDC on Base).",
+      "maxLength": 256
+    },
+    "nftRef": {
+      "type": "object",
+      "description": "Reference to a single non-fungible token.",
+      "required": ["chain", "contract", "tokenId"],
+      "properties": {
+        "chain": { "type": "ref", "ref": "#chainId" },
+        "contract": {
+          "type": "string",
+          "description": "Contract address (EVM) or collection/mint address (Solana).",
+          "maxLength": 128
+        },
+        "tokenId": {
+          "type": "string",
+          "description": "Token ID as a decimal string (EVM) or the mint address (Solana).",
+          "maxLength": 128
+        },
+        "standard": {
+          "type": "string",
+          "knownValues": ["erc721", "erc1155", "metaplex"],
+          "maxLength": 32
+        }
+      }
+    },
+    "walletProof": {
+      "type": "object",
+      "description": "A signature by a wallet over a message that names the account's DID, proving the DID controls the wallet.",
+      "required": ["type", "message", "signature"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Signing scheme. 'siwe' is EIP-4361 (Sign-In With Ethereum), 'siws' is Sign-In With Solana.",
+          "knownValues": ["siwe", "siws"],
+          "maxLength": 32
+        },
+        "message": {
+          "type": "string",
+          "description": "The exact signed message. It must contain the account DID (as the SIWE/SIWS URI or a resource) so the proof cannot be replayed for another account.",
+          "maxLength": 4000
+        },
+        "signature": {
+          "type": "string",
+          "description": "Signature encoded as 0x-prefixed hex (EVM) or base58 (Solana).",
+          "maxLength": 1024
+        }
+      }
+    },
+    "verificationStatus": {
+      "type": "string",
+      "description": "Result of the AppView checking a claim on-chain.",
+      "knownValues": ["verified", "pending", "invalid"],
+      "maxLength": 32
+    }
+  }
+}

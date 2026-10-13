@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.gate.rule",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Marks a post as token gated. The post itself is public and acts as a teaser; the gated part lives on the gate service and is only served to viewers whose linked wallets meet the conditions.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["subject", "conditions", "service", "createdAt"],
+        "properties": {
+          "subject": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The gated post. Must be in the same repo as this record."
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "union",
+              "refs": [
+                "io.krao.gate.defs#tokenBalance",
+                "io.krao.gate.defs#nftHolding"
+              ]
+            },
+            "minLength": 1,
+            "maxLength": 5
+          },
+          "match": {
+            "type": "string",
+            "description": "Whether the viewer must meet all conditions or any one of them. Defaults to 'all'.",
+            "knownValues": ["all", "any"],
+            "maxLength": 16
+          },
+          "service": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the gate service holding the content (service id #krao_gate)."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

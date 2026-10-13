@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.feed.defs",
+  "defs": {
+    "tipView": {
+      "type": "object",
+      "required": [
+        "uri",
+        "sender",
+        "recipient",
+        "asset",
+        "amount",
+        "txHash",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "sender": {
+          "type": "ref",
+          "ref": "app.bsky.actor.defs#profileViewBasic"
+        },
+        "recipient": { "type": "string", "format": "did" },
+        "subject": { "type": "string", "format": "at-uri" },
+        "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+        "amount": { "type": "string", "maxLength": 80 },
+        "txHash": { "type": "string", "maxLength": 128 },
+        "message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+        "status": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#verificationStatus"
+        },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "tipTotal": {
+      "type": "object",
+      "description": "Sum of verified tips for one asset.",
+      "required": ["asset", "amount", "count"],
+      "properties": {
+        "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+        "amount": {
+          "type": "string",
+          "description": "Total in the asset's smallest unit.",
+          "maxLength": 80
+        },
+        "count": { "type": "integer" }
+      }
+    }
+  }
+}

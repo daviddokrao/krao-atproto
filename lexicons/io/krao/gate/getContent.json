@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.gate.getContent",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get the gated content of a post. Served by the gate service; requires service auth from the viewer, whose linked wallets are checked against the post's io.krao.gate.rule.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "format": "at-uri" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "io.krao.gate.defs#gatedContent" }
+      },
+      "errors": [
+        {
+          "name": "NotFound",
+          "description": "No gated content exists for this post."
+        },
+        {
+          "name": "NotEligible",
+          "description": "The viewer's linked wallets do not meet the gate conditions."
+        }
+      ]
+    }
+  }
+}
