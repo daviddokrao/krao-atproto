@@ -1,4 +1,6 @@
+import { Client as PlcClient } from '@did-plc/lib'
 import { KraoIndexer } from '@krao/indexer'
+import { Secp256k1Keypair } from '@atproto/crypto'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
@@ -71,6 +73,9 @@ const run = async () => {
     console.log(`🤖 Feed Generator (${fg.did}) http://localhost:${fg.port}`)
   }
 
+  const feedGenDid = await createKraoFeedGenDid(network.plc.url)
+  console.log(`📰 Krao feed generator DID ${feedGenDid}`)
+
   // Krao indexer: follows the main PDS firehose, in memory like the rest of
   // the dev-env, so it starts empty on every run
   const kraoIndexer = await KraoIndexer.create({
@@ -87,6 +92,7 @@ const run = async () => {
       'eip155:8453': process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
     },
     insecureFetch: true,
+    feedGenDid,
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
@@ -94,6 +100,31 @@ const run = async () => {
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
   console.timeEnd('✅ Dev environment is ready')
+}
+
+/**
+ * The Krao indexer doubles as the feed generator for Krao's "latest" feed.
+ * Registers its did:plc with a fixed dev-only key, so the DID stays the same
+ * across runs (like the dev-env AppView's).
+ */
+async function createKraoFeedGenDid(plcUrl: string): Promise<string> {
+  const keypair = await Secp256k1Keypair.import(
+    '0894dfe194b02e2cb6b89104555be95d1b361f59c4389ab92c3967e057817ef2',
+  )
+  const plcClient = new PlcClient(plcUrl)
+  const endpoint = `http://localhost:${KRAO_INDEXER_PORT}`
+  const did = await plcClient.createDid({
+    signingKey: keypair.did(),
+    rotationKeys: [keypair.did()],
+    handle: 'feed.krao.test',
+    pds: endpoint,
+    signer: keypair,
+  })
+  await plcClient.updateData(did, keypair, (data) => {
+    data.services['bsky_fg'] = { type: 'BskyFeedGenerator', endpoint }
+    return data
+  })
+  return did
 }
 
 run()

@@ -9,6 +9,7 @@ import { secp256k1 } from '@noble/curves/secp256k1'
 import * as ui8 from 'uint8arrays'
 
 export const PDS = process.env.KRAO_PDS_URL ?? 'http://localhost:2583'
+export const APPVIEW = process.env.KRAO_APPVIEW_URL ?? 'http://localhost:2584'
 export const INDEXER = process.env.KRAO_INDEXER_URL ?? 'http://localhost:2589'
 export const GATE = process.env.KRAO_GATE_URL ?? INDEXER
 export const GATE_DID = process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.test'

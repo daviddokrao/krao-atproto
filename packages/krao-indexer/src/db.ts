@@ -92,11 +92,27 @@ export interface CursorTable {
   seq: number
 }
 
+/** A top-level post in the "latest" feed */
+export interface FeedPostTable {
+  uri: string
+  cid: string
+  did: string
+  indexedAt: string
+}
+
+/** A feed generator record that names this service */
+export interface FeedGeneratorTable {
+  uri: string
+  did: string
+}
+
 export interface DatabaseSchema {
   wallet: WalletTable
   tip: TipTable
   nft_avatar: NftAvatarTable
   gate_rule: GateRuleTable
+  feed_post: FeedPostTable
+  feed_generator: FeedGeneratorTable
   gated_content: GatedContentTable
   cursor: CursorTable
 }
@@ -205,5 +221,25 @@ export async function migrateDb(db: Database): Promise<void> {
     .ifNotExists()
     .addColumn('id', 'varchar', (col) => col.primaryKey())
     .addColumn('seq', 'integer', (col) => col.notNull())
+    .execute()
+  await db.schema
+    .createTable('feed_post')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('cid', 'varchar', (col) => col.notNull())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists feed_post_order_idx on feed_post (indexedAt, cid)`.execute(
+    db,
+  )
+  await sql`create index if not exists feed_post_did_idx on feed_post (did)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_generator')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
     .execute()
 }

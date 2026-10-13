@@ -11,6 +11,8 @@ const indexer = await KraoIndexer.create({
     : { 'eip155:8453': 'https://mainnet.base.org' },
   appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://public.api.bsky.app',
   gateDid: process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.io',
+  feedGenDid: process.env.KRAO_FEEDGEN_DID,
+  feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://public.api.bsky.app',
 })

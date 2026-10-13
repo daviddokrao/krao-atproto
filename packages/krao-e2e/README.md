@@ -11,6 +11,7 @@ exit non-zero on any failure.
 | `tip.mjs`     | M4        | ETH/USDC tips verified on-chain, cheating tips rejected       |
 | `nft.mjs`     | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale   |
 | `gate.mjs`    | M6        | Token gating, service auth, gated text absent from the CAR    |
+| `feed.mjs`    | —         | Krao "latest" feed: generator, skeleton, AppView `getFeed`    |
 
 ## Prerequisites
 

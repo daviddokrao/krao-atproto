@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const ALL = ['records', 'wallet', 'tip', 'nft', 'gate']
+const ALL = ['records', 'wallet', 'tip', 'nft', 'gate', 'feed']
 const selected = process.argv.slice(2)
 const unknown = selected.filter((name) => !ALL.includes(name))
 if (unknown.length) {

@@ -1,7 +1,7 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { AtUri } from '@atproto/syntax'
+import { AtUri, type AtUriString } from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -11,6 +11,7 @@ import {
 } from '@atproto/xrpc-server'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
+import { getLatestPosts, listFeedGenerators } from './feed.js'
 import {
   getGatedContent,
   getRulesForSubjects,
@@ -18,7 +19,7 @@ import {
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
-import { io } from './lexicons/index.js'
+import { app as bskyApp, io } from './lexicons/index.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
   erc1155BalanceOf,
@@ -52,9 +53,11 @@ export function createApp(
     appviewUrl?: string
     /** Audience that service auth tokens for gate methods must name */
     gateDid: string
+    /** Feed generator DID; the "latest" feed is served when set */
+    feedGenDid?: string
   },
 ): Express {
-  const { handleResolverUrl, appviewUrl, gateDid } = opts
+  const { handleResolverUrl, appviewUrl, gateDid, feedGenDid } = opts
   const server = createServer([], {})
 
   /*
@@ -315,6 +318,43 @@ export function createApp(
       },
     }
   })
+
+  /*
+   * Feed generator for Krao's "latest" feed. AppViews call it with service
+   * auth, but the feed is the same for everyone so the token is not checked.
+   */
+  if (feedGenDid) {
+    server.add(bskyApp.bsky.feed.describeFeedGenerator, async () => ({
+      encoding: 'application/json' as const,
+      body: {
+        did: feedGenDid as `did:${string}:${string}`,
+        feeds: (await listFeedGenerators(db)).map((uri) => ({
+          uri: uri as AtUriString,
+        })),
+      },
+    }))
+
+    server.add(bskyApp.bsky.feed.getFeedSkeleton, async ({ params }) => {
+      const feeds = await listFeedGenerators(db)
+      if (!feeds.includes(params.feed)) {
+        throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
+      }
+      const { posts, cursor } = await getLatestPosts(
+        db,
+        params.limit ?? 50,
+        params.cursor,
+      ).catch(() => {
+        throw new InvalidRequestError('Malformed cursor')
+      })
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          feed: posts.map((post) => ({ post: post as AtUriString })),
+          cursor,
+        },
+      }
+    })
+  }
 
   server.add(io.krao.feed.getTipTotals, async ({ params }) => {
     const subjects = await tipTotalsForSubjects(db, params.subjects)

@@ -3,6 +3,16 @@ import { type Event, Firehose } from '@atproto/sync'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
+  FEED_GENERATOR_COLLECTION,
+  POST_COLLECTION,
+  deleteFeedDataForDid,
+  deleteFeedGenerator,
+  deleteFeedPost,
+  feedPostRowFromRecord,
+  upsertFeedGenerator,
+  upsertFeedPost,
+} from './feed.js'
+import {
   GATE_RULE_COLLECTION,
   deleteGateDataForDid,
   deleteGateRule,
@@ -37,17 +47,29 @@ import {
 
 const CURSOR_ID = 'firehose'
 
+export type FeedIndexingOptions = {
+  /** DID of the feed generator service; posts are only indexed when set */
+  did?: string
+  /**
+   * Only index posts by accounts hosted on this PDS (eg https://pds.krao.io),
+   * for firehoses that carry the whole network. Unset, every post counts.
+   */
+  pdsUrl?: string
+}
+
 /** Consumes a repo firehose and indexes io.krao.* records. */
 export class FirehoseIndexer {
   private firehose: Firehose
+  private pdsByDid = new Map<string, string | undefined>()
 
   constructor(
     private db: Database,
     private rpcs: Map<string, EvmRpc>,
-    idResolver: IdResolver,
+    private idResolver: IdResolver,
     service: string,
     onError: (err: Error) => void,
     private nftRecheckMs = 10 * 60 * 1000,
+    private feed: FeedIndexingOptions = {},
   ) {
     this.firehose = new Firehose({
       idResolver,
@@ -57,6 +79,7 @@ export class FirehoseIndexer {
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
         GATE_RULE_COLLECTION,
+        ...(feed.did ? [POST_COLLECTION, FEED_GENERATOR_COLLECTION] : []),
       ],
       excludeIdentity: true,
       excludeSync: true,
@@ -127,6 +150,26 @@ export class FirehoseIndexer {
         )
         await upsertNftAvatar(this.db, row)
         await verifyNftAvatar(this.db, this.rpcs, row)
+      } else if (evt.collection === POST_COLLECTION) {
+        if (await this.isFeedAuthor(evt.did)) {
+          const row = feedPostRowFromRecord(
+            evt.uri.toString(),
+            evt.cid.toString(),
+            evt.did,
+            evt.record,
+          )
+          if (row) await upsertFeedPost(this.db, row)
+        }
+      } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
+        const record = (evt.record ?? {}) as Record<string, unknown>
+        if (record.did === this.feed.did) {
+          await upsertFeedGenerator(this.db, {
+            uri: evt.uri.toString(),
+            did: evt.did,
+          })
+        } else {
+          await deleteFeedGenerator(this.db, evt.uri.toString())
+        }
       }
     } else if (evt.event === 'delete') {
       if (evt.collection === WALLET_COLLECTION) {
@@ -138,6 +181,10 @@ export class FirehoseIndexer {
         await deleteNftAvatar(this.db, evt.did)
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         await deleteGateRule(this.db, evt.uri.toString())
+      } else if (evt.collection === POST_COLLECTION) {
+        await deleteFeedPost(this.db, evt.uri.toString())
+      } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
+        await deleteFeedGenerator(this.db, evt.uri.toString())
       }
     } else if (evt.event === 'account') {
       if (evt.status === 'deleted') {
@@ -145,9 +192,26 @@ export class FirehoseIndexer {
         await deleteTipsForDid(this.db, evt.did)
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)
+        await deleteFeedDataForDid(this.db, evt.did)
       }
     }
     await this.setCursor(evt.seq)
+  }
+
+  /** Whether the account's posts belong in the feed (see FeedIndexingOptions) */
+  private async isFeedAuthor(did: string): Promise<boolean> {
+    if (!this.feed.did) return false
+    if (!this.feed.pdsUrl) return true
+    if (!this.pdsByDid.has(did)) {
+      const data = await this.idResolver.did
+        .resolveAtprotoData(did)
+        .catch(() => undefined)
+      // Accounts rarely move, and the cache only grows with active authors
+      if (this.pdsByDid.size > 50_000) this.pdsByDid.clear()
+      this.pdsByDid.set(did, data?.pds)
+    }
+    const pds = this.pdsByDid.get(did)
+    return !!pds && new URL(pds).origin === new URL(this.feed.pdsUrl).origin
   }
 
   private async getCursor(): Promise<number | undefined> {
