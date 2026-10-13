@@ -93,6 +93,8 @@ const run = async () => {
     },
     insecureFetch: true,
     feedGenDid,
+    // Where short links lead: the web app in front of this dev-env
+    webUrl: process.env.KRAO_DEV_WEB_URL || 'http://localhost:8081',
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)

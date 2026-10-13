@@ -41,6 +41,8 @@ export type KraoIndexerConfig = {
    * `#bsky_fg`). Set to serve Krao's "latest" feed.
    */
   feedGenDid?: string
+  /** Krao's web app, where short links lead (default https://krao.io) */
+  webUrl?: string
   /** Klipy API key for GIF search (GIF media is relayed without one) */
   klipyApiKey?: string
   /** Public URL of this service, for the link preview image URLs it returns */
@@ -92,6 +94,7 @@ export class KraoIndexer {
         feedGenDid: cfg.feedGenDid,
         publicUrl: cfg.publicUrl,
         klipyApiKey: cfg.klipyApiKey,
+        webUrl: cfg.webUrl,
       }),
     )
   }

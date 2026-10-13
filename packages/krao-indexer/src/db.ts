@@ -106,6 +106,13 @@ export interface FeedGeneratorTable {
   did: string
 }
 
+/** A short link to a page of Krao's web app (see starter-packs.ts) */
+export interface ShortLinkTable {
+  code: string
+  path: string
+  createdAt: string
+}
+
 export interface DatabaseSchema {
   wallet: WalletTable
   tip: TipTable
@@ -113,6 +120,7 @@ export interface DatabaseSchema {
   gate_rule: GateRuleTable
   feed_post: FeedPostTable
   feed_generator: FeedGeneratorTable
+  short_link: ShortLinkTable
   gated_content: GatedContentTable
   cursor: CursorTable
 }
@@ -241,5 +249,12 @@ export async function migrateDb(db: Database): Promise<void> {
     .ifNotExists()
     .addColumn('uri', 'varchar', (col) => col.primaryKey())
     .addColumn('did', 'varchar', (col) => col.notNull())
+    .execute()
+  await db.schema
+    .createTable('short_link')
+    .ifNotExists()
+    .addColumn('code', 'varchar', (col) => col.primaryKey())
+    .addColumn('path', 'varchar', (col) => col.notNull().unique())
+    .addColumn('createdAt', 'varchar', (col) => col.notNull())
     .execute()
 }

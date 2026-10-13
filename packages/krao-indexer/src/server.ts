@@ -30,6 +30,7 @@ import {
   getNftMetadata,
   parseTokenId,
 } from './nft.js'
+import { addStarterPackRoutes } from './starter-packs.js'
 import {
   listTips,
   tipTotals,
@@ -57,6 +58,8 @@ export function createApp(
     gateDid: string
     /** Feed generator DID; the "latest" feed is served when set */
     feedGenDid?: string
+    /** Krao's web app, where short links lead */
+    webUrl?: string
     /** Klipy API key for GIF search; without it GIF search is unavailable */
     klipyApiKey?: string
     /** Public URL of this service, for links it hands out (default: from the request) */
@@ -70,6 +73,7 @@ export function createApp(
     feedGenDid,
     publicUrl,
     klipyApiKey,
+    webUrl = 'https://krao.io',
   } = opts
   const server = createServer([], {})
 
@@ -412,6 +416,7 @@ export function createApp(
    * image named by the token's own on-chain metadata is fetched.
    */
   addGifRoutes(app, klipyApiKey)
+  addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 
   // Link previews, compatible with Bluesky's cardyb (see link-meta.ts)
   const imageProxyUrl = (req: express.Request) => (imageUrl: string) => {

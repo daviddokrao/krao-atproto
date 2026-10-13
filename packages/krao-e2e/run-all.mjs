@@ -12,6 +12,7 @@ const ALL = [
   'feed',
   'link-preview',
   'gifs',
+  'starter-packs',
 ]
 const selected = process.argv.slice(2)
 const unknown = selected.filter((name) => !ALL.includes(name))
