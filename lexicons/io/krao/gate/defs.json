@@ -7,7 +7,10 @@
       "description": "Satisfied when the viewer's linked wallets together hold at least minAmount of the asset.",
       "required": ["asset", "minAmount"],
       "properties": {
-        "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+        "asset": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#assetId"
+        },
         "minAmount": {
           "type": "string",
           "description": "Minimum balance in the asset's smallest unit, as a decimal integer string.",
@@ -20,9 +23,18 @@
       "description": "Satisfied when a linked wallet holds any token of the collection, or the specific token when tokenId is set.",
       "required": ["chain", "contract"],
       "properties": {
-        "chain": { "type": "ref", "ref": "io.krao.chain.defs#chainId" },
-        "contract": { "type": "string", "maxLength": 128 },
-        "tokenId": { "type": "string", "maxLength": 128 }
+        "chain": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#chainId"
+        },
+        "contract": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "tokenId": {
+          "type": "string",
+          "maxLength": 128
+        }
       }
     },
     "media": {
@@ -30,9 +42,19 @@
       "description": "Media hosted by the gate service, served only to eligible viewers.",
       "required": ["url", "mimeType"],
       "properties": {
-        "url": { "type": "string", "format": "uri" },
-        "mimeType": { "type": "string", "maxLength": 128 },
-        "alt": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "mimeType": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "alt": {
+          "type": "string",
+          "maxLength": 10000,
+          "maxGraphemes": 1000
+        },
         "aspectRatio": {
           "type": "ref",
           "ref": "app.bsky.embed.defs#aspectRatio"
@@ -48,15 +70,62 @@
           "format": "at-uri",
           "description": "The public post this content belongs to."
         },
-        "text": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+        "text": {
+          "type": "string",
+          "maxLength": 30000,
+          "maxGraphemes": 3000
+        },
         "facets": {
           "type": "array",
-          "items": { "type": "ref", "ref": "app.bsky.richtext.facet" }
+          "items": {
+            "type": "ref",
+            "ref": "app.bsky.richtext.facet"
+          }
         },
         "media": {
           "type": "array",
-          "items": { "type": "ref", "ref": "#media" },
+          "items": {
+            "type": "ref",
+            "ref": "#media"
+          },
           "maxLength": 4
+        }
+      }
+    },
+    "ruleView": {
+      "type": "object",
+      "description": "A token gate on a post, as indexed from its io.krao.gate.rule record.",
+      "required": ["uri", "subject", "conditions", "match", "service"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "URI of the io.krao.gate.rule record."
+        },
+        "subject": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The gated post."
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "refs": ["#tokenBalance", "#nftHolding"]
+          }
+        },
+        "match": {
+          "type": "string",
+          "knownValues": ["all", "any"],
+          "maxLength": 16
+        },
+        "service": {
+          "type": "string",
+          "format": "did"
+        },
+        "hasContent": {
+          "type": "boolean",
+          "description": "Whether the author has stored gated content for the post on this service."
         }
       }
     }

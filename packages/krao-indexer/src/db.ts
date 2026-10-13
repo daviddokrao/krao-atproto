@@ -62,6 +62,31 @@ export interface NftAvatarTable {
   indexedAt: string
 }
 
+export interface GateRuleTable {
+  /** URI of the io.krao.gate.rule record */
+  uri: string
+  /** Author; always the repo of the gated post */
+  did: string
+  /** The gated post */
+  subject: string
+  /** JSON array of gate conditions */
+  conditions: string
+  match: 'all' | 'any'
+  service: string
+  createdAt: string
+  indexedAt: string
+}
+
+export interface GatedContentTable {
+  /** The gated post */
+  subject: string
+  did: string
+  text: string
+  /** JSON array of app.bsky.richtext.facet */
+  facets: string | null
+  updatedAt: string
+}
+
 export interface CursorTable {
   id: string
   seq: number
@@ -71,6 +96,8 @@ export interface DatabaseSchema {
   wallet: WalletTable
   tip: TipTable
   nft_avatar: NftAvatarTable
+  gate_rule: GateRuleTable
+  gated_content: GatedContentTable
   cursor: CursorTable
 }
 
@@ -148,6 +175,30 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('image', 'varchar')
     .addColumn('checkedAt', 'varchar')
     .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await db.schema
+    .createTable('gate_rule')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('subject', 'varchar', (col) => col.notNull())
+    .addColumn('conditions', 'varchar', (col) => col.notNull())
+    .addColumn('match', 'varchar', (col) => col.notNull())
+    .addColumn('service', 'varchar', (col) => col.notNull())
+    .addColumn('createdAt', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists gate_rule_subject_idx on gate_rule (subject)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('gated_content')
+    .ifNotExists()
+    .addColumn('subject', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('text', 'varchar', (col) => col.notNull())
+    .addColumn('facets', 'varchar')
+    .addColumn('updatedAt', 'varchar', (col) => col.notNull())
     .execute()
   await db.schema
     .createTable('cursor')

@@ -58,6 +58,13 @@ export class EvmRpc {
     return body.result as T
   }
 
+  /** Native coin balance at the latest block */
+  async getBalance(address: string): Promise<bigint> {
+    return BigInt(
+      await this.call<string>('eth_getBalance', [address, 'latest']),
+    )
+  }
+
   /** eth_call against the latest block; null when the call reverts */
   async ethCall(to: string, data: string): Promise<string | null> {
     try {

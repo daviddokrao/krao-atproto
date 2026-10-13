@@ -10,6 +10,7 @@ const indexer = await KraoIndexer.create({
     ? (JSON.parse(process.env.KRAO_RPC_URLS) as Record<string, string>)
     : { 'eip155:8453': 'https://mainnet.base.org' },
   appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://public.api.bsky.app',
+  gateDid: process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.io',
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://public.api.bsky.app',
 })
