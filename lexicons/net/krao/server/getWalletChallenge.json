@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "io.krao.server.getWalletChallenge",
+  "id": "net.krao.server.getWalletChallenge",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get a one-time SIWE/SIWS message for a wallet to sign, used by io.krao.server.createWalletSession. Served by the PDS.",
+      "description": "Get a one-time SIWE/SIWS message for a wallet to sign, used by net.krao.server.createWalletSession. Served by the PDS.",
       "parameters": {
         "type": "params",
         "required": ["account"],

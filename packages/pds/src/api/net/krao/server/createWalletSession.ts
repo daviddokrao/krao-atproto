@@ -24,14 +24,14 @@ import { formatAccountStatus } from '../../../../account-manager/account-manager
 import type { AppContext } from '../../../../context.js'
 import { softDeleted } from '../../../../db/util.js'
 import { events } from '../../../../events.js'
-import { io } from '../../../../lexicons/index.js'
+import { net } from '../../../../lexicons/index.js'
 import { didDocForSession } from '../../../com/atproto/server/util.js'
 import { parseAccountOrThrow } from './getWalletChallenge.js'
 
-const WALLET_COLLECTION = 'io.krao.actor.wallet' as NsidString
+const WALLET_COLLECTION = 'net.krao.actor.wallet' as NsidString
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(io.krao.server.createWalletSession, {
+  server.add(net.krao.server.createWalletSession, {
     rateLimit: [
       {
         durationMs: 5 * MINUTE,
@@ -119,7 +119,7 @@ export default function (server: Server, ctx: AppContext) {
       const { status, active } = formatAccountStatus(user)
 
       events.sessionCreated({
-        source: 'io.krao.server.createWalletSession',
+        source: 'net.krao.server.createWalletSession',
         did: user.did as DidString,
       })
 
@@ -145,7 +145,7 @@ export default function (server: Server, ctx: AppContext) {
 
 /**
  * Asks the Krao indexer which accounts linked the wallet, then trusts only an
- * account hosted here whose own repo holds a valid io.krao.actor.wallet record
+ * account hosted here whose own repo holds a valid net.krao.actor.wallet record
  * for it.
  */
 async function findLinkedAccount(

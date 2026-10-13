@@ -1,19 +1,19 @@
 {
   "lexicon": 1,
-  "id": "io.krao.actor.nftAvatar",
+  "id": "net.krao.actor.nftAvatar",
   "defs": {
     "main": {
       "type": "record",
-      "description": "Declares that the account's profile avatar is an NFT it owns. The AppView shows it as verified only while a wallet linked via io.krao.actor.wallet holds the token.",
+      "description": "Declares that the account's profile avatar is an NFT it owns. The AppView shows it as verified only while a wallet linked via net.krao.actor.wallet holds the token.",
       "key": "literal:self",
       "record": {
         "type": "object",
         "required": ["nft", "wallet", "createdAt"],
         "properties": {
-          "nft": { "type": "ref", "ref": "io.krao.chain.defs#nftRef" },
+          "nft": { "type": "ref", "ref": "net.krao.chain.defs#nftRef" },
           "wallet": {
             "type": "ref",
-            "ref": "io.krao.chain.defs#accountId",
+            "ref": "net.krao.chain.defs#accountId",
             "description": "The linked wallet that holds the NFT."
           },
           "createdAt": { "type": "string", "format": "datetime" }

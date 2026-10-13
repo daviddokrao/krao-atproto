@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.gate.defs",
+  "id": "net.krao.gate.defs",
   "defs": {
     "tokenBalance": {
       "type": "object",
@@ -9,7 +9,7 @@
       "properties": {
         "asset": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#assetId"
+          "ref": "net.krao.chain.defs#assetId"
         },
         "minAmount": {
           "type": "string",
@@ -25,7 +25,7 @@
       "properties": {
         "chain": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#chainId"
+          "ref": "net.krao.chain.defs#chainId"
         },
         "contract": {
           "type": "string",
@@ -94,13 +94,13 @@
     },
     "ruleView": {
       "type": "object",
-      "description": "A token gate on a post, as indexed from its io.krao.gate.rule record.",
+      "description": "A token gate on a post, as indexed from its net.krao.gate.rule record.",
       "required": ["uri", "subject", "conditions", "match", "service"],
       "properties": {
         "uri": {
           "type": "string",
           "format": "at-uri",
-          "description": "URI of the io.krao.gate.rule record."
+          "description": "URI of the net.krao.gate.rule record."
         },
         "subject": {
           "type": "string",

@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.actor.wallet",
+  "id": "net.krao.actor.wallet",
   "defs": {
     "main": {
       "type": "record",
@@ -10,8 +10,8 @@
         "type": "object",
         "required": ["account", "proof", "createdAt"],
         "properties": {
-          "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
-          "proof": { "type": "ref", "ref": "io.krao.chain.defs#walletProof" },
+          "account": { "type": "ref", "ref": "net.krao.chain.defs#accountId" },
+          "proof": { "type": "ref", "ref": "net.krao.chain.defs#walletProof" },
           "label": {
             "type": "string",
             "description": "Optional user-chosen name for the wallet.",

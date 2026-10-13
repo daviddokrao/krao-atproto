@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Krao indexer: indexes io.krao.* records from the firehose and serves io.krao.* queries",
+  "description": "Krao indexer: indexes net.krao.* records from the firehose and serves net.krao.* queries",
   "type": "module",
   "exports": {
     ".": {
@@ -38,7 +38,7 @@
     "jest": "^30.5.2"
   },
   "scripts": {
-    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include app.bsky.feed.describeFeedGenerator app.bsky.feed.getFeedSkeleton io.krao.actor.getChainProfiles io.krao.actor.resolveNft io.krao.feed.getTips io.krao.feed.getTipTotals io.krao.gate.getRules io.krao.gate.getContent io.krao.gate.putContent",
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include app.bsky.feed.describeFeedGenerator app.bsky.feed.getFeedSkeleton net.krao.actor.getChainProfiles net.krao.actor.resolveNft net.krao.feed.getTips net.krao.feed.getTipTotals net.krao.gate.getRules net.krao.gate.getContent net.krao.gate.putContent",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
     "start": "node --enable-source-maps dist/bin.js"

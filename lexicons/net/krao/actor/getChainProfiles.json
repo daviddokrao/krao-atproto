@@ -1,20 +1,17 @@
 {
   "lexicon": 1,
-  "id": "io.krao.gate.getRules",
+  "id": "net.krao.actor.getChainProfiles",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get the token gates for a set of posts. Posts without a gate are omitted.",
+      "description": "Get web3 details (linked wallets, NFT avatar, tip count) for several accounts. Accounts without web3 data are omitted.",
       "parameters": {
         "type": "params",
-        "required": ["uris"],
+        "required": ["actors"],
         "properties": {
-          "uris": {
+          "actors": {
             "type": "array",
-            "items": {
-              "type": "string",
-              "format": "at-uri"
-            },
+            "items": { "type": "string", "format": "at-identifier" },
             "maxLength": 25
           }
         }
@@ -23,13 +20,13 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["rules"],
+          "required": ["profiles"],
           "properties": {
-            "rules": {
+            "profiles": {
               "type": "array",
               "items": {
                 "type": "ref",
-                "ref": "io.krao.gate.defs#ruleView"
+                "ref": "net.krao.actor.defs#chainProfileView"
               }
             }
           }

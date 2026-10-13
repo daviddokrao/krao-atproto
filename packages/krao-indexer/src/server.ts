@@ -20,7 +20,7 @@ import {
   subjectsWithContent,
 } from './gate.js'
 import { addGifRoutes } from './gifs.js'
-import { app as bskyApp, io } from './lexicons/index.js'
+import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
@@ -40,12 +40,12 @@ import {
 } from './tips.js'
 import { getWalletOwners, getWalletsForDids, uniqueWallets } from './wallets.js'
 
-type ChainProfileView = io.krao.actor.defs.ChainProfileView
-type WalletView = io.krao.actor.defs.WalletView
-type NftAvatarView = io.krao.actor.defs.NftAvatarView
-type Badge = io.krao.actor.defs.Badge
-type TipView = io.krao.feed.defs.TipView
-type RuleView = io.krao.gate.defs.RuleView
+type ChainProfileView = net.krao.actor.defs.ChainProfileView
+type WalletView = net.krao.actor.defs.WalletView
+type NftAvatarView = net.krao.actor.defs.NftAvatarView
+type Badge = net.krao.actor.defs.Badge
+type TipView = net.krao.feed.defs.TipView
+type RuleView = net.krao.gate.defs.RuleView
 
 export function createApp(
   db: Database,
@@ -73,7 +73,7 @@ export function createApp(
     feedGenDid,
     publicUrl,
     klipyApiKey,
-    webUrl = 'https://krao.io',
+    webUrl = 'https://krao.net',
   } = opts
   const server = createServer([], {})
 
@@ -99,7 +99,7 @@ export function createApp(
       return { credentials: { did: payload.iss.split('#')[0] } }
     }
 
-  server.add(io.krao.gate.getRules, async ({ params }) => {
+  server.add(net.krao.gate.getRules, async ({ params }) => {
     const rules = await getRulesForSubjects(db, params.uris)
     const withContent = await subjectsWithContent(
       db,
@@ -120,8 +120,8 @@ export function createApp(
     }
   })
 
-  server.add(io.krao.gate.getContent, {
-    auth: serviceAuth(io.krao.gate.getContent.$lxm),
+  server.add(net.krao.gate.getContent, {
+    auth: serviceAuth(net.krao.gate.getContent.$lxm),
     handler: async ({ params, auth }) => {
       const viewer = (auth.credentials as { did: string }).did
       const [rule] = await getRulesForSubjects(db, [params.uri])
@@ -149,8 +149,8 @@ export function createApp(
     },
   })
 
-  server.add(io.krao.gate.putContent, {
-    auth: serviceAuth(io.krao.gate.putContent.$lxm),
+  server.add(net.krao.gate.putContent, {
+    auth: serviceAuth(net.krao.gate.putContent.$lxm),
     handler: async ({ input, auth }) => {
       const caller = (auth.credentials as { did: string }).did
       const body = input.body
@@ -181,7 +181,7 @@ export function createApp(
     },
   })
 
-  server.add(io.krao.actor.getChainProfiles, async ({ params }) => {
+  server.add(net.krao.actor.getChainProfiles, async ({ params }) => {
     const dids = await resolveActors(
       idResolver,
       params.actors,
@@ -247,7 +247,7 @@ export function createApp(
     }
   })
 
-  server.add(io.krao.actor.resolveNft, async ({ params }) => {
+  server.add(net.krao.actor.resolveNft, async ({ params }) => {
     const rpc = rpcs.get(params.chain)
     if (!rpc) {
       throw new InvalidRequestError(
@@ -289,7 +289,7 @@ export function createApp(
     }
   })
 
-  server.add(io.krao.feed.getTips, async ({ params }) => {
+  server.add(net.krao.feed.getTips, async ({ params }) => {
     let where: { subject: string } | { recipient: string }
     if (params.subject) {
       where = { subject: params.subject }
@@ -373,12 +373,12 @@ export function createApp(
     })
   }
 
-  server.add(io.krao.feed.getTipTotals, async ({ params }) => {
+  server.add(net.krao.feed.getTipTotals, async ({ params }) => {
     const subjects = await tipTotalsForSubjects(db, params.subjects)
     return {
       encoding: 'application/json' as const,
       body: {
-        subjects: subjects as io.krao.feed.getTipTotals.SubjectTotals[],
+        subjects: subjects as net.krao.feed.getTipTotals.SubjectTotals[],
       },
     }
   })

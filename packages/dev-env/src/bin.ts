@@ -48,8 +48,8 @@ const run = async () => {
       // Videos are stored as blobs, up to the video service's limit
       blobUploadLimit: 100 * 1024 * 1024,
       // Shown on the sign-up screen (describeServer)
-      termsOfServiceUrl: 'https://krao.io/terms',
-      privacyPolicyUrl: 'https://krao.io/privacy',
+      termsOfServiceUrl: 'https://krao.net/terms',
+      privacyPolicyUrl: 'https://krao.net/privacy',
     },
     bsky: {
       dbPostgresSchema: 'bsky',

@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely'
 
 /**
- * One-time challenges for Krao wallet sign-in (io.krao.server.*). A row is
+ * One-time challenges for Krao wallet sign-in (net.krao.server.*). A row is
  * deleted when it is used, so a signed challenge cannot be replayed.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

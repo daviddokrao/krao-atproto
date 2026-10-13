@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "io.krao.gate.getContent",
+  "id": "net.krao.gate.getContent",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get the gated content of a post. Served by the gate service; requires service auth from the viewer, whose linked wallets are checked against the post's io.krao.gate.rule.",
+      "description": "Get the gated content of a post. Served by the gate service; requires service auth from the viewer, whose linked wallets are checked against the post's net.krao.gate.rule.",
       "parameters": {
         "type": "params",
         "required": ["uri"],
@@ -14,7 +14,7 @@
       },
       "output": {
         "encoding": "application/json",
-        "schema": { "type": "ref", "ref": "io.krao.gate.defs#gatedContent" }
+        "schema": { "type": "ref", "ref": "net.krao.gate.defs#gatedContent" }
       },
       "errors": [
         {

@@ -37,14 +37,14 @@ await sleep(1500)
 // Earlier runs on the same dev-env already count towards the profile total
 const tipsReceived = async () =>
   (
-    await xrpc(INDEXER, 'io.krao.actor.getChainProfiles', {
+    await xrpc(INDEXER, 'net.krao.actor.getChainProfiles', {
       query: { actors: 'defi-minh.test' },
     })
   ).data.profiles?.[0]?.tipsReceivedCount ?? 0
 const receivedBefore = await tipsReceived()
 
 const tip = (asset, amount, txHash, extra = {}) =>
-  createRecord(sender, 'io.krao.feed.tip', {
+  createRecord(sender, 'net.krao.feed.tip', {
     recipient: recipient.did,
     subject: { uri: post.uri, cid: post.cid },
     asset,
@@ -86,7 +86,7 @@ const unknownTx = '0x' + 'ab'.repeat(32)
 await tip(ETH_ASSET, 1n, unknownTx)
 
 await sleep(4000)
-const res = await xrpc(INDEXER, 'io.krao.feed.getTips', {
+const res = await xrpc(INDEXER, 'net.krao.feed.getTips', {
   query: { subject: post.uri },
 })
 const tips = res.data.tips ?? []
@@ -138,7 +138,7 @@ const untipped = (
     createdAt: new Date().toISOString(),
   })
 ).data
-const batch = await xrpc(INDEXER, 'io.krao.feed.getTipTotals', {
+const batch = await xrpc(INDEXER, 'net.krao.feed.getTipTotals', {
   query: { subjects: [post.uri, untipped.uri] },
 })
 const byAsset = (totals = []) =>

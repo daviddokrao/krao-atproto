@@ -48,7 +48,7 @@ function linkMessage(
   overrides: Partial<SignInMessage> & Pick<SignInMessage, 'address'>,
 ): string {
   return formatSignInMessage({
-    domain: 'krao.io',
+    domain: 'krao.net',
     chain: 'Ethereum',
     statement: 'Link this wallet to my Krao account.',
     uri: DID,
@@ -117,11 +117,11 @@ describe('accounts', () => {
 describe('sign-in messages', () => {
   it('round-trips through format and parse', () => {
     const msg: SignInMessage = {
-      domain: 'krao.io',
+      domain: 'krao.net',
       chain: 'Ethereum',
       address: '0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb',
       statement: 'Sign in to Krao.',
-      uri: 'https://pds.krao.io',
+      uri: 'https://pds.krao.net',
       version: '1',
       chainId: '1',
       nonce: 'n0nce',
@@ -134,7 +134,7 @@ describe('sign-in messages', () => {
 
   it('parses messages without a statement', () => {
     const text = formatSignInMessage({
-      domain: 'krao.io',
+      domain: 'krao.net',
       chain: 'Solana',
       address: 'abc',
       uri: DID,
@@ -173,7 +173,7 @@ describe('verifyWalletProof', () => {
     const wallet = evmWallet()
     const message = linkMessage({
       address: wallet.address,
-      uri: 'https://krao.io',
+      uri: 'https://krao.net',
       resources: [DID],
     })
     expect(

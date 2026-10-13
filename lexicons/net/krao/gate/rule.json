@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.gate.rule",
+  "id": "net.krao.gate.rule",
   "defs": {
     "main": {
       "type": "record",
@@ -20,8 +20,8 @@
             "items": {
               "type": "union",
               "refs": [
-                "io.krao.gate.defs#tokenBalance",
-                "io.krao.gate.defs#nftHolding"
+                "net.krao.gate.defs#tokenBalance",
+                "net.krao.gate.defs#nftHolding"
               ]
             },
             "minLength": 1,

@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.actor.resolveNft",
+  "id": "net.krao.actor.resolveNft",
   "defs": {
     "main": {
       "type": "query",
@@ -37,7 +37,7 @@
           "properties": {
             "nft": {
               "type": "ref",
-              "ref": "io.krao.chain.defs#nftRef"
+              "ref": "net.krao.chain.defs#nftRef"
             },
             "owner": {
               "type": "string",

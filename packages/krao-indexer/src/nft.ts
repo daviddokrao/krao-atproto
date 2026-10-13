@@ -1,7 +1,7 @@
 import type { EvmRpc } from './chain.js'
 import type { Database, NftAvatarTable } from './db.js'
 
-export const NFT_AVATAR_COLLECTION = 'io.krao.actor.nftAvatar'
+export const NFT_AVATAR_COLLECTION = 'net.krao.actor.nftAvatar'
 
 /** Gateway used to turn ipfs:// links in token metadata into https URLs */
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/'
@@ -118,7 +118,7 @@ async function fetchJson(
   }
 }
 
-/** Turn an io.krao.actor.nftAvatar record into a pending row */
+/** Turn an net.krao.actor.nftAvatar record into a pending row */
 export function nftAvatarRowFromRecord(
   uri: string,
   did: string,

@@ -51,13 +51,13 @@ export type FeedIndexingOptions = {
   /** DID of the feed generator service; posts are only indexed when set */
   did?: string
   /**
-   * Only index posts by accounts hosted on this PDS (eg https://pds.krao.io),
+   * Only index posts by accounts hosted on this PDS (eg https://pds.krao.net),
    * for firehoses that carry the whole network. Unset, every post counts.
    */
   pdsUrl?: string
 }
 
-/** Consumes a repo firehose and indexes io.krao.* records. */
+/** Consumes a repo firehose and indexes net.krao.* records. */
 export class FirehoseIndexer {
   private firehose: Firehose
   private pdsByDid = new Map<string, string | undefined>()

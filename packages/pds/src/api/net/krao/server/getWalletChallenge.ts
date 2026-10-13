@@ -10,13 +10,13 @@ import { MINUTE } from '@atproto/common'
 import type { DatetimeString } from '@atproto/lex'
 import { InvalidRequestError, type Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../../../context.js'
-import { io } from '../../../../lexicons/index.js'
+import { net } from '../../../../lexicons/index.js'
 
 /** How long a sign-in challenge stays valid */
 export const WALLET_CHALLENGE_TTL = 10 * MINUTE
 
 export default function (server: Server, ctx: AppContext) {
-  server.add(io.krao.server.getWalletChallenge, {
+  server.add(net.krao.server.getWalletChallenge, {
     rateLimit: {
       durationMs: 5 * MINUTE,
       points: 30,
