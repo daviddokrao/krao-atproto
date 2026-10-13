@@ -1,0 +1,77 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.actor.resolveNft",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Look up an NFT on-chain: its current owner, collection name and image from its token metadata. Served by the Krao indexer.",
+      "parameters": {
+        "type": "params",
+        "required": ["chain", "contract", "tokenId"],
+        "properties": {
+          "chain": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "CAIP-2 chain id, eg eip155:8453."
+          },
+          "contract": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "tokenId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "For ERC-1155, the address to check the balance of."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["nft"],
+          "properties": {
+            "nft": {
+              "type": "ref",
+              "ref": "io.krao.chain.defs#nftRef"
+            },
+            "owner": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "ERC-721 owner address."
+            },
+            "ownedByQueried": {
+              "type": "boolean",
+              "description": "For ERC-1155, whether the queried owner holds the token."
+            },
+            "collectionName": {
+              "type": "string",
+              "maxLength": 640
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 640
+            },
+            "image": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "NotFound",
+          "description": "The contract or token does not exist on that chain."
+        },
+        {
+          "name": "UnsupportedChain"
+        }
+      ]
+    }
+  }
+}

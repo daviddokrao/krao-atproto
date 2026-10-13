@@ -2,17 +2,34 @@ import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
 import { InvalidRequestError, createServer } from '@atproto/xrpc-server'
+import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import { io } from './lexicons/index.js'
-import { listTips, tipTotals, verifiedTipCounts } from './tips.js'
+import { fetchNftImageAsPng } from './nft-image.js'
+import {
+  erc1155BalanceOf,
+  erc721OwnerOf,
+  getNftAvatarsForDids,
+  getNftMetadata,
+  parseTokenId,
+} from './nft.js'
+import {
+  listTips,
+  tipTotals,
+  verifiedTipCounts,
+  verifiedTipsSentCounts,
+} from './tips.js'
 import { getWalletOwners, getWalletsForDids } from './wallets.js'
 
 type ChainProfileView = io.krao.actor.defs.ChainProfileView
 type WalletView = io.krao.actor.defs.WalletView
+type NftAvatarView = io.krao.actor.defs.NftAvatarView
+type Badge = io.krao.actor.defs.Badge
 type TipView = io.krao.feed.defs.TipView
 
 export function createApp(
   db: Database,
+  rpcs: Map<string, EvmRpc>,
   idResolver: IdResolver,
   handleResolverUrl?: string,
   appviewUrl?: string,
@@ -25,9 +42,11 @@ export function createApp(
       params.actors,
       handleResolverUrl,
     )
-    const [rows, tipCounts] = await Promise.all([
+    const [rows, tipCounts, sentCounts, nftAvatars] = await Promise.all([
       getWalletsForDids(db, dids),
       verifiedTipCounts(db, dids),
+      verifiedTipsSentCounts(db, dids),
+      getNftAvatarsForDids(db, dids),
     ])
     const profiles = dids
       .map((did) => {
@@ -40,19 +59,88 @@ export function createApp(
             status: row.status,
             createdAt: row.createdAt as WalletView['createdAt'],
           }))
+        const nft = nftAvatars.find((n) => n.did === did)
+        const nftAvatar: NftAvatarView | undefined = nft && {
+          nft: {
+            chain: nft.chain,
+            contract: nft.contract,
+            tokenId: nft.tokenId,
+            standard: nft.standard ?? undefined,
+          },
+          wallet: nft.wallet,
+          status: nft.status,
+          collectionName: nft.collectionName ?? undefined,
+          image: (nft.image ?? undefined) as NftAvatarView['image'],
+          checkedAt: (nft.checkedAt ?? undefined) as NftAvatarView['checkedAt'],
+        }
+        const received = tipCounts.get(did) ?? 0
+        const sent = sentCounts.get(did) ?? 0
+        const badges: Badge[] = []
+        if (wallets.some((w) => w.status === 'verified')) {
+          badges.push({ id: 'wallet-verified' })
+        }
+        if (nft?.status === 'verified') badges.push({ id: 'nft-avatar' })
+        if (sent > 0) badges.push({ id: 'tipper', count: sent })
+        if (received > 0) badges.push({ id: 'supported', count: received })
         return {
           did: did as ChainProfileView['did'],
           wallets,
-          tipsReceivedCount: tipCounts.get(did) ?? 0,
+          nftAvatar,
+          tipsReceivedCount: received,
+          badges,
         }
       })
       .filter(
         (profile) =>
-          profile.wallets.length > 0 || profile.tipsReceivedCount > 0,
+          profile.wallets.length > 0 ||
+          profile.tipsReceivedCount > 0 ||
+          !!profile.nftAvatar,
       )
     return {
       encoding: 'application/json' as const,
       body: { profiles },
+    }
+  })
+
+  server.add(io.krao.actor.resolveNft, async ({ params }) => {
+    const rpc = rpcs.get(params.chain)
+    if (!rpc) {
+      throw new InvalidRequestError(
+        `Unsupported chain: ${params.chain}`,
+        'UnsupportedChain',
+      )
+    }
+    const tokenId = parseTokenId(params.tokenId)
+    const contract = params.contract.toLowerCase()
+    if (tokenId === null || !/^0x[0-9a-f]{40}$/.test(contract)) {
+      throw new InvalidRequestError('Invalid contract or token id')
+    }
+    const owner = await erc721OwnerOf(rpc, contract, tokenId)
+    let ownedByQueried: boolean | undefined
+    if (!owner && params.owner) {
+      ownedByQueried =
+        (await erc1155BalanceOf(rpc, contract, params.owner, tokenId)) > 0n
+    }
+    if (!owner && !ownedByQueried) {
+      throw new InvalidRequestError('NFT not found', 'NotFound')
+    }
+    const standard = owner ? 'erc721' : 'erc1155'
+    const metadata = await getNftMetadata(rpc, contract, tokenId, standard)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        nft: {
+          chain: params.chain,
+          contract,
+          tokenId: params.tokenId,
+          standard,
+        },
+        owner: owner ?? undefined,
+        ownedByQueried,
+        collectionName: metadata.collectionName,
+        name: metadata.name,
+        image: metadata.image as `${string}:${string}` | undefined,
+      },
     }
   })
 
@@ -127,6 +215,43 @@ export function createApp(
       res
         .status(400)
         .json({ error: 'InvalidRequest', message: 'Invalid account' })
+    }
+  })
+  /*
+   * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
+   * image named by the token's own on-chain metadata is fetched.
+   */
+  app.get('/nft-image', async (req, res) => {
+    const { chain, contract, tokenId } = req.query
+    const rpc = typeof chain === 'string' ? rpcs.get(chain) : undefined
+    const id = typeof tokenId === 'string' ? parseTokenId(tokenId) : null
+    if (
+      !rpc ||
+      id === null ||
+      typeof contract !== 'string' ||
+      !/^0x[0-9a-fA-F]{40}$/.test(contract)
+    ) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    try {
+      const addr = contract.toLowerCase()
+      const standard = (await erc721OwnerOf(rpc, addr, id))
+        ? 'erc721'
+        : 'erc1155'
+      const { image } = await getNftMetadata(rpc, addr, id, standard)
+      if (!image) {
+        res.status(404).json({ error: 'NotFound', message: 'NFT has no image' })
+        return
+      }
+      const png = await fetchNftImageAsPng(image)
+      res.setHeader('content-type', 'image/png')
+      res.setHeader('cache-control', 'public, max-age=3600')
+      res.send(png)
+    } catch (err) {
+      res
+        .status(502)
+        .json({ error: 'UpstreamFailure', message: (err as Error).message })
     }
   })
   app.use(server.router)
