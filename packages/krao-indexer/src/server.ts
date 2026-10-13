@@ -34,7 +34,7 @@ import {
   verifiedTipCounts,
   verifiedTipsSentCounts,
 } from './tips.js'
-import { getWalletOwners, getWalletsForDids } from './wallets.js'
+import { getWalletOwners, getWalletsForDids, uniqueWallets } from './wallets.js'
 
 type ChainProfileView = io.krao.actor.defs.ChainProfileView
 type WalletView = io.krao.actor.defs.WalletView
@@ -168,7 +168,7 @@ export function createApp(
       handleResolverUrl,
     )
     const [rows, tipCounts, sentCounts, nftAvatars] = await Promise.all([
-      getWalletsForDids(db, dids),
+      getWalletsForDids(db, dids).then(uniqueWallets),
       verifiedTipCounts(db, dids),
       verifiedTipsSentCounts(db, dids),
       getNftAvatarsForDids(db, dids),

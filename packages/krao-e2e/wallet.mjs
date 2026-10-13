@@ -31,14 +31,24 @@ const { check, done } = checker()
 const s = await login(ACCOUNTS.krao)
 const alice = await login(ACCOUNTS.alice)
 
-// 1. Link a fresh wallet to krao.test
+// 1. Link a fresh wallet to krao.test, after a failed attempt (bad proof)
 const w1 = wallet()
+const failedFirst = await createRecord(
+  s,
+  'io.krao.actor.wallet',
+  walletRecord(s.did, w1, wallet()),
+)
 const created = await createRecord(
   s,
   'io.krao.actor.wallet',
   walletRecord(s.did, w1),
 )
 check('link wallet record accepted by PDS', created.ok, created.data.error)
+const linkedAgain = await createRecord(
+  s,
+  'io.krao.actor.wallet',
+  walletRecord(s.did, w1),
+)
 
 // 2. alice.test copies the link; its proof names krao.test's DID
 const stolen = await createRecord(
@@ -64,6 +74,15 @@ check(
   'indexer marks the copied proof on alice.test as invalid',
   statusOf(alice.did) === 'invalid',
   statusOf(alice.did),
+)
+const w1Entries =
+  prof.data.profiles
+    ?.find((p) => p.did === s.did)
+    ?.wallets?.filter((w) => sameAccount(w.account, w1.account)) ?? []
+check(
+  'a wallet linked several times is listed once, as its first verified link',
+  w1Entries.length === 1 && w1Entries[0].uri === created.data.uri,
+  `${w1Entries.length} entries`,
 )
 
 // 3. Sign in with the linked wallet
@@ -120,6 +139,17 @@ check(
 // 5. Unlinking removes sign-in
 await deleteRecord(s, created.data.uri)
 if (stolen.ok) await deleteRecord(alice, stolen.data.uri)
+await sleep(1500)
+// The duplicate link still counts, which is why clients unlink every record
+const stillLinked = await walletLogin(w1)
+check(
+  'a remaining duplicate link still signs in',
+  stillLinked.ok && stillLinked.data.did === s.did,
+  stillLinked.data.error,
+)
+for (const r of [failedFirst, linkedAgain]) {
+  if (r.ok) await deleteRecord(s, r.data.uri)
+}
 await sleep(1500)
 const afterUnlink = await walletLogin(w1)
 check(

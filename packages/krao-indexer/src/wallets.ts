@@ -81,6 +81,36 @@ export async function getWalletsForDids(db: Database, dids: string[]) {
     .execute()
 }
 
+/**
+ * One row per wallet of each account. Linking the same wallet again creates
+ * another record, so keep the oldest verified one, or else the oldest.
+ * Rows must be ordered by createdAt.
+ */
+export function uniqueWallets<T extends WalletTable>(rows: T[]): T[] {
+  const best = new Map<string, T>()
+  for (const row of rows) {
+    const key = walletKey(row)
+    const current = best.get(key)
+    if (
+      !current ||
+      (current.status !== 'verified' && row.status === 'verified')
+    ) {
+      best.set(key, row)
+    }
+  }
+  return rows.filter((row) => best.get(walletKey(row)) === row)
+}
+
+function walletKey(row: WalletTable): string {
+  let account = row.accountRaw
+  try {
+    account = normalizeAccountId(row.accountRaw)
+  } catch {
+    // malformed ids can only match themselves
+  }
+  return `${row.did} ${account}`
+}
+
 /** DIDs that have a verified link to the given wallet. */
 export async function getWalletOwners(
   db: Database,
