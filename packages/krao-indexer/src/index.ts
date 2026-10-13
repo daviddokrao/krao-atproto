@@ -12,6 +12,7 @@ export * from './tips.js'
 export * from './chain.js'
 export * from './nft.js'
 export * from './gate.js'
+export * from './feed.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -35,6 +36,19 @@ export type KraoIndexerConfig = {
   gateDid?: string
   /** How often verified NFT avatars are re-checked on-chain (default 10m) */
   nftRecheckMs?: number
+  /**
+   * DID of this service as a feed generator (its DID doc must list it as
+   * `#bsky_fg`). Set to serve Krao's "latest" feed.
+   */
+  feedGenDid?: string
+  /** Krao's web app, where short links lead (default https://krao.io) */
+  webUrl?: string
+  /** Klipy API key for GIF search (GIF media is relayed without one) */
+  klipyApiKey?: string
+  /** Public URL of this service, for the link preview image URLs it returns */
+  publicUrl?: string
+  /** Only feed posts by accounts on this PDS, see FeedIndexingOptions */
+  feedPdsUrl?: string
 }
 
 export class KraoIndexer {
@@ -67,6 +81,7 @@ export class KraoIndexer {
       cfg.firehoseUrl,
       (err) => console.error('krao-indexer firehose error', err),
       cfg.nftRecheckMs,
+      { did: cfg.feedGenDid, pdsUrl: cfg.feedPdsUrl },
     )
     return new KraoIndexer(
       cfg,
@@ -76,6 +91,10 @@ export class KraoIndexer {
         handleResolverUrl: cfg.handleResolverUrl,
         appviewUrl: cfg.appviewUrl,
         gateDid: cfg.gateDid ?? 'did:web:gate.krao.io',
+        feedGenDid: cfg.feedGenDid,
+        publicUrl: cfg.publicUrl,
+        klipyApiKey: cfg.klipyApiKey,
+        webUrl: cfg.webUrl,
       }),
     )
   }

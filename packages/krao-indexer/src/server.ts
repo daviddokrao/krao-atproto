@@ -1,7 +1,7 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { AtUri } from '@atproto/syntax'
+import { AtUri, type AtUriString } from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -11,6 +11,7 @@ import {
 } from '@atproto/xrpc-server'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
+import { getLatestPosts, listFeedGenerators } from './feed.js'
 import {
   getGatedContent,
   getRulesForSubjects,
@@ -18,7 +19,9 @@ import {
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
-import { io } from './lexicons/index.js'
+import { addGifRoutes } from './gifs.js'
+import { app as bskyApp, io } from './lexicons/index.js'
+import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
   erc1155BalanceOf,
@@ -27,6 +30,7 @@ import {
   getNftMetadata,
   parseTokenId,
 } from './nft.js'
+import { addStarterPackRoutes } from './starter-packs.js'
 import {
   listTips,
   tipTotals,
@@ -52,9 +56,25 @@ export function createApp(
     appviewUrl?: string
     /** Audience that service auth tokens for gate methods must name */
     gateDid: string
+    /** Feed generator DID; the "latest" feed is served when set */
+    feedGenDid?: string
+    /** Krao's web app, where short links lead */
+    webUrl?: string
+    /** Klipy API key for GIF search; without it GIF search is unavailable */
+    klipyApiKey?: string
+    /** Public URL of this service, for links it hands out (default: from the request) */
+    publicUrl?: string
   },
 ): Express {
-  const { handleResolverUrl, appviewUrl, gateDid } = opts
+  const {
+    handleResolverUrl,
+    appviewUrl,
+    gateDid,
+    feedGenDid,
+    publicUrl,
+    klipyApiKey,
+    webUrl = 'https://krao.io',
+  } = opts
   const server = createServer([], {})
 
   /*
@@ -316,6 +336,43 @@ export function createApp(
     }
   })
 
+  /*
+   * Feed generator for Krao's "latest" feed. AppViews call it with service
+   * auth, but the feed is the same for everyone so the token is not checked.
+   */
+  if (feedGenDid) {
+    server.add(bskyApp.bsky.feed.describeFeedGenerator, async () => ({
+      encoding: 'application/json' as const,
+      body: {
+        did: feedGenDid as `did:${string}:${string}`,
+        feeds: (await listFeedGenerators(db)).map((uri) => ({
+          uri: uri as AtUriString,
+        })),
+      },
+    }))
+
+    server.add(bskyApp.bsky.feed.getFeedSkeleton, async ({ params }) => {
+      const feeds = await listFeedGenerators(db)
+      if (!feeds.includes(params.feed)) {
+        throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
+      }
+      const { posts, cursor } = await getLatestPosts(
+        db,
+        params.limit ?? 50,
+        params.cursor,
+      ).catch(() => {
+        throw new InvalidRequestError('Malformed cursor')
+      })
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          feed: posts.map((post) => ({ post: post as AtUriString })),
+          cursor,
+        },
+      }
+    })
+  }
+
   server.add(io.krao.feed.getTipTotals, async ({ params }) => {
     const subjects = await tipTotalsForSubjects(db, params.subjects)
     return {
@@ -327,6 +384,8 @@ export function createApp(
   })
 
   const app = express()
+  // Behind a reverse proxy, req.protocol should follow X-Forwarded-Proto
+  app.set('trust proxy', true)
   app.use(cors())
   app.get('/_health', (_req, res) => {
     res.json({ ok: true })
@@ -356,6 +415,39 @@ export function createApp(
    * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
    * image named by the token's own on-chain metadata is fetched.
    */
+  addGifRoutes(app, klipyApiKey)
+  addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
+
+  // Link previews, compatible with Bluesky's cardyb (see link-meta.ts)
+  const imageProxyUrl = (req: express.Request) => (imageUrl: string) => {
+    const base = publicUrl ?? `${req.protocol}://${req.get('host')}`
+    return `${base}/v1/image?url=${encodeURIComponent(imageUrl)}`
+  }
+  app.get('/v1/extract', async (req, res) => {
+    const { url } = req.query
+    if (typeof url !== 'string' || !url) {
+      res.status(400).json({ error: 'url is required' })
+      return
+    }
+    res.setHeader('cache-control', 'public, max-age=600')
+    res.json(await extractLinkMeta(url, imageProxyUrl(req)))
+  })
+  app.get('/v1/image', async (req, res) => {
+    const { url } = req.query
+    if (typeof url !== 'string' || !url) {
+      res.status(400).json({ error: 'url is required' })
+      return
+    }
+    try {
+      const jpeg = await fetchPreviewImage(url)
+      res.setHeader('content-type', 'image/jpeg')
+      res.setHeader('cache-control', 'public, max-age=86400')
+      res.send(jpeg)
+    } catch (err) {
+      res.status(502).json({ error: (err as Error).message })
+    }
+  })
+
   app.get('/nft-image', async (req, res) => {
     const { chain, contract, tokenId } = req.query
     const rpc = typeof chain === 'string' ? rpcs.get(chain) : undefined
