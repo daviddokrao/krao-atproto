@@ -5,6 +5,13 @@ import { mockMailer } from './util.js'
 
 const KRAO_INDEXER_PORT = 2589
 
+/*
+ * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
+ * the krao.vssa.com demo): account DID documents then point browsers at it
+ * instead of localhost. The services still reach each other on localhost.
+ */
+const PDS_HOSTNAME = process.env.KRAO_DEV_PDS_HOSTNAME || 'localhost'
+
 const run = async () => {
   console.log(`
 ██████╗
@@ -19,7 +26,7 @@ const run = async () => {
   const network = await TestNetwork.create({
     pds: {
       port: 2583,
-      hostname: 'localhost',
+      hostname: PDS_HOSTNAME,
       enableDidDocWithSession: true,
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
     },
