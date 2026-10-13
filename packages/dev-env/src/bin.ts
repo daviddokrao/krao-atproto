@@ -40,7 +40,8 @@ const run = async () => {
     bsky: {
       dbPostgresSchema: 'bsky',
       port: 2584,
-      publicUrl: 'http://localhost:2584',
+      // Image and other public URLs the AppView hands out (see PDS_HOSTNAME)
+      publicUrl: process.env.KRAO_DEV_APPVIEW_URL || 'http://localhost:2584',
     },
     plc: { port: 2582 },
     ozone: {
