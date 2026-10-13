@@ -41,6 +41,8 @@ export type KraoIndexerConfig = {
    * `#bsky_fg`). Set to serve Krao's "latest" feed.
    */
   feedGenDid?: string
+  /** Public URL of this service, for the link preview image URLs it returns */
+  publicUrl?: string
   /** Only feed posts by accounts on this PDS, see FeedIndexingOptions */
   feedPdsUrl?: string
 }
@@ -86,6 +88,7 @@ export class KraoIndexer {
         appviewUrl: cfg.appviewUrl,
         gateDid: cfg.gateDid ?? 'did:web:gate.krao.io',
         feedGenDid: cfg.feedGenDid,
+        publicUrl: cfg.publicUrl,
       }),
     )
   }

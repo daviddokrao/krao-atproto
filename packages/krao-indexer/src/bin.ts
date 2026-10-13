@@ -13,6 +13,7 @@ const indexer = await KraoIndexer.create({
   gateDid: process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.io',
   feedGenDid: process.env.KRAO_FEEDGEN_DID,
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
+  publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://public.api.bsky.app',
 })

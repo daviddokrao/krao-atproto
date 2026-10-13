@@ -4,14 +4,15 @@ End-to-end checks of the Krao features against a running local stack. They
 are plain Node scripts (no test runner) that print `PASS`/`FAIL` per check and
 exit non-zero on any failure.
 
-| Script        | Milestone | Covers                                                        |
-| ------------- | --------- | ------------------------------------------------------------- |
-| `records.mjs` | M2        | PDS validates `io.krao.*` records against their lexicons      |
-| `wallet.mjs`  | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay |
-| `tip.mjs`     | M4        | ETH/USDC tips verified on-chain, cheating tips rejected       |
-| `nft.mjs`     | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale   |
-| `gate.mjs`    | M6        | Token gating, service auth, gated text absent from the CAR    |
-| `feed.mjs`    | —         | Krao "latest" feed: generator, skeleton, AppView `getFeed`    |
+| Script             | Milestone | Covers                                                        |
+| ------------------ | --------- | ------------------------------------------------------------- |
+| `records.mjs`      | M2        | PDS validates `io.krao.*` records against their lexicons      |
+| `wallet.mjs`       | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay |
+| `tip.mjs`          | M4        | ETH/USDC tips verified on-chain, cheating tips rejected       |
+| `nft.mjs`          | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale   |
+| `gate.mjs`         | M6        | Token gating, service auth, gated text absent from the CAR    |
+| `feed.mjs`         | —         | Krao "latest" feed: generator, skeleton, AppView `getFeed`    |
+| `link-preview.mjs` | —         | Link previews and image proxy, SSRF guards (needs internet)   |
 
 ## Prerequisites
 
