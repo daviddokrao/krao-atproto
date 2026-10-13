@@ -51,6 +51,7 @@ import * as password from './helpers/password.js'
 import * as repo from './helpers/repo.js'
 import * as scrypt from './helpers/scrypt.js'
 import * as token from './helpers/token.js'
+import * as walletChallenge from './helpers/wallet-challenge.js'
 
 export { AccountStatus, formatAccountStatus } from './helpers/account.js'
 
@@ -532,6 +533,24 @@ export class AccountManager {
 
   // Auth
   // ----------
+
+  // Krao wallet sign-in
+  // ----------
+
+  async createWalletChallenge(challenge: {
+    nonce: string
+    account: string
+    expiresAt: string
+  }): Promise<void> {
+    await walletChallenge.create(this.db, challenge)
+  }
+
+  async consumeWalletChallenge(
+    nonce: string,
+    account: string,
+  ): Promise<boolean> {
+    return walletChallenge.consume(this.db, nonce, account)
+  }
 
   async createSession(
     did: DidString,

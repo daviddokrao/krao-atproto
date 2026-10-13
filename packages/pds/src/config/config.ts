@@ -190,6 +190,10 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     repoBackfillLimitMs: env.repoBackfillLimitMs ?? DAY,
   }
 
+  const kraoCfg: ServerConfig['krao'] = env.kraoIndexerUrl
+    ? { indexerUrl: env.kraoIndexerUrl }
+    : null
+
   let bskyAppViewCfg: ServerConfig['bskyAppView'] = null
   if (env.bskyAppViewUrl) {
     assert(
@@ -353,6 +357,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     moderationEmail: moderationEmailCfg,
     subscription: subscriptionCfg,
     bskyAppView: bskyAppViewCfg,
+    krao: kraoCfg,
     modService: modServiceCfg,
     reportService: reportServiceCfg,
     redis: redisCfg,
@@ -378,6 +383,7 @@ export type ServerConfig = {
   moderationEmail: EmailConfig | null
   subscription: SubscriptionConfig
   bskyAppView: BksyAppViewConfig | null
+  krao: KraoConfig | null
   modService: ModServiceConfig | null
   reportService: ReportServiceConfig | null
   redis: RedisScratchConfig | null
@@ -530,6 +536,10 @@ export type RateLimitsConfig =
       bypassIps?: string[]
     }
   | { enabled: false }
+
+export type KraoConfig = {
+  indexerUrl: string
+}
 
 export type BksyAppViewConfig = {
   url: string

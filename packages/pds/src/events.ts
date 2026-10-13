@@ -43,6 +43,7 @@ class EventReporter {
     source:
       | com.atproto.server.createAccount.$lxm
       | com.atproto.server.createSession.$lxm
+      | 'io.krao.server.createWalletSession'
       | 'oauth'
   }>('session.created', {
     description: 'Number of sessions created on this PDS',
@@ -114,6 +115,7 @@ class EventReporter {
       | 'oauth'
       | com.atproto.server.createAccount.$lxm
       | com.atproto.server.createSession.$lxm
+      | 'io.krao.server.createWalletSession'
     did: DidString
     clientId?: string
   }) {

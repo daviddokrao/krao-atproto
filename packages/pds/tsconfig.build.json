@@ -6,6 +6,7 @@
   // `describe`/`expect`, and emitting test files into ./dist.
   "exclude": ["./src/**/*.test.ts"],
   "references": [
+    { "path": "../krao-wallet/tsconfig.build.json" },
     { "path": "../aws/tsconfig.build.json" },
     { "path": "../common/tsconfig.build.json" },
     { "path": "../crypto/tsconfig.build.json" },

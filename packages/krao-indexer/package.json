@@ -1,0 +1,44 @@
+{
+  "name": "@krao/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Krao indexer: indexes io.krao.* records from the firehose and serves io.krao.* queries",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "krao-indexer": "./dist/bin.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@atproto/identity": "workspace:^",
+    "@atproto/lex": "workspace:^",
+    "@atproto/sync": "workspace:^",
+    "@atproto/syntax": "workspace:^",
+    "@atproto/xrpc-server": "workspace:^",
+    "@krao/wallet": "workspace:^",
+    "better-sqlite3": "^12.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.2",
+    "kysely": "^0.29.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/cors": "^2.8.12",
+    "@types/express": "^4.17.13",
+    "jest": "^30.5.2"
+  },
+  "scripts": {
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include io.krao.actor.getChainProfiles",
+    "prebuild": "pnpm run '/^(codegen:.+)$/'",
+    "build": "tsc --build tsconfig.build.json",
+    "start": "node --enable-source-maps dist/bin.js"
+  }
+}
