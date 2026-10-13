@@ -67,6 +67,11 @@ const run = async () => {
     firehoseUrl: network.pds.url.replace('http', 'ws'),
     plcUrl: network.plc.url,
     handleResolverUrl: network.pds.url,
+    appviewUrl: network.bsky.url,
+    // Local Anvil chain (chain id 8453, forked from Base), see Krao README
+    rpcUrls: {
+      'eip155:8453': process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
+    },
     insecureFetch: true,
   })
   await kraoIndexer.start()

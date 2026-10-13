@@ -6,6 +6,10 @@ const indexer = await KraoIndexer.create({
   dbLocation: process.env.KRAO_INDEXER_DB ?? 'krao-indexer.sqlite',
   firehoseUrl: process.env.KRAO_FIREHOSE_URL ?? 'wss://bsky.network',
   plcUrl: process.env.KRAO_PLC_URL ?? 'https://plc.directory',
+  rpcUrls: process.env.KRAO_RPC_URLS
+    ? (JSON.parse(process.env.KRAO_RPC_URLS) as Record<string, string>)
+    : { 'eip155:8453': 'https://mainnet.base.org' },
+  appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://public.api.bsky.app',
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://public.api.bsky.app',
 })
