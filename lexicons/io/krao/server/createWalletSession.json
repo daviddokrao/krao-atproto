@@ -1,0 +1,61 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.server.createWalletSession",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Sign in with a wallet. The signed challenge from io.krao.server.getWalletChallenge is checked, then a session is created for the account on this PDS that has linked the wallet via io.krao.actor.wallet. Returns the same session shape as com.atproto.server.createSession.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["account", "message", "signature"],
+          "properties": {
+            "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+            "message": { "type": "string", "maxLength": 4000 },
+            "signature": { "type": "string", "maxLength": 1024 },
+            "authFactorToken": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["accessJwt", "refreshJwt", "handle", "did"],
+          "properties": {
+            "accessJwt": { "type": "string" },
+            "refreshJwt": { "type": "string" },
+            "handle": { "type": "string", "format": "handle" },
+            "did": { "type": "string", "format": "did" },
+            "didDoc": { "type": "unknown" },
+            "email": { "type": "string" },
+            "emailConfirmed": { "type": "boolean" },
+            "emailAuthFactor": { "type": "boolean" },
+            "active": { "type": "boolean" },
+            "status": {
+              "type": "string",
+              "knownValues": ["takendown", "suspended", "deactivated"]
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidSignature",
+          "description": "The signature does not match the account and message."
+        },
+        {
+          "name": "ExpiredChallenge",
+          "description": "The challenge is unknown, already used or expired."
+        },
+        {
+          "name": "WalletNotLinked",
+          "description": "No account on this PDS has linked this wallet."
+        },
+        { "name": "AccountTakedown" },
+        { "name": "AuthFactorTokenRequired" }
+      ]
+    }
+  }
+}

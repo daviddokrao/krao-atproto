@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.actor.defs",
+  "defs": {
+    "walletView": {
+      "type": "object",
+      "required": ["uri", "account", "status"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "URI of the io.krao.actor.wallet record."
+        },
+        "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+        "label": { "type": "string", "maxLength": 640, "maxGraphemes": 64 },
+        "status": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#verificationStatus"
+        },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "nftAvatarView": {
+      "type": "object",
+      "required": ["nft", "wallet", "status"],
+      "properties": {
+        "nft": { "type": "ref", "ref": "io.krao.chain.defs#nftRef" },
+        "wallet": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+        "status": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#verificationStatus"
+        },
+        "collectionName": { "type": "string", "maxLength": 640 },
+        "checkedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When ownership was last checked on-chain."
+        }
+      }
+    },
+    "chainProfileView": {
+      "type": "object",
+      "description": "Web3 details for an account, shown alongside its regular app.bsky profile.",
+      "required": ["did", "wallets"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "wallets": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#walletView" }
+        },
+        "nftAvatar": { "type": "ref", "ref": "#nftAvatarView" },
+        "tipsReceivedCount": {
+          "type": "integer",
+          "description": "Number of verified tips this account has received."
+        }
+      }
+    }
+  }
+}

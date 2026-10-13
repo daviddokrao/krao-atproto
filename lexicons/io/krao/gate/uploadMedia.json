@@ -1,0 +1,21 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.gate.uploadMedia",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Upload an image or video to the gate service for use in gated content. Gated media is never stored as a public repo blob.",
+      "input": { "encoding": "*/*" },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["media"],
+          "properties": {
+            "media": { "type": "ref", "ref": "io.krao.gate.defs#media" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.gate.putContent",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create or replace the gated content of a post. Only the post's author may call this, using service auth.",
+      "input": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "io.krao.gate.defs#gatedContent" }
+      },
+      "errors": [
+        {
+          "name": "NotAuthor",
+          "description": "The caller is not the author of the post."
+        }
+      ]
+    }
+  }
+}

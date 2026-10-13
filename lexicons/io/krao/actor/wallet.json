@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.actor.wallet",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Links a blockchain wallet to the account. The proof lets anyone verify the wallet owner agreed to the link. An account may link many wallets.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["account", "proof", "createdAt"],
+        "properties": {
+          "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+          "proof": { "type": "ref", "ref": "io.krao.chain.defs#walletProof" },
+          "label": {
+            "type": "string",
+            "description": "Optional user-chosen name for the wallet.",
+            "maxLength": 640,
+            "maxGraphemes": 64
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

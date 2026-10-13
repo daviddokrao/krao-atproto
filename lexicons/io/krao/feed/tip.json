@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.feed.tip",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Records an on-chain tip sent to another account, optionally for a specific post. The transfer itself happens on-chain from the sender's wallet; the AppView only counts the tip after verifying the transaction.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["recipient", "asset", "amount", "txHash", "createdAt"],
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "format": "did",
+            "description": "The account that received the tip."
+          },
+          "subject": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The post being tipped, if any."
+          },
+          "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+          "amount": {
+            "type": "string",
+            "description": "Amount in the asset's smallest unit (eg wei), as a decimal integer string.",
+            "maxLength": 80
+          },
+          "txHash": {
+            "type": "string",
+            "description": "Transaction hash (EVM) or signature (Solana) of the transfer, on the chain given by the asset ID.",
+            "maxLength": 128
+          },
+          "from": {
+            "type": "ref",
+            "ref": "io.krao.chain.defs#accountId",
+            "description": "The sender's wallet. Should be a wallet linked to the sender's account."
+          },
+          "to": {
+            "type": "ref",
+            "ref": "io.krao.chain.defs#accountId",
+            "description": "The recipient's wallet. Must be a wallet linked to the recipient's account."
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

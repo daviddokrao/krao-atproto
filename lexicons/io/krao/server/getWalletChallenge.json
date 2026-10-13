@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "io.krao.server.getWalletChallenge",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get a one-time SIWE/SIWS message for a wallet to sign, used by io.krao.server.createWalletSession. Served by the PDS.",
+      "parameters": {
+        "type": "params",
+        "required": ["account"],
+        "properties": {
+          "account": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "CAIP-10 account ID of the wallet signing in."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["message", "expiresAt"],
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "The exact message the wallet must sign.",
+              "maxLength": 4000
+            },
+            "expiresAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      },
+      "errors": [{ "name": "UnsupportedChain" }]
+    }
+  }
+}
