@@ -1,12 +1,15 @@
 import { once } from 'node:events'
 import type http from 'node:http'
 import { IdResolver } from '@atproto/identity'
+import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { FirehoseIndexer } from './indexer.js'
 import { createApp } from './server.js'
 
 export * from './db.js'
 export * from './wallets.js'
+export * from './tips.js'
+export * from './chain.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -22,6 +25,10 @@ export type KraoIndexerConfig = {
   handleResolverUrl?: string
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
+  /** JSON-RPC endpoints by CAIP-2 chain id, used to verify tips */
+  rpcUrls?: Record<string, string>
+  /** AppView used to hydrate tip senders' profiles */
+  appviewUrl?: string
 }
 
 export class KraoIndexer {
@@ -41,8 +48,15 @@ export class KraoIndexer {
       plcUrl: cfg.plcUrl,
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),
     })
+    const rpcs = new Map(
+      Object.entries(cfg.rpcUrls ?? {}).map(([chain, url]) => [
+        chain,
+        new EvmRpc(url),
+      ]),
+    )
     const indexer = new FirehoseIndexer(
       db,
+      rpcs,
       idResolver,
       cfg.firehoseUrl,
       (err) => console.error('krao-indexer firehose error', err),
@@ -51,7 +65,7 @@ export class KraoIndexer {
       cfg,
       db,
       indexer,
-      createApp(db, idResolver, cfg.handleResolverUrl),
+      createApp(db, idResolver, cfg.handleResolverUrl, cfg.appviewUrl),
     )
   }
 
