@@ -1,0 +1,29 @@
+{
+  "name": "@krao/wallet",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Krao wallet utilities: CAIP-10 accounts, SIWE/SIWS messages and signature verification",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.7.0",
+    "@noble/hashes": "^1.6.1",
+    "uint8arrays": "^5.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.build.json",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest"
+  }
+}

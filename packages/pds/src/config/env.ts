@@ -99,6 +99,9 @@ export function readEnv() {
     repoBackfillLimitMs: envInt('PDS_REPO_BACKFILL_LIMIT_MS'),
 
     // appview
+    // Krao indexer, used to find which account linked a wallet
+    kraoIndexerUrl: envStr('PDS_KRAO_INDEXER_URL'),
+
     bskyAppViewUrl: envStr('PDS_BSKY_APP_VIEW_URL'),
     bskyAppViewDid: envStr('PDS_BSKY_APP_VIEW_DID'),
     bskyAppViewCdnUrlPattern: envStr('PDS_BSKY_APP_VIEW_CDN_URL_PATTERN'),

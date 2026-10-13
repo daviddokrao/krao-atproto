@@ -1,6 +1,9 @@
+import { KraoIndexer } from '@krao/indexer'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
+
+const KRAO_INDEXER_PORT = 2589
 
 const run = async () => {
   console.log(`
@@ -18,6 +21,7 @@ const run = async () => {
       port: 2583,
       hostname: 'localhost',
       enableDidDocWithSession: true,
+      kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
     },
     bsky: {
       dbPostgresSchema: 'bsky',
@@ -54,6 +58,19 @@ const run = async () => {
   for (const fg of network.feedGens) {
     console.log(`🤖 Feed Generator (${fg.did}) http://localhost:${fg.port}`)
   }
+
+  // Krao indexer: follows the main PDS firehose, in memory like the rest of
+  // the dev-env, so it starts empty on every run
+  const kraoIndexer = await KraoIndexer.create({
+    port: KRAO_INDEXER_PORT,
+    dbLocation: ':memory:',
+    firehoseUrl: network.pds.url.replace('http', 'ws'),
+    plcUrl: network.plc.url,
+    handleResolverUrl: network.pds.url,
+    insecureFetch: true,
+  })
+  await kraoIndexer.start()
+  console.log(`💎 Krao indexer ${kraoIndexer.url}`)
 
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
