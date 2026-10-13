@@ -52,6 +52,8 @@ export class TestNetwork extends TestNetworkNoAppView {
       ...params.pds,
       inviteRequired: false,
       port: await getPort(),
+      // A public hostname belongs to the main PDS only (see bin.ts)
+      hostname: 'localhost',
     })
 
     const ozoneUrl = `http://localhost:${ozonePort}`
