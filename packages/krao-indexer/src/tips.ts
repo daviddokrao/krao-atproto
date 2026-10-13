@@ -224,3 +224,16 @@ export async function verifiedTipCounts(db: Database, dids: string[]) {
     .execute()
   return new Map(rows.map((r) => [r.recipient, Number(r.count)]))
 }
+
+export async function verifiedTipsSentCounts(db: Database, dids: string[]) {
+  if (!dids.length) return new Map<string, number>()
+  const rows = await db
+    .selectFrom('tip')
+    .select(['did'])
+    .select((eb) => eb.fn.countAll<number>().as('count'))
+    .where('did', 'in', dids)
+    .where('status', '=', 'verified')
+    .groupBy('did')
+    .execute()
+  return new Map(rows.map((r) => [r.did, Number(r.count)]))
+}

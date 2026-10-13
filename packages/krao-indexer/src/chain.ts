@@ -58,6 +58,15 @@ export class EvmRpc {
     return body.result as T
   }
 
+  /** eth_call against the latest block; null when the call reverts */
+  async ethCall(to: string, data: string): Promise<string | null> {
+    try {
+      return await this.call<string>('eth_call', [{ to, data }, 'latest'])
+    } catch {
+      return null
+    }
+  }
+
   /**
    * Check that `txHash` moved exactly `amount` of the asset from `from` (when
    * given) to `to`, in a transaction that succeeded.

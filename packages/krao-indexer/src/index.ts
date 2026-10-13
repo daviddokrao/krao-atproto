@@ -10,6 +10,7 @@ export * from './db.js'
 export * from './wallets.js'
 export * from './tips.js'
 export * from './chain.js'
+export * from './nft.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -29,6 +30,8 @@ export type KraoIndexerConfig = {
   rpcUrls?: Record<string, string>
   /** AppView used to hydrate tip senders' profiles */
   appviewUrl?: string
+  /** How often verified NFT avatars are re-checked on-chain (default 10m) */
+  nftRecheckMs?: number
 }
 
 export class KraoIndexer {
@@ -60,12 +63,13 @@ export class KraoIndexer {
       idResolver,
       cfg.firehoseUrl,
       (err) => console.error('krao-indexer firehose error', err),
+      cfg.nftRecheckMs,
     )
     return new KraoIndexer(
       cfg,
       db,
       indexer,
-      createApp(db, idResolver, cfg.handleResolverUrl, cfg.appviewUrl),
+      createApp(db, rpcs, idResolver, cfg.handleResolverUrl, cfg.appviewUrl),
     )
   }
 

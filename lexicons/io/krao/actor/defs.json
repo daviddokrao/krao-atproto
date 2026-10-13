@@ -11,30 +11,54 @@
           "format": "at-uri",
           "description": "URI of the io.krao.actor.wallet record."
         },
-        "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
-        "label": { "type": "string", "maxLength": 640, "maxGraphemes": 64 },
+        "account": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#accountId"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 640,
+          "maxGraphemes": 64
+        },
         "status": {
           "type": "ref",
           "ref": "io.krao.chain.defs#verificationStatus"
         },
-        "createdAt": { "type": "string", "format": "datetime" }
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        }
       }
     },
     "nftAvatarView": {
       "type": "object",
       "required": ["nft", "wallet", "status"],
       "properties": {
-        "nft": { "type": "ref", "ref": "io.krao.chain.defs#nftRef" },
-        "wallet": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+        "nft": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#nftRef"
+        },
+        "wallet": {
+          "type": "ref",
+          "ref": "io.krao.chain.defs#accountId"
+        },
         "status": {
           "type": "ref",
           "ref": "io.krao.chain.defs#verificationStatus"
         },
-        "collectionName": { "type": "string", "maxLength": 640 },
+        "collectionName": {
+          "type": "string",
+          "maxLength": 640
+        },
         "checkedAt": {
           "type": "string",
           "format": "datetime",
           "description": "When ownership was last checked on-chain."
+        },
+        "image": {
+          "type": "string",
+          "format": "uri",
+          "description": "Image of the NFT from its token metadata."
         }
       }
     },
@@ -43,15 +67,53 @@
       "description": "Web3 details for an account, shown alongside its regular app.bsky profile.",
       "required": ["did", "wallets"],
       "properties": {
-        "did": { "type": "string", "format": "did" },
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
         "wallets": {
           "type": "array",
-          "items": { "type": "ref", "ref": "#walletView" }
+          "items": {
+            "type": "ref",
+            "ref": "#walletView"
+          }
         },
-        "nftAvatar": { "type": "ref", "ref": "#nftAvatarView" },
+        "nftAvatar": {
+          "type": "ref",
+          "ref": "#nftAvatarView"
+        },
         "tipsReceivedCount": {
           "type": "integer",
           "description": "Number of verified tips this account has received."
+        },
+        "badges": {
+          "type": "array",
+          "description": "Badges earned from verified on-chain activity.",
+          "items": {
+            "type": "ref",
+            "ref": "#badge"
+          }
+        }
+      }
+    },
+    "badge": {
+      "type": "object",
+      "description": "A badge computed from verified on-chain activity.",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "knownValues": [
+            "wallet-verified",
+            "nft-avatar",
+            "tipper",
+            "supported"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "description": "How many times the underlying activity happened, when relevant."
         }
       }
     }

@@ -42,6 +42,26 @@ export interface TipTable {
   indexedAt: string
 }
 
+export interface NftAvatarTable {
+  /** One NFT avatar per account (the record key is literal:self) */
+  did: string
+  uri: string
+  /** CAIP-2 chain id */
+  chain: string
+  /** Lowercase contract address */
+  contract: string
+  tokenId: string
+  standard: string | null
+  /** CAIP-10 wallet claimed to hold the NFT */
+  wallet: string
+  status: 'pending' | 'verified' | 'invalid'
+  reason: string | null
+  collectionName: string | null
+  image: string | null
+  checkedAt: string | null
+  indexedAt: string
+}
+
 export interface CursorTable {
   id: string
   seq: number
@@ -50,6 +70,7 @@ export interface CursorTable {
 export interface DatabaseSchema {
   wallet: WalletTable
   tip: TipTable
+  nft_avatar: NftAvatarTable
   cursor: CursorTable
 }
 
@@ -111,6 +132,23 @@ export async function migrateDb(db: Database): Promise<void> {
   await sql`create index if not exists tip_status_idx on tip (status)`.execute(
     db,
   )
+  await db.schema
+    .createTable('nft_avatar')
+    .ifNotExists()
+    .addColumn('did', 'varchar', (col) => col.primaryKey())
+    .addColumn('uri', 'varchar', (col) => col.notNull())
+    .addColumn('chain', 'varchar', (col) => col.notNull())
+    .addColumn('contract', 'varchar', (col) => col.notNull())
+    .addColumn('tokenId', 'varchar', (col) => col.notNull())
+    .addColumn('standard', 'varchar')
+    .addColumn('wallet', 'varchar', (col) => col.notNull())
+    .addColumn('status', 'varchar', (col) => col.notNull())
+    .addColumn('reason', 'varchar')
+    .addColumn('collectionName', 'varchar')
+    .addColumn('image', 'varchar')
+    .addColumn('checkedAt', 'varchar')
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('cursor')
     .ifNotExists()
