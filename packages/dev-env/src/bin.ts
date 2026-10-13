@@ -69,6 +69,7 @@ const run = async () => {
     handleResolverUrl: network.pds.url,
     appviewUrl: network.bsky.url,
     nftRecheckMs: 15_000,
+    gateDid: 'did:web:gate.krao.test',
     // Local Anvil chain (chain id 8453, forked from Base), see Krao README
     rpcUrls: {
       'eip155:8453': process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',

@@ -3,6 +3,13 @@ import { type Event, Firehose } from '@atproto/sync'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
+  GATE_RULE_COLLECTION,
+  deleteGateDataForDid,
+  deleteGateRule,
+  gateRuleRowFromRecord,
+  upsertGateRule,
+} from './gate.js'
+import {
   NFT_AVATAR_COLLECTION,
   deleteNftAvatar,
   getNftAvatarsToRecheck,
@@ -49,6 +56,7 @@ export class FirehoseIndexer {
         WALLET_COLLECTION,
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
+        GATE_RULE_COLLECTION,
       ],
       excludeIdentity: true,
       excludeSync: true,
@@ -103,6 +111,14 @@ export class FirehoseIndexer {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)
         await upsertTip(this.db, row)
         await verifyTip(this.db, this.rpcs, row)
+      } else if (evt.collection === GATE_RULE_COLLECTION) {
+        const row = gateRuleRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+        )
+        if (row) await upsertGateRule(this.db, row)
+        else await deleteGateRule(this.db, evt.uri.toString())
       } else if (evt.collection === NFT_AVATAR_COLLECTION) {
         const row = nftAvatarRowFromRecord(
           evt.uri.toString(),
@@ -120,12 +136,15 @@ export class FirehoseIndexer {
         await deleteTip(this.db, evt.uri.toString())
       } else if (evt.collection === NFT_AVATAR_COLLECTION) {
         await deleteNftAvatar(this.db, evt.did)
+      } else if (evt.collection === GATE_RULE_COLLECTION) {
+        await deleteGateRule(this.db, evt.uri.toString())
       }
     } else if (evt.event === 'account') {
       if (evt.status === 'deleted') {
         await deleteWalletsForDid(this.db, evt.did)
         await deleteTipsForDid(this.db, evt.did)
         await deleteNftAvatar(this.db, evt.did)
+        await deleteGateDataForDid(this.db, evt.did)
       }
     }
     await this.setCursor(evt.seq)

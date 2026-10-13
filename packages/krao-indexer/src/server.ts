@@ -1,9 +1,23 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { InvalidRequestError, createServer } from '@atproto/xrpc-server'
+import { AtUri } from '@atproto/syntax'
+import {
+  AuthRequiredError,
+  ForbiddenError,
+  InvalidRequestError,
+  createServer,
+  verifyJwt,
+} from '@atproto/xrpc-server'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
+import {
+  getGatedContent,
+  getRulesForSubjects,
+  isEligible,
+  putGatedContent,
+  subjectsWithContent,
+} from './gate.js'
 import { io } from './lexicons/index.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
@@ -26,15 +40,125 @@ type WalletView = io.krao.actor.defs.WalletView
 type NftAvatarView = io.krao.actor.defs.NftAvatarView
 type Badge = io.krao.actor.defs.Badge
 type TipView = io.krao.feed.defs.TipView
+type RuleView = io.krao.gate.defs.RuleView
 
 export function createApp(
   db: Database,
   rpcs: Map<string, EvmRpc>,
   idResolver: IdResolver,
-  handleResolverUrl?: string,
-  appviewUrl?: string,
+  opts: {
+    handleResolverUrl?: string
+    appviewUrl?: string
+    /** Audience that service auth tokens for gate methods must name */
+    gateDid: string
+  },
 ): Express {
+  const { handleResolverUrl, appviewUrl, gateDid } = opts
   const server = createServer([], {})
+
+  /*
+   * Gate methods use atproto service auth: the client asks its PDS for a
+   * short-lived JWT (com.atproto.server.getServiceAuth) signed with the
+   * account's key, addressed to this service and method.
+   */
+  const serviceAuth =
+    (lxm: string) =>
+    async ({ req }: { req: express.Request }) => {
+      const header = req.headers.authorization ?? ''
+      if (!header.startsWith('Bearer ')) {
+        throw new AuthRequiredError('Service auth token required')
+      }
+      const payload = await verifyJwt(
+        header.slice('Bearer '.length),
+        gateDid,
+        lxm,
+        (iss, forceRefresh) =>
+          idResolver.did.resolveAtprotoKey(iss.split('#')[0], forceRefresh),
+      )
+      return { credentials: { did: payload.iss.split('#')[0] } }
+    }
+
+  server.add(io.krao.gate.getRules, async ({ params }) => {
+    const rules = await getRulesForSubjects(db, params.uris)
+    const withContent = await subjectsWithContent(
+      db,
+      rules.map((r) => r.subject),
+    )
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        rules: rules.map((rule): RuleView => ({
+          uri: rule.uri as RuleView['uri'],
+          subject: rule.subject as RuleView['subject'],
+          conditions: JSON.parse(rule.conditions),
+          match: rule.match,
+          service: rule.service as RuleView['service'],
+          hasContent: withContent.has(rule.subject),
+        })),
+      },
+    }
+  })
+
+  server.add(io.krao.gate.getContent, {
+    auth: serviceAuth(io.krao.gate.getContent.$lxm),
+    handler: async ({ params, auth }) => {
+      const viewer = (auth.credentials as { did: string }).did
+      const [rule] = await getRulesForSubjects(db, [params.uri])
+      const content = await getGatedContent(db, params.uri)
+      if (!rule || !content) {
+        throw new InvalidRequestError(
+          'No gated content for this post',
+          'NotFound',
+        )
+      }
+      if (!(await isEligible(db, rpcs, rule, viewer))) {
+        throw new ForbiddenError(
+          'Your linked wallets do not meet the conditions of this post',
+          'NotEligible',
+        )
+      }
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          uri: params.uri,
+          text: content.text,
+          facets: content.facets ? JSON.parse(content.facets) : undefined,
+        },
+      }
+    },
+  })
+
+  server.add(io.krao.gate.putContent, {
+    auth: serviceAuth(io.krao.gate.putContent.$lxm),
+    handler: async ({ input, auth }) => {
+      const caller = (auth.credentials as { did: string }).did
+      const body = input.body
+      let author: string
+      try {
+        author = new AtUri(body.uri).host
+      } catch {
+        throw new InvalidRequestError('Invalid post uri')
+      }
+      if (author !== caller) {
+        throw new ForbiddenError(
+          'Only the author can set gated content',
+          'NotAuthor',
+        )
+      }
+      if (body.media?.length) {
+        throw new InvalidRequestError('Gated media is not supported yet')
+      }
+      if (!body.text?.trim()) {
+        throw new InvalidRequestError('Gated text is required')
+      }
+      await putGatedContent(db, {
+        subject: body.uri,
+        did: caller,
+        text: body.text,
+        facets: body.facets,
+      })
+    },
+  })
 
   server.add(io.krao.actor.getChainProfiles, async ({ params }) => {
     const dids = await resolveActors(

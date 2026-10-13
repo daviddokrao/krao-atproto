@@ -11,6 +11,7 @@ export * from './wallets.js'
 export * from './tips.js'
 export * from './chain.js'
 export * from './nft.js'
+export * from './gate.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -30,6 +31,8 @@ export type KraoIndexerConfig = {
   rpcUrls?: Record<string, string>
   /** AppView used to hydrate tip senders' profiles */
   appviewUrl?: string
+  /** DID this service answers to as a gate service (service auth audience) */
+  gateDid?: string
   /** How often verified NFT avatars are re-checked on-chain (default 10m) */
   nftRecheckMs?: number
 }
@@ -69,7 +72,11 @@ export class KraoIndexer {
       cfg,
       db,
       indexer,
-      createApp(db, rpcs, idResolver, cfg.handleResolverUrl, cfg.appviewUrl),
+      createApp(db, rpcs, idResolver, {
+        handleResolverUrl: cfg.handleResolverUrl,
+        appviewUrl: cfg.appviewUrl,
+        gateDid: cfg.gateDid ?? 'did:web:gate.krao.io',
+      }),
     )
   }
 
