@@ -30,6 +30,7 @@ import {
 import {
   listTips,
   tipTotals,
+  tipTotalsForSubjects,
   verifiedTipCounts,
   verifiedTipsSentCounts,
 } from './tips.js'
@@ -311,6 +312,16 @@ export function createApp(
         tips,
         totals,
         cursor: rows.length === limit ? rows.at(-1)?.createdAt : undefined,
+      },
+    }
+  })
+
+  server.add(io.krao.feed.getTipTotals, async ({ params }) => {
+    const subjects = await tipTotalsForSubjects(db, params.subjects)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        subjects: subjects as io.krao.feed.getTipTotals.SubjectTotals[],
       },
     }
   })
