@@ -747,6 +747,9 @@ importers:
       '@krao/indexer':
         specifier: workspace:^
         version: link:../krao-indexer
+      '@krao/video':
+        specifier: workspace:^
+        version: link:../krao-video
       express:
         specifier: ^4.18.2
         version: 4.18.2
@@ -1073,6 +1076,34 @@ importers:
       jest:
         specifier: ^30.5.2
         version: 30.5.2(@types/node@22.20.4)(babel-plugin-macros@3.1.0)(ts-node@10.8.2(@swc/core@1.16.2)(@types/node@22.20.4)(@typescript/typescript6@6.0.2))
+
+  packages/krao-video:
+    dependencies:
+      '@atproto/identity':
+        specifier: workspace:^
+        version: link:../identity
+      '@atproto/lex':
+        specifier: workspace:^
+        version: link:../lex/lex
+      '@atproto/syntax':
+        specifier: workspace:^
+        version: link:../syntax
+      '@atproto/xrpc-server':
+        specifier: workspace:^
+        version: link:../xrpc-server
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      express:
+        specifier: ^4.17.2
+        version: 4.18.2
+    devDependencies:
+      '@types/cors':
+        specifier: ^2.8.12
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.13
+        version: 4.17.21
 
   packages/krao-wallet:
     dependencies:

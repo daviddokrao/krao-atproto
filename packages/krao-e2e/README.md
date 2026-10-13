@@ -15,11 +15,13 @@ exit non-zero on any failure.
 | `link-preview.mjs`  | —         | Link previews and image proxy, SSRF guards (needs internet)           |
 | `gifs.mjs`          | —         | GIF media relay and search (needs internet; search needs a Klipy key) |
 | `starter-packs.mjs` | —         | Short links and starter pack share cards                              |
+| `video.mjs`         | —         | Multipart video upload, processing, PDS blob, HLS playback (ffmpeg)   |
 
 ## Prerequisites
 
 1. Dev-env running: `make run-dev-env` (PDS :2583, AppView :2584, Krao
-   indexer/gate :2589).
+   indexer/gate :2589, Krao video :2591). The video service and `video.mjs`
+   need `ffmpeg` and `ffprobe` on the PATH.
 2. Seeded accounts: `node scripts/seed-local.mjs` from the Krao-Network root,
    after **every** dev-env start (it wipes data).
 3. Anvil Base fork on :8545 (`docker start krao-anvil`, chain id 8453).
@@ -37,7 +39,7 @@ node packages/krao-e2e/tip.mjs          # a single script
 ```
 
 Override endpoints with `KRAO_PDS_URL`, `KRAO_INDEXER_URL`, `KRAO_GATE_URL`,
-`KRAO_GATE_DID` and `KRAO_RPC_URL`.
+`KRAO_GATE_DID`, `KRAO_VIDEO_URL`, `KRAO_VIDEO_DID` and `KRAO_RPC_URL`.
 
 The scripts use Anvil's publicly known dev keys and write test records to the
 dev accounts; never point them at a real chain or a production PDS.

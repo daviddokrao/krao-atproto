@@ -1,11 +1,16 @@
+import { mkdtemp } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
 import { KraoIndexer } from '@krao/indexer'
+import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
 
 const KRAO_INDEXER_PORT = 2589
+const KRAO_VIDEO_PORT = 2591
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -13,6 +18,10 @@ const KRAO_INDEXER_PORT = 2589
  * localhost. The services still reach each other on localhost.
  */
 const PDS_HOSTNAME = process.env.KRAO_DEV_PDS_HOSTNAME || 'localhost'
+
+/** Public URL of the Krao video service, where the AppView points players */
+const VIDEO_URL =
+  process.env.KRAO_DEV_VIDEO_URL || `http://localhost:${KRAO_VIDEO_PORT}`
 
 const run = async () => {
   console.log(`
@@ -36,12 +45,16 @@ const run = async () => {
        */
       enableDidDocWithSession: PDS_HOSTNAME === 'localhost',
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      // Videos are stored as blobs, up to the video service's limit
+      blobUploadLimit: 100 * 1024 * 1024,
     },
     bsky: {
       dbPostgresSchema: 'bsky',
       port: 2584,
       // Image and other public URLs the AppView hands out (see PDS_HOSTNAME)
       publicUrl: process.env.KRAO_DEV_APPVIEW_URL || 'http://localhost:2584',
+      videoPlaylistUrlPattern: `${VIDEO_URL}/watch/%s/%s/playlist.m3u8`,
+      videoThumbnailUrlPattern: `${VIDEO_URL}/watch/%s/%s/thumbnail.jpg`,
     },
     plc: { port: 2582 },
     ozone: {
@@ -99,6 +112,23 @@ const run = async () => {
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
+
+  // Krao video service: needs ffmpeg and ffprobe on the PATH
+  const kraoVideo = KraoVideo.create({
+    port: KRAO_VIDEO_PORT,
+    serviceDid: 'did:web:video.krao.test',
+    dataDir: await mkdtemp(path.join(os.tmpdir(), 'krao-video-')),
+    plcUrl: network.plc.url,
+    pdsUrls: [
+      network.pds.url,
+      ...(PDS_HOSTNAME === 'localhost'
+        ? []
+        : [`https://${PDS_HOSTNAME}=${network.pds.url}`]),
+    ],
+    insecureFetch: true,
+  })
+  await kraoVideo.start()
+  console.log(`🎬 Krao video service ${kraoVideo.url}`)
 
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
