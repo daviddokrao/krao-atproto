@@ -9,7 +9,11 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["code", "referralCount", "verifiedCount"],
+          "required": [
+            "code",
+            "referralCount",
+            "verifiedCount"
+          ],
           "properties": {
             "code": {
               "type": "string",
@@ -29,6 +33,14 @@
               "type": "integer",
               "minimum": 0,
               "description": "Referred accounts that have passed KYC."
+            },
+            "inviterPoints": {
+              "type": "integer",
+              "description": "What the rules on now give the referrer for a sign-up with a personal code. Absent when none."
+            },
+            "inviteePoints": {
+              "type": "integer",
+              "description": "What the rules on now give the new account for a sign-up with a personal code. Absent when none."
             }
           }
         }

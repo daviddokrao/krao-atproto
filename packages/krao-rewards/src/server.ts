@@ -174,7 +174,7 @@ export function createApp(opts: AppOptions): Express {
     handler: async ({ auth }) => {
       const viewer = did(auth)
       const code = await service.personalCode(viewer)
-      const [referral, counts] = await Promise.all([
+      const [referral, counts, points] = await Promise.all([
         service.db
           .selectFrom('referral')
           .select('referrerDid')
@@ -198,6 +198,7 @@ export function createApp(opts: AppOptions): Express {
           ])
           .where('referral.referrerDid', '=', viewer)
           .executeTakeFirstOrThrow(),
+        service.personalReferralPoints(),
       ])
       return json(
         clean({
@@ -205,6 +206,8 @@ export function createApp(opts: AppOptions): Express {
           invitedBy: referral?.referrerDid,
           referralCount: Number(counts.total ?? 0),
           verifiedCount: Number(counts.verified ?? 0),
+          inviterPoints: points.referrer || undefined,
+          inviteePoints: points.actor || undefined,
         }),
       )
     },
@@ -324,6 +327,18 @@ export function createApp(opts: AppOptions): Express {
 
   // Admin
   // -----
+
+  server.add(net.krao.rewards.getRoles, {
+    auth: userAuth,
+    handler: async ({ auth }) => {
+      const viewer = did(auth)
+      const roles = [
+        ...(isAdmin(viewer) ? ['admin'] : []),
+        ...(isReviewer(viewer) ? ['kyc_reviewer'] : []),
+      ]
+      return json({ roles })
+    },
+  })
 
   const admin = net.krao.rewards.admin
 
@@ -597,6 +612,26 @@ export function createApp(opts: AppOptions): Express {
       }
       service
         .recordReferral(did, code, createdAt)
+        .then(() => res.json({ ok: true }))
+        .catch(next)
+    },
+  )
+
+  /*
+   * Takedowns by moderators: the account's points are taken back and it
+   * earns nothing until the takedown is lifted
+   */
+  app.post(
+    '/internal/takedowns',
+    internalAuth,
+    jsonBody({ limit: '10kb' }),
+    (req, res, next) => {
+      const { did, applied } = req.body ?? {}
+      if (typeof did !== 'string' || !did.startsWith('did:')) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      ;(applied === false ? service.liftTakedown(did) : service.takeDown(did))
         .then(() => res.json({ ok: true }))
         .catch(next)
     },
