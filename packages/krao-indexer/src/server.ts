@@ -63,7 +63,7 @@ import {
   parseTokenId,
 } from './nft.js'
 import { cachedValue } from './cache.js'
-import { rateLimit } from './rate-limit.js'
+import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import {
@@ -167,10 +167,13 @@ export function createApp(
     }
   })
 
+  // Each check that fails costs on-chain calls and is never cached
+  const gateContentLimit = keyedLimit(60, 60_000)
   server.add(net.krao.gate.getContent, {
     auth: serviceAuth(net.krao.gate.getContent.$lxm),
     handler: async ({ params, auth, req }) => {
       const viewer = (auth.credentials as { did: string }).did
+      gateContentLimit(viewer)
       const [rule] = await getRulesForSubjects(db, [params.uri])
       const content = await getGatedContent(db, params.uri)
       if (!rule || !content) {

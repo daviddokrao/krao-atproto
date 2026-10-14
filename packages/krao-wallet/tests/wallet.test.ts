@@ -165,6 +165,24 @@ describe('verifyWalletProof', () => {
     ).toEqual({ ok: true })
   })
 
+  it('rejects a link message written by another site', () => {
+    const wallet = evmWallet()
+    for (const overrides of [
+      { domain: 'evil-dapp.example' },
+      { statement: 'Claim your airdrop.' },
+      { statement: undefined },
+    ]) {
+      const message = linkMessage({ address: wallet.address, ...overrides })
+      expect(
+        verifyWalletProof({
+          did: DID,
+          account: `eip155:8453:${wallet.address}`,
+          proof: { type: 'siwe', message, signature: wallet.sign(message) },
+        }).ok,
+      ).toBe(false)
+    }
+  })
+
   it('recovers the signer address', () => {
     const wallet = evmWallet()
     expect(recoverEvmAddress('hi', wallet.sign('hi'))).toBe(wallet.address)

@@ -76,8 +76,8 @@ const sameSecret = (a: string, b: string) => {
   return x.length === y.length && timingSafeEqual(x, y)
 }
 
-/** A small fixed window limit per client IP, for the public code check */
-function rateLimiter(perMinute: number) {
+/** A small fixed window limit per key (a client IP, an account) */
+function rateLimiter(limit: number, windowMs = 60_000) {
   const hits = new Map<string, { count: number; resetAt: number }>()
   return (key: string) => {
     const at = Date.now()
@@ -86,11 +86,11 @@ function rateLimiter(perMinute: number) {
       if (hits.size > 10_000) {
         for (const [k, v] of hits) if (v.resetAt <= at) hits.delete(k)
       }
-      hits.set(key, { count: 1, resetAt: at + 60_000 })
+      hits.set(key, { count: 1, resetAt: at + windowMs })
       return true
     }
     hit.count++
-    return hit.count <= perMinute
+    return hit.count <= limit
   }
 }
 
@@ -116,6 +116,8 @@ export function createApp(opts: AppOptions): Express {
   const isReviewer = (did: string) =>
     opts.adminDids.has(did) || opts.kycReviewerDids.has(did)
   const checkCodeLimit = rateLimiter(30)
+  // Each start is a call (and a cost) at the KYC provider
+  const kycStartLimit = rateLimiter(5, 60 * 60_000)
   const server = createServer([], {})
 
   /*
@@ -304,6 +306,15 @@ export function createApp(opts: AppOptions): Express {
     auth: userAuth,
     handler: async ({ auth }) => {
       const viewer = did(auth)
+      if (!kycStartLimit(viewer)) {
+        throw new XRPCError(
+          ResponseType.RateLimitExceeded,
+          'Too many verification attempts, try again later',
+        )
+      }
+      if (await service.isTakenDown(service.db, viewer)) {
+        throw new ForbiddenError('This account cannot be verified')
+      }
       if (!opts.kycProvider) {
         throw new InvalidRequestError(
           'Identity verification is not available yet',

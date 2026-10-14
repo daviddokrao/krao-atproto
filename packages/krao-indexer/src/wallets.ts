@@ -55,11 +55,31 @@ export function walletRowFromRecord(
   }
 }
 
+/** Verified wallets one account may have; more are marked invalid */
+export const MAX_WALLETS_PER_ACCOUNT = 10
+
 export async function upsertWallet(db: Database, row: WalletTable) {
+  if (row.status === 'verified') {
+    const others = await db
+      .selectFrom('wallet')
+      .select('account')
+      .distinct()
+      .where('did', '=', row.did)
+      .where('status', '=', 'verified')
+      .where('uri', '!=', row.uri)
+      .where('account', '!=', row.account)
+      .execute()
+    if (others.length >= MAX_WALLETS_PER_ACCOUNT) {
+      row = { ...row, status: 'invalid', reason: 'Too many linked wallets' }
+    }
+  }
+  // indexedAt stays the first time the link was seen: it decides which
+  // account owns a wallet linked by several (see ownedEvmAddresses)
+  const { indexedAt: _first, ...update } = row
   await db
     .insertInto('wallet')
     .values(row)
-    .onConflict((oc) => oc.column('uri').doUpdateSet(row))
+    .onConflict((oc) => oc.column('uri').doUpdateSet(update))
     .execute()
 }
 
@@ -111,17 +131,61 @@ function walletKey(row: WalletTable): string {
   return `${row.did} ${account}`
 }
 
-/** DIDs that have a verified link to the given wallet. */
+/**
+ * The account that owns the given wallet: of the accounts with a verified
+ * link to it, the first one seen. Anyone can link a wallet they control to
+ * several accounts; only one of them may sign in with it.
+ */
 export async function getWalletOwners(
   db: Database,
   accountId: string,
 ): Promise<string[]> {
-  const rows = await db
+  const row = await db
     .selectFrom('wallet')
     .select('did')
-    .distinct()
     .where('account', '=', normalizeAccountId(accountId))
     .where('status', '=', 'verified')
+    .orderBy('indexedAt', 'asc')
+    .orderBy('uri', 'asc')
+    .executeTakeFirst()
+  return row ? [row.did] : []
+}
+
+/**
+ * Lowercase EVM addresses `did` owns: verified links where no other account
+ * linked the same address first. EVM addresses are the same on every chain,
+ * so links on any eip155 chain count. One wallet then cannot open token
+ * gates, back NFT avatars or receive tips for many accounts at once.
+ */
+export async function ownedEvmAddresses(
+  db: Database,
+  did: string,
+): Promise<Set<string>> {
+  const mine = await db
+    .selectFrom('wallet')
+    .select('account')
+    .where('did', '=', did)
+    .where('status', '=', 'verified')
+    .where('account', 'like', 'eip155:%')
     .execute()
-  return rows.map((r) => r.did)
+  const addresses = [
+    ...new Set(mine.map((w) => w.account.split(':')[2]?.toLowerCase())),
+  ].filter((a): a is string => !!a)
+  if (!addresses.length) return new Set()
+  const links = await db
+    .selectFrom('wallet')
+    .select(['did', 'account', 'indexedAt', 'uri'])
+    .where('status', '=', 'verified')
+    .where((eb) =>
+      eb.or(addresses.map((a) => eb('account', 'like', `eip155:%:${a}`))),
+    )
+    .orderBy('indexedAt', 'asc')
+    .orderBy('uri', 'asc')
+    .execute()
+  const owner = new Map<string, string>()
+  for (const link of links) {
+    const address = link.account.split(':')[2]?.toLowerCase()
+    if (address && !owner.has(address)) owner.set(address, link.did)
+  }
+  return new Set(addresses.filter((a) => owner.get(a) === did))
 }

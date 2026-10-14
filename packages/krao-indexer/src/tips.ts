@@ -1,6 +1,7 @@
 import { parseAccountId } from '@krao/wallet'
 import { type EvmRpc, parseAssetId } from './chain.js'
 import type { Database, TipTable } from './db.js'
+import { ownedEvmAddresses } from './wallets.js'
 
 export const TIP_COLLECTION = 'net.krao.feed.tip'
 
@@ -202,17 +203,7 @@ function sameSender(
 }
 
 async function hasLinkedEvmWallet(db: Database, did: string, address: string) {
-  const wallets = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', did)
-    .where('status', '=', 'verified')
-    .execute()
-  return wallets.some(
-    (w) =>
-      w.account.startsWith('eip155:') &&
-      w.account.split(':')[2] === address.toLowerCase(),
-  )
+  return (await ownedEvmAddresses(db, did)).has(address.toLowerCase())
 }
 
 /** Pending tips among `uris` */

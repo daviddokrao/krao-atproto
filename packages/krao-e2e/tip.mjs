@@ -160,7 +160,8 @@ check(
 // 4. Someone else claims a transfer they did not send. They post first, so
 // the earliest-claim rule alone would not stop them.
 const thief = await login(ACCOUNTS.lan)
-const tw = wallet(ANVIL_KEYS[2])
+// A wallet of their own (fresh: test keys belong to other accounts)
+const tw = wallet()
 await linkWallet(thief, tw)
 const post2 = (
   await createRecord(recipient, 'app.bsky.feed.post', {

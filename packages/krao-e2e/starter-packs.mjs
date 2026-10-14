@@ -46,7 +46,14 @@ check(
   asBrowser.status === 302 && asBrowser.headers.get('location')?.endsWith(path),
   `${asBrowser.status} ${asBrowser.headers.get('location')}`,
 )
-for (const bad of ['//evil.example/x', 'https://evil.example/', '']) {
+for (const bad of [
+  '//evil.example/x',
+  'https://evil.example/',
+  '',
+  // URL parsing reads a backslash as a slash and drops tabs
+  '/' + String.fromCharCode(92) + 'evil.example',
+  '/' + String.fromCharCode(9) + '/evil.example',
+]) {
   const res = await shorten(bad)
   check(`"${bad}" cannot be shortened`, res.status === 400, String(res.status))
 }

@@ -1,6 +1,7 @@
 import type { EvmRpc } from './chain.js'
 import type { Database, NftAvatarTable } from './db.js'
 import { readLimited, safeFetch } from './safe-fetch.js'
+import { ownedEvmAddresses } from './wallets.js'
 
 export const NFT_AVATAR_COLLECTION = 'net.krao.actor.nftAvatar'
 
@@ -204,14 +205,12 @@ async function checkNftAvatar(
     return { status: 'invalid', reason: 'Wallet must be an EVM account' }
   }
 
-  const linked = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', row.did)
-    .where('status', '=', 'verified')
-    .execute()
-  if (!linked.some((w) => w.account.split(':')[2] === walletAddress)) {
-    return { status: 'invalid', reason: 'Wallet is not linked to the account' }
+  if (!(await ownedEvmAddresses(db, row.did)).has(walletAddress)) {
+    return {
+      status: 'invalid',
+      reason:
+        'Wallet is not linked to the account, or another account linked it first',
+    }
   }
 
   const rpc = rpcs.get(row.chain)
