@@ -18,7 +18,7 @@ export type KraoIndexerConfig = {
   port: number
   /** SQLite file, or ':memory:'. */
   dbLocation: string
-  /** Firehose to index, eg `wss://bsky.network` or a PDS `ws://` URL. */
+  /** Firehose to index, eg a PDS `wss://` URL or a relay. */
   firehoseUrl: string
   plcUrl: string
   /**

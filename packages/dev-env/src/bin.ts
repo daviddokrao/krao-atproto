@@ -50,8 +50,10 @@ const run = async () => {
       // Videos are stored as blobs, up to the video service's limit
       blobUploadLimit: 100 * 1024 * 1024,
       // Shown on the sign-up screen (describeServer)
+      homeUrl: 'https://krao.net/',
       termsOfServiceUrl: 'https://krao.net/terms',
       privacyPolicyUrl: 'https://krao.net/privacy',
+      supportUrl: 'https://krao.net/support',
     },
     bsky: {
       dbPostgresSchema: 'bsky',
@@ -65,7 +67,8 @@ const run = async () => {
     ozone: {
       port: 2587,
       chatUrl: 'http://localhost:2590', // must run separate chat service
-      chatDid: 'did:example:chat',
+      // The Krao chat service's DID, fixed by its key (created below)
+      chatDid: 'did:plc:gpiadqebr3yazrys6dw4gvfi',
       dbMaterializedViewRefreshIntervalMs: 30_000,
     },
     introspect: { port: 2581 },
