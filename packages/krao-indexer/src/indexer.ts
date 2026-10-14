@@ -4,12 +4,17 @@ import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
   FEED_GENERATOR_COLLECTION,
+  LIKE_COLLECTION,
   POST_COLLECTION,
+  REPOST_COLLECTION,
   deleteFeedDataForDid,
   deleteFeedGenerator,
+  deleteFeedInteraction,
   deleteFeedPost,
+  feedInteractionRowFromRecord,
   feedPostRowFromRecord,
   upsertFeedGenerator,
+  upsertFeedInteraction,
   upsertFeedPost,
 } from './feed.js'
 import {
@@ -79,7 +84,14 @@ export class FirehoseIndexer {
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
         GATE_RULE_COLLECTION,
-        ...(feed.did ? [POST_COLLECTION, FEED_GENERATOR_COLLECTION] : []),
+        ...(feed.did
+          ? [
+              POST_COLLECTION,
+              FEED_GENERATOR_COLLECTION,
+              LIKE_COLLECTION,
+              REPOST_COLLECTION,
+            ]
+          : []),
       ],
       excludeIdentity: true,
       excludeSync: true,
@@ -160,6 +172,19 @@ export class FirehoseIndexer {
           )
           if (row) await upsertFeedPost(this.db, row)
         }
+      } else if (
+        evt.collection === LIKE_COLLECTION ||
+        evt.collection === REPOST_COLLECTION
+      ) {
+        if (await this.isFeedAuthor(evt.did)) {
+          const row = feedInteractionRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.collection,
+            evt.record,
+          )
+          if (row) await upsertFeedInteraction(this.db, row)
+        }
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
         if (record.did === this.feed.did) {
@@ -183,6 +208,11 @@ export class FirehoseIndexer {
         await deleteGateRule(this.db, evt.uri.toString())
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
+      } else if (
+        evt.collection === LIKE_COLLECTION ||
+        evt.collection === REPOST_COLLECTION
+      ) {
+        await deleteFeedInteraction(this.db, evt.uri.toString())
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         await deleteFeedGenerator(this.db, evt.uri.toString())
       }

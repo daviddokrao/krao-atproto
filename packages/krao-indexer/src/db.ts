@@ -100,6 +100,15 @@ export interface FeedPostTable {
   indexedAt: string
 }
 
+/** A like or repost of a post, counted by the "popular" feed */
+export interface FeedInteractionTable {
+  uri: string
+  did: string
+  subject: string
+  kind: 'like' | 'repost'
+  indexedAt: string
+}
+
 /** A feed generator record that names this service */
 export interface FeedGeneratorTable {
   uri: string
@@ -119,6 +128,7 @@ export interface DatabaseSchema {
   nft_avatar: NftAvatarTable
   gate_rule: GateRuleTable
   feed_post: FeedPostTable
+  feed_interaction: FeedInteractionTable
   feed_generator: FeedGeneratorTable
   short_link: ShortLinkTable
   gated_content: GatedContentTable
@@ -242,6 +252,21 @@ export async function migrateDb(db: Database): Promise<void> {
     db,
   )
   await sql`create index if not exists feed_post_did_idx on feed_post (did)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_interaction')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('subject', 'varchar', (col) => col.notNull())
+    .addColumn('kind', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists feed_interaction_subject_idx on feed_interaction (subject)`.execute(
+    db,
+  )
+  await sql`create index if not exists feed_interaction_did_idx on feed_interaction (did)`.execute(
     db,
   )
   await db.schema

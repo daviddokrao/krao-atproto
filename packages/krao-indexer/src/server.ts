@@ -11,7 +11,12 @@ import {
 } from '@atproto/xrpc-server'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
-import { getLatestPosts, listFeedGenerators } from './feed.js'
+import {
+  POPULAR_FEED_RKEY,
+  getLatestPosts,
+  getPopularPosts,
+  listFeedGenerators,
+} from './feed.js'
 import {
   getGatedContent,
   getRulesForSubjects,
@@ -337,7 +342,7 @@ export function createApp(
   })
 
   /*
-   * Feed generator for Krao's "latest" feed. AppViews call it with service
+   * Feed generator for Krao's "latest" and "popular" feeds. AppViews call it with service
    * auth, but the feed is the same for everyone so the token is not checked.
    */
   if (feedGenDid) {
@@ -356,7 +361,12 @@ export function createApp(
       if (!feeds.includes(params.feed)) {
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
-      const { posts, cursor } = await getLatestPosts(
+      // The record's rkey picks the ranking: "popular", else newest first
+      const rank =
+        params.feed.split('/').pop() === POPULAR_FEED_RKEY
+          ? getPopularPosts
+          : getLatestPosts
+      const { posts, cursor } = await rank(
         db,
         params.limit ?? 50,
         params.cursor,
