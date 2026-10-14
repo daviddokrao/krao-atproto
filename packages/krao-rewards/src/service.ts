@@ -165,6 +165,9 @@ export class RewardsService {
     const row = await this.getCode(db, code)
     if (!row) return { valid: false, reason: 'not_found' }
     if (row.disabled) return { valid: false, reason: 'disabled' }
+    if (row.ownerDid && (await this.isTakenDown(db, row.ownerDid))) {
+      return { valid: false, reason: 'disabled' }
+    }
     if (row.expiresAt && row.expiresAt <= now()) {
       return { valid: false, reason: 'expired' }
     }
@@ -371,6 +374,27 @@ export class RewardsService {
     return rows.map(toRule)
   }
 
+  /**
+   * What a sign-up with a personal code gives now, by beneficiary: the sum of
+   * the enabled account.created rules that apply to one
+   */
+  async personalReferralPoints() {
+    const at = now()
+    const totals = { referrer: 0, actor: 0 }
+    for (const rule of await this.listRules()) {
+      if (!rule.enabled || rule.event !== 'account.created') continue
+      if (rule.campaignId) continue
+      if (rule.codeKinds.length && !rule.codeKinds.includes('personal'))
+        continue
+      if (rule.validFrom && at < rule.validFrom) continue
+      if (rule.validUntil && at >= rule.validUntil) continue
+      if (rule.beneficiary === 'referrer' || rule.beneficiary === 'actor') {
+        totals[rule.beneficiary] += rule.amount
+      }
+    }
+    return totals
+  }
+
   async upsertRule(admin: string, input: RuleInput) {
     return this.db.transaction().execute(async (tx) => {
       const old = await tx
@@ -441,6 +465,8 @@ export class RewardsService {
       .onConflict((oc) => oc.doNothing())
       .executeTakeFirst()
     if (!Number(inserted.numInsertedOrUpdatedRows)) return
+    // A taken down account neither earns nor brings anyone points
+    if (await this.isTakenDown(tx, event.actorDid)) return
 
     const at = now()
     const rules = (
@@ -469,7 +495,7 @@ export class RewardsService {
       }
       if (rule.campaignId && rule.campaignId !== event.campaignId) continue
       const did = beneficiaries[rule.beneficiary]
-      if (!did) continue
+      if (!did || (await this.isTakenDown(tx, did))) continue
       // The other side of a referral, for kyc:related
       const relatedDid =
         rule.beneficiary === 'actor' ? event.referrerDid : event.actorDid
@@ -654,7 +680,16 @@ export class RewardsService {
         .updateTable('points_entry')
         .set({ status: 'void', decidedAt: at, note })
         .where('status', '=', 'pending')
-        .where((eb) => eb.or([eb('did', '=', did), eb('relatedDid', '=', did)]))
+        .where((eb) =>
+          eb.or([
+            eb('did', '=', did),
+            // Others' points that wait for this account's KYC
+            eb.and([
+              eb('relatedDid', '=', did),
+              eb('vesting', 'like', '%kyc:related%'),
+            ]),
+          ]),
+        )
         .executeTakeFirst()
       const approved = await tx
         .selectFrom('points_entry')
@@ -702,6 +737,48 @@ export class RewardsService {
       return counts
     }
     return tx ? run(tx) : this.db.transaction().execute(run)
+  }
+
+  // Takedowns
+  // ---------
+
+  async isTakenDown(db: Db, did: string) {
+    return !!(await db
+      .selectFrom('taken_down')
+      .select('did')
+      .where('did', '=', did)
+      .executeTakeFirst())
+  }
+
+  /**
+   * A moderator took the account down: its points are taken back, and it
+   * earns nothing (its codes stop working) until the takedown is lifted
+   */
+  async takeDown(did: string) {
+    await this.db.transaction().execute(async (tx) => {
+      await tx
+        .insertInto('taken_down')
+        .values({ did, createdAt: now() })
+        .onConflict((oc) => oc.doNothing())
+        .execute()
+      await this.revokePoints('system', did, 'The account was taken down', tx)
+    })
+  }
+
+  /**
+   * The takedown was lifted: the account can earn again. Points taken back
+   * stay taken back; admins restore them by hand if the takedown was wrong.
+   */
+  async liftTakedown(did: string) {
+    await this.db.transaction().execute(async (tx) => {
+      const lifted = await tx
+        .deleteFrom('taken_down')
+        .where('did', '=', did)
+        .executeTakeFirst()
+      if (Number(lifted.numDeletedRows)) {
+        await this.audit(tx, 'system', 'takedown.lift', did)
+      }
+    })
   }
 
   // KYC

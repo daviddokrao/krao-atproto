@@ -8,7 +8,8 @@ import type { AccountDb } from '../db/index.js'
  * Krao referral codes. With a Krao rewards service configured, the invite
  * code of a sign-up is a referral code that the service checks; the PDS's own
  * invite_code table is not used. Each sign-up is written to an outbox in the
- * account's transaction and reported to the service from there.
+ * account's transaction and reported to the service from there. Takedowns
+ * are reported the same way, so the service can take back their points.
  */
 
 const RETRY_MS = 30_000
@@ -94,66 +95,138 @@ export class KraoReferral {
     })
   }
 
-  /** Reports undelivered sign-ups to the rewards service */
+  /** Must run in the transaction that takes the account down or lifts it */
+  async recordTakedown(dbTxn: AccountDb, did: string, applied: boolean) {
+    dbTxn.assertTransaction()
+    await dbTxn.db
+      .insertInto('krao_takedown_outbox')
+      .values({
+        did,
+        applied: applied ? 1 : 0,
+        createdAt: currentDatetimeString(),
+        attempts: 0,
+        lastError: null,
+        deliveredAt: null,
+      })
+      .execute()
+  }
+
+  private async post(path: string, body: unknown) {
+    const res = await fetch(new URL(path, this.cfg.url), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.cfg.token}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  }
+
+  /** Reports undelivered sign-ups, then takedowns, to the rewards service */
   async deliver() {
     if (this.delivering) return
     this.delivering = true
     try {
-      const rows = await this.db.db
-        .selectFrom('krao_referral_outbox')
-        .selectAll()
-        .where('deliveredAt', 'is', null)
-        .where(
-          'createdAt',
-          '<=',
-          new Date(Date.now() - SETTLE_MS).toISOString(),
-        )
-        .orderBy('createdAt')
-        .limit(BATCH)
-        .execute()
-      for (const row of rows) {
-        try {
-          const res = await fetch(
-            new URL('/internal/referrals', this.cfg.url),
-            {
-              method: 'POST',
-              headers: {
-                'content-type': 'application/json',
-                authorization: `Bearer ${this.cfg.token}`,
-              },
-              body: JSON.stringify({
-                did: row.did,
-                code: row.code,
-                createdAt: row.createdAt,
-              }),
-              signal: AbortSignal.timeout(TIMEOUT_MS),
-            },
-          )
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          await this.db.db
-            .updateTable('krao_referral_outbox')
-            .set({ deliveredAt: currentDatetimeString(), lastError: null })
-            .where('did', '=', row.did)
-            .execute()
-        } catch (err) {
-          await this.db.db
-            .updateTable('krao_referral_outbox')
-            .set({
-              attempts: row.attempts + 1,
-              lastError: String(err).slice(0, 500),
-            })
-            .where('did', '=', row.did)
-            .execute()
-          pdsLogger.warn(
-            { err, did: row.did },
-            'krao referral delivery failed, will retry',
-          )
-          // The service is likely down: try the rest on the next round
-          break
-        }
-      }
+      if (await this.deliverSignups()) await this.deliverTakedowns()
     } finally {
       this.delivering = false
+    }
+  }
+
+  /** Whether every due sign-up was delivered */
+  private async deliverSignups() {
+    const rows = await this.db.db
+      .selectFrom('krao_referral_outbox')
+      .selectAll()
+      .where('deliveredAt', 'is', null)
+      .where('createdAt', '<=', new Date(Date.now() - SETTLE_MS).toISOString())
+      .orderBy('createdAt')
+      .limit(BATCH)
+      .execute()
+    for (const row of rows) {
+      try {
+        await this.post('/internal/referrals', {
+          did: row.did,
+          code: row.code,
+          createdAt: row.createdAt,
+        })
+        await this.db.db
+          .updateTable('krao_referral_outbox')
+          .set({ deliveredAt: currentDatetimeString(), lastError: null })
+          .where('did', '=', row.did)
+          .execute()
+      } catch (err) {
+        await this.db.db
+          .updateTable('krao_referral_outbox')
+          .set({
+            attempts: row.attempts + 1,
+            lastError: String(err).slice(0, 500),
+          })
+          .where('did', '=', row.did)
+          .execute()
+        pdsLogger.warn(
+          { err, did: row.did },
+          'krao referral delivery failed, will retry',
+        )
+        // The service is likely down: try the rest on the next round
+        return false
+      }
+    }
+    return true
+  }
+
+  private async deliverTakedowns() {
+    const rows = await this.db.db
+      .selectFrom('krao_takedown_outbox')
+      .selectAll()
+      .where('deliveredAt', 'is', null)
+      // After the account's sign-up, so its points exist to take back
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('krao_referral_outbox')
+              .select('did')
+              .whereRef(
+                'krao_referral_outbox.did',
+                '=',
+                'krao_takedown_outbox.did',
+              )
+              .where('krao_referral_outbox.deliveredAt', 'is', null),
+          ),
+        ),
+      )
+      .orderBy('id')
+      .limit(BATCH)
+      .execute()
+    for (const row of rows) {
+      try {
+        await this.post('/internal/takedowns', {
+          did: row.did,
+          applied: row.applied === 1,
+        })
+        await this.db.db
+          .updateTable('krao_takedown_outbox')
+          .set({ deliveredAt: currentDatetimeString(), lastError: null })
+          .where('id', '=', row.id)
+          .execute()
+      } catch (err) {
+        await this.db.db
+          .updateTable('krao_takedown_outbox')
+          .set({
+            attempts: row.attempts + 1,
+            lastError: String(err).slice(0, 500),
+          })
+          .where('id', '=', row.id)
+          .execute()
+        pdsLogger.warn(
+          { err, did: row.did },
+          'krao takedown delivery failed, will retry',
+        )
+        return
+      }
     }
   }
 }

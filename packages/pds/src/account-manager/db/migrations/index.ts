@@ -8,6 +8,7 @@ import * as mig007 from './007-lexicon-failures-index.js'
 import * as mig008 from './008-account-email-auth-factor.js'
 import * as mig009 from './009-wallet-challenge.js'
 import * as mig010 from './010-krao-referral-outbox.js'
+import * as mig011 from './011-krao-takedown-outbox.js'
 
 export default {
   '001': mig001,
@@ -20,4 +21,5 @@ export default {
   '008': mig008,
   '009': mig009,
   '010': mig010,
+  '011': mig011,
 }
