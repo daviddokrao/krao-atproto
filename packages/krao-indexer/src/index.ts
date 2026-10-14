@@ -41,7 +41,7 @@ export type KraoIndexerConfig = {
    * `#bsky_fg`). Set to serve Krao's "latest" feed.
    */
   feedGenDid?: string
-  /** Krao's web app, where short links lead (default https://krao.io) */
+  /** Krao's web app, where short links lead (default https://krao.net) */
   webUrl?: string
   /** Klipy API key for GIF search (GIF media is relayed without one) */
   klipyApiKey?: string
@@ -90,7 +90,7 @@ export class KraoIndexer {
       createApp(db, rpcs, idResolver, {
         handleResolverUrl: cfg.handleResolverUrl,
         appviewUrl: cfg.appviewUrl,
-        gateDid: cfg.gateDid ?? 'did:web:gate.krao.io',
+        gateDid: cfg.gateDid ?? 'did:web:gate.krao.net',
         feedGenDid: cfg.feedGenDid,
         publicUrl: cfg.publicUrl,
         klipyApiKey: cfg.klipyApiKey,

@@ -25,12 +25,12 @@ const CHAIN = 'eip155:8453'
 const { check, done } = checker()
 const profileOf = async (actor) =>
   (
-    await xrpc(INDEXER, 'io.krao.actor.getChainProfiles', {
+    await xrpc(INDEXER, 'net.krao.actor.getChainProfiles', {
       query: { actors: actor },
     })
   ).data.profiles?.[0]
 const resolveHello = () =>
-  xrpc(INDEXER, 'io.krao.actor.resolveNft', {
+  xrpc(INDEXER, 'net.krao.actor.resolveNft', {
     query: { chain: CHAIN, contract: BASENAMES, tokenId: HELLO_ID.toString() },
   })
 
@@ -72,7 +72,7 @@ check(
   resolved.data.collectionName === 'Basenames',
   resolved.data.collectionName,
 )
-const missing = await xrpc(INDEXER, 'io.krao.actor.resolveNft', {
+const missing = await xrpc(INDEXER, 'net.krao.actor.resolveNft', {
   query: { chain: CHAIN, contract: BASENAMES, tokenId: '1' },
 })
 check(
@@ -93,7 +93,7 @@ const nftRecord = {
   wallet: dev.account,
   createdAt: new Date().toISOString(),
 }
-const put = await putRecord(s, 'io.krao.actor.nftAvatar', 'self', nftRecord)
+const put = await putRecord(s, 'net.krao.actor.nftAvatar', 'self', nftRecord)
 check('nftAvatar record accepted by PDS', put.ok, put.data.error)
 await sleep(3000)
 const p = await profileOf('krao.test')
@@ -114,7 +114,7 @@ check(
 )
 
 // 3. alice.test claims the NFT without having linked the owning wallet
-await putRecord(alice, 'io.krao.actor.nftAvatar', 'self', nftRecord)
+await putRecord(alice, 'net.krao.actor.nftAvatar', 'self', nftRecord)
 await sleep(3000)
 const ap = await profileOf('alice.test')
 check(
@@ -143,7 +143,7 @@ check(
 
 // Clean up: NFT back to the dev wallet, test records removed
 await transferNft(other.address, dev.address)
-const avatarUri = (did) => `at://${did}/io.krao.actor.nftAvatar/self`
+const avatarUri = (did) => `at://${did}/net.krao.actor.nftAvatar/self`
 await deleteRecord(s, avatarUri(s.did))
 await deleteRecord(alice, avatarUri(alice.did))
 if (linked.ok) await deleteRecord(s, linked.data.uri)

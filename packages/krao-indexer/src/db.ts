@@ -63,7 +63,7 @@ export interface NftAvatarTable {
 }
 
 export interface GateRuleTable {
-  /** URI of the io.krao.gate.rule record */
+  /** URI of the net.krao.gate.rule record */
   uri: string
   /** Author; always the repo of the gated post */
   did: string

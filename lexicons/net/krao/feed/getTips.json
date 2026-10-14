@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.feed.getTips",
+  "id": "net.krao.feed.getTips",
   "defs": {
     "main": {
       "type": "query",
@@ -35,11 +35,11 @@
           "properties": {
             "tips": {
               "type": "array",
-              "items": { "type": "ref", "ref": "io.krao.feed.defs#tipView" }
+              "items": { "type": "ref", "ref": "net.krao.feed.defs#tipView" }
             },
             "totals": {
               "type": "array",
-              "items": { "type": "ref", "ref": "io.krao.feed.defs#tipTotal" }
+              "items": { "type": "ref", "ref": "net.krao.feed.defs#tipTotal" }
             },
             "cursor": { "type": "string" }
           }

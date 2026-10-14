@@ -18,54 +18,54 @@ function isValid(collection: string, record: Record<string, unknown>) {
   }
 }
 
-describe('io.krao lexicons', () => {
+describe('net.krao lexicons', () => {
   it('registers every Krao schema', () => {
     for (const id of [
-      'io.krao.chain.defs',
-      'io.krao.actor.wallet',
-      'io.krao.actor.nftAvatar',
-      'io.krao.actor.defs',
-      'io.krao.actor.getChainProfiles',
-      'io.krao.feed.tip',
-      'io.krao.feed.defs',
-      'io.krao.feed.getTips',
-      'io.krao.gate.rule',
-      'io.krao.gate.defs',
-      'io.krao.gate.getContent',
-      'io.krao.gate.putContent',
-      'io.krao.gate.uploadMedia',
-      'io.krao.server.getWalletChallenge',
-      'io.krao.server.createWalletSession',
+      'net.krao.chain.defs',
+      'net.krao.actor.wallet',
+      'net.krao.actor.nftAvatar',
+      'net.krao.actor.defs',
+      'net.krao.actor.getChainProfiles',
+      'net.krao.feed.tip',
+      'net.krao.feed.defs',
+      'net.krao.feed.getTips',
+      'net.krao.gate.rule',
+      'net.krao.gate.defs',
+      'net.krao.gate.getContent',
+      'net.krao.gate.putContent',
+      'net.krao.gate.uploadMedia',
+      'net.krao.server.getWalletChallenge',
+      'net.krao.server.createWalletSession',
     ]) {
       expect(lexicons.get(id)).toBeDefined()
     }
   })
 
-  describe('io.krao.actor.wallet', () => {
+  describe('net.krao.actor.wallet', () => {
     const wallet = {
       account: EVM_ACCOUNT,
       proof: {
         type: 'siwe',
-        message: `krao.io wants you to sign in with your Ethereum account:\n0xab16...\n\nURI: ${DID}`,
+        message: `krao.net wants you to sign in with your Ethereum account:\n0xab16...\n\nURI: ${DID}`,
         signature: '0x' + 'ab'.repeat(65),
       },
       createdAt,
     }
 
     it('accepts a linked wallet with a proof', () => {
-      expect(isValid('io.krao.actor.wallet', wallet)).toBe(true)
+      expect(isValid('net.krao.actor.wallet', wallet)).toBe(true)
     })
 
     it('rejects a wallet without a proof', () => {
       const { proof: _proof, ...withoutProof } = wallet
-      expect(isValid('io.krao.actor.wallet', withoutProof)).toBe(false)
+      expect(isValid('net.krao.actor.wallet', withoutProof)).toBe(false)
     })
   })
 
-  describe('io.krao.actor.nftAvatar', () => {
+  describe('net.krao.actor.nftAvatar', () => {
     it('accepts an NFT held by a linked wallet', () => {
       expect(
-        isValid('io.krao.actor.nftAvatar', {
+        isValid('net.krao.actor.nftAvatar', {
           nft: {
             chain: 'eip155:1',
             contract: '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d',
@@ -80,7 +80,7 @@ describe('io.krao lexicons', () => {
 
     it('rejects an NFT without a token ID', () => {
       expect(
-        isValid('io.krao.actor.nftAvatar', {
+        isValid('net.krao.actor.nftAvatar', {
           nft: { chain: 'eip155:1', contract: '0xbc4c' },
           wallet: EVM_ACCOUNT,
           createdAt,
@@ -89,7 +89,7 @@ describe('io.krao lexicons', () => {
     })
   })
 
-  describe('io.krao.feed.tip', () => {
+  describe('net.krao.feed.tip', () => {
     const tip = {
       recipient: DID,
       subject: POST_REF,
@@ -100,59 +100,59 @@ describe('io.krao lexicons', () => {
     }
 
     it('accepts a tip on a post', () => {
-      expect(isValid('io.krao.feed.tip', tip)).toBe(true)
+      expect(isValid('net.krao.feed.tip', tip)).toBe(true)
     })
 
     it('accepts a tip to an account without a post', () => {
       const { subject: _subject, ...accountTip } = tip
-      expect(isValid('io.krao.feed.tip', accountTip)).toBe(true)
+      expect(isValid('net.krao.feed.tip', accountTip)).toBe(true)
     })
 
     it('rejects a tip without a transaction hash', () => {
       const { txHash: _txHash, ...noTx } = tip
-      expect(isValid('io.krao.feed.tip', noTx)).toBe(false)
+      expect(isValid('net.krao.feed.tip', noTx)).toBe(false)
     })
 
     it('rejects a non-DID recipient', () => {
       expect(
-        isValid('io.krao.feed.tip', { ...tip, recipient: 'alice.test' }),
+        isValid('net.krao.feed.tip', { ...tip, recipient: 'alice.test' }),
       ).toBe(false)
     })
   })
 
-  describe('io.krao.gate.rule', () => {
+  describe('net.krao.gate.rule', () => {
     const rule = {
       subject: POST_REF,
       conditions: [
         {
-          $type: 'io.krao.gate.defs#tokenBalance',
+          $type: 'net.krao.gate.defs#tokenBalance',
           asset: USDC_BASE,
           minAmount: '1000000',
         },
         {
-          $type: 'io.krao.gate.defs#nftHolding',
+          $type: 'net.krao.gate.defs#nftHolding',
           chain: 'eip155:1',
           contract: '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d',
         },
       ],
       match: 'any',
-      service: 'did:web:gate.krao.io',
+      service: 'did:web:gate.krao.net',
       createdAt,
     }
 
     it('accepts token and NFT conditions', () => {
-      expect(isValid('io.krao.gate.rule', rule)).toBe(true)
+      expect(isValid('net.krao.gate.rule', rule)).toBe(true)
     })
 
     it('rejects a rule with no conditions', () => {
-      expect(isValid('io.krao.gate.rule', { ...rule, conditions: [] })).toBe(
+      expect(isValid('net.krao.gate.rule', { ...rule, conditions: [] })).toBe(
         false,
       )
     })
 
     it('rejects more than five conditions', () => {
       const conditions = Array(6).fill(rule.conditions[0])
-      expect(isValid('io.krao.gate.rule', { ...rule, conditions })).toBe(false)
+      expect(isValid('net.krao.gate.rule', { ...rule, conditions })).toBe(false)
     })
   })
 })

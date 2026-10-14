@@ -3,19 +3,19 @@ import { type EvmRpc, parseAssetId } from './chain.js'
 import type { Database, GateRuleTable } from './db.js'
 import { erc1155BalanceOf, erc721OwnerOf, parseTokenId } from './nft.js'
 
-export const GATE_RULE_COLLECTION = 'io.krao.gate.rule'
+export const GATE_RULE_COLLECTION = 'net.krao.gate.rule'
 
 /** balanceOf(address): ERC-20 balance or ERC-721 token count */
 const BALANCE_OF = '0x70a08231'
 
 export type TokenBalanceCondition = {
-  $type: 'io.krao.gate.defs#tokenBalance'
+  $type: 'net.krao.gate.defs#tokenBalance'
   asset: string
   minAmount: string
 }
 
 export type NftHoldingCondition = {
-  $type: 'io.krao.gate.defs#nftHolding'
+  $type: 'net.krao.gate.defs#nftHolding'
   chain: string
   contract: string
   tokenId?: string
@@ -24,7 +24,7 @@ export type NftHoldingCondition = {
 export type GateCondition = TokenBalanceCondition | NftHoldingCondition
 
 /**
- * Turn an io.krao.gate.rule record into a row. Returns null when the rule
+ * Turn an net.krao.gate.rule record into a row. Returns null when the rule
  * points at a post in someone else's repo, which would let anyone gate
  * other people's posts.
  */
@@ -62,10 +62,10 @@ export function gateRuleRowFromRecord(
 
 function isCondition(c: unknown): c is GateCondition {
   const v = c as Record<string, unknown>
-  if (v?.$type === 'io.krao.gate.defs#tokenBalance') {
+  if (v?.$type === 'net.krao.gate.defs#tokenBalance') {
     return typeof v.asset === 'string' && typeof v.minAmount === 'string'
   }
-  if (v?.$type === 'io.krao.gate.defs#nftHolding') {
+  if (v?.$type === 'net.krao.gate.defs#nftHolding') {
     return typeof v.chain === 'string' && typeof v.contract === 'string'
   }
   return false
@@ -187,7 +187,7 @@ async function meetsCondition(
   condition: GateCondition,
   addresses: string[],
 ): Promise<boolean> {
-  if (condition.$type === 'io.krao.gate.defs#tokenBalance') {
+  if (condition.$type === 'net.krao.gate.defs#tokenBalance') {
     const asset = parseAssetId(condition.asset)
     const rpc = asset && rpcs.get(asset.chainId)
     if (!asset || !rpc || !/^[0-9]{1,78}$/.test(condition.minAmount)) {

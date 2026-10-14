@@ -1,10 +1,10 @@
 import { normalizeAccountId, verifyWalletProof } from '@krao/wallet'
 import type { Database, WalletTable } from './db.js'
 
-export const WALLET_COLLECTION = 'io.krao.actor.wallet'
+export const WALLET_COLLECTION = 'net.krao.actor.wallet'
 
 /**
- * Turn an io.krao.actor.wallet record into a row, verifying its proof. Records
+ * Turn an net.krao.actor.wallet record into a row, verifying its proof. Records
  * that are malformed are still stored (as invalid) so clients can show the
  * user why a link is not working.
  */

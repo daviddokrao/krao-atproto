@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.gate.uploadMedia",
+  "id": "net.krao.gate.uploadMedia",
   "defs": {
     "main": {
       "type": "procedure",
@@ -12,7 +12,7 @@
           "type": "object",
           "required": ["media"],
           "properties": {
-            "media": { "type": "ref", "ref": "io.krao.gate.defs#media" }
+            "media": { "type": "ref", "ref": "net.krao.gate.defs#media" }
           }
         }
       }

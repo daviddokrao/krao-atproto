@@ -1,4 +1,4 @@
-// M2: the PDS validates io.krao.* records against their lexicons.
+// M2: the PDS validates net.krao.* records against their lexicons.
 import {
   ACCOUNTS,
   USDC_ASSET,
@@ -22,7 +22,7 @@ const fakeAccount = 'eip155:8453:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb'
 const cases = [
   [
     'wallet (valid)',
-    'io.krao.actor.wallet',
+    'net.krao.actor.wallet',
     {
       account: fakeAccount,
       proof: {
@@ -36,13 +36,13 @@ const cases = [
   ],
   [
     'wallet (no proof)',
-    'io.krao.actor.wallet',
+    'net.krao.actor.wallet',
     { account: fakeAccount, createdAt: now },
     false,
   ],
   [
     'tip (valid)',
-    'io.krao.feed.tip',
+    'net.krao.feed.tip',
     {
       recipient: 'did:plc:baoawbqghvolw7wigqrokhus',
       subject: { uri: post.uri, cid: post.cid },
@@ -55,7 +55,7 @@ const cases = [
   ],
   [
     'tip (handle as recipient)',
-    'io.krao.feed.tip',
+    'net.krao.feed.tip',
     {
       recipient: 'defi-minh.test',
       asset: 'eip155:8453/slip44:60',
@@ -67,24 +67,24 @@ const cases = [
   ],
   [
     'gate rule (valid)',
-    'io.krao.gate.rule',
+    'net.krao.gate.rule',
     {
       subject: { uri: post.uri, cid: post.cid },
       conditions: [
         {
-          $type: 'io.krao.gate.defs#tokenBalance',
+          $type: 'net.krao.gate.defs#tokenBalance',
           asset: USDC_ASSET,
           minAmount: '1000000',
         },
       ],
-      service: 'did:web:gate.krao.io',
+      service: 'did:web:gate.krao.net',
       createdAt: now,
     },
     true,
   ],
   [
     'nftAvatar (valid, rkey self)',
-    'io.krao.actor.nftAvatar',
+    'net.krao.actor.nftAvatar',
     {
       nft: {
         chain: 'eip155:1',

@@ -1,17 +1,17 @@
 {
   "lexicon": 1,
-  "id": "io.krao.server.createWalletSession",
+  "id": "net.krao.server.createWalletSession",
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Sign in with a wallet. The signed challenge from io.krao.server.getWalletChallenge is checked, then a session is created for the account on this PDS that has linked the wallet via io.krao.actor.wallet. Returns the same session shape as com.atproto.server.createSession.",
+      "description": "Sign in with a wallet. The signed challenge from net.krao.server.getWalletChallenge is checked, then a session is created for the account on this PDS that has linked the wallet via net.krao.actor.wallet. Returns the same session shape as com.atproto.server.createSession.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
           "required": ["account", "message", "signature"],
           "properties": {
-            "account": { "type": "ref", "ref": "io.krao.chain.defs#accountId" },
+            "account": { "type": "ref", "ref": "net.krao.chain.defs#accountId" },
             "message": { "type": "string", "maxLength": 4000 },
             "signature": { "type": "string", "maxLength": 1024 },
             "authFactorToken": { "type": "string" }

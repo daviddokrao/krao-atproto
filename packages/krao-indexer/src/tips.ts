@@ -2,12 +2,12 @@ import { parseAccountId } from '@krao/wallet'
 import { type EvmRpc, parseAssetId } from './chain.js'
 import type { Database, TipTable } from './db.js'
 
-export const TIP_COLLECTION = 'io.krao.feed.tip'
+export const TIP_COLLECTION = 'net.krao.feed.tip'
 
 /** Pending tips are re-checked until they are this old, then given up on. */
 const PENDING_TIMEOUT_MS = 60 * 60 * 1000
 
-/** Turn an io.krao.feed.tip record into a pending row. */
+/** Turn an net.krao.feed.tip record into a pending row. */
 export function tipRowFromRecord(
   uri: string,
   did: string,

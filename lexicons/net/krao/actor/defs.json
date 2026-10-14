@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.actor.defs",
+  "id": "net.krao.actor.defs",
   "defs": {
     "walletView": {
       "type": "object",
@@ -9,11 +9,11 @@
         "uri": {
           "type": "string",
           "format": "at-uri",
-          "description": "URI of the io.krao.actor.wallet record."
+          "description": "URI of the net.krao.actor.wallet record."
         },
         "account": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#accountId"
+          "ref": "net.krao.chain.defs#accountId"
         },
         "label": {
           "type": "string",
@@ -22,7 +22,7 @@
         },
         "status": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#verificationStatus"
+          "ref": "net.krao.chain.defs#verificationStatus"
         },
         "createdAt": {
           "type": "string",
@@ -36,15 +36,15 @@
       "properties": {
         "nft": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#nftRef"
+          "ref": "net.krao.chain.defs#nftRef"
         },
         "wallet": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#accountId"
+          "ref": "net.krao.chain.defs#accountId"
         },
         "status": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#verificationStatus"
+          "ref": "net.krao.chain.defs#verificationStatus"
         },
         "collectionName": {
           "type": "string",

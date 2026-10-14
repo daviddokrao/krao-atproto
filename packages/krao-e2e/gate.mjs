@@ -23,8 +23,8 @@ import {
 
 const { check, done } = checker()
 const getContent = async (s, uri) =>
-  xrpc(GATE, 'io.krao.gate.getContent', {
-    token: await serviceAuth(s, 'io.krao.gate.getContent'),
+  xrpc(GATE, 'net.krao.gate.getContent', {
+    token: await serviceAuth(s, 'net.krao.gate.getContent'),
     query: { uri },
   })
 
@@ -47,13 +47,13 @@ const post = (
   })
 ).data
 const secret = 'Alpha: airdrop snapshot vào thứ 6, nhớ bridge sang Base trước.'
-const put = await xrpc(GATE, 'io.krao.gate.putContent', {
-  token: await serviceAuth(author, 'io.krao.gate.putContent'),
+const put = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(author, 'net.krao.gate.putContent'),
   body: { uri: post.uri, text: secret },
 })
 check('author can store gated content', put.ok, JSON.stringify(put.data))
-const hijack = await xrpc(GATE, 'io.krao.gate.putContent', {
-  token: await serviceAuth(holder, 'io.krao.gate.putContent'),
+const hijack = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(holder, 'net.krao.gate.putContent'),
   body: { uri: post.uri, text: 'hijacked' },
 })
 check(
@@ -61,11 +61,11 @@ check(
   !hijack.ok && hijack.data.error === 'NotAuthor',
   hijack.data.error,
 )
-const rule = await createRecord(author, 'io.krao.gate.rule', {
+const rule = await createRecord(author, 'net.krao.gate.rule', {
   subject: { uri: post.uri, cid: post.cid },
   conditions: [
     {
-      $type: 'io.krao.gate.defs#tokenBalance',
+      $type: 'net.krao.gate.defs#tokenBalance',
       asset: USDC_ASSET,
       minAmount: '10000000',
     },
@@ -76,11 +76,11 @@ const rule = await createRecord(author, 'io.krao.gate.rule', {
 })
 check('gate rule record accepted', rule.ok, rule.data.error)
 // Someone else tries to gate the author's post from their own repo
-await createRecord(noWallet, 'io.krao.gate.rule', {
+await createRecord(noWallet, 'net.krao.gate.rule', {
   subject: { uri: post.uri, cid: post.cid },
   conditions: [
     {
-      $type: 'io.krao.gate.defs#tokenBalance',
+      $type: 'net.krao.gate.defs#tokenBalance',
       asset: ETH_ASSET,
       minAmount: '1',
     },
@@ -90,7 +90,7 @@ await createRecord(noWallet, 'io.krao.gate.rule', {
 })
 await sleep(2500)
 
-const rules = await xrpc(GATE, 'io.krao.gate.getRules', {
+const rules = await xrpc(GATE, 'net.krao.gate.getRules', {
   query: { uris: [post.uri] },
 })
 const found = rules.data.rules ?? []
@@ -136,7 +136,7 @@ check(
 )
 
 // Service auth
-const noAuth = await xrpc(GATE, 'io.krao.gate.getContent', {
+const noAuth = await xrpc(GATE, 'net.krao.gate.getContent', {
   query: { uri: post.uri },
 })
 check(
@@ -144,10 +144,10 @@ check(
   noAuth.status === 401,
   String(noAuth.status),
 )
-const wrongAud = await xrpc(GATE, 'io.krao.gate.getContent', {
+const wrongAud = await xrpc(GATE, 'net.krao.gate.getContent', {
   token: await serviceAuth(
     holder,
-    'io.krao.gate.getContent',
+    'net.krao.gate.getContent',
     'did:web:evil.example',
   ),
   query: { uri: post.uri },
@@ -157,8 +157,8 @@ check(
   !wrongAud.ok,
   `${wrongAud.status} ${wrongAud.data.error}`,
 )
-const wrongLxm = await xrpc(GATE, 'io.krao.gate.getContent', {
-  token: await serviceAuth(holder, 'io.krao.gate.putContent'),
+const wrongLxm = await xrpc(GATE, 'net.krao.gate.getContent', {
+  token: await serviceAuth(holder, 'net.krao.gate.putContent'),
   query: { uri: post.uri },
 })
 check(

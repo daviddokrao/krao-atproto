@@ -24,7 +24,7 @@ uses, stores each video as a blob on the author's PDS, and serves it as HLS.
    `app.bsky.embed.video` embed.
 5. The AppView builds player URLs from `BSKY_VIDEO_PLAYLIST_URL_PATTERN` and
    `BSKY_VIDEO_THUMBNAIL_URL_PATTERN`. Point both at this service:
-   `https://video.krao.io/watch/%s/%s/playlist.m3u8` and
+   `https://video.krao.net/watch/%s/%s/playlist.m3u8` and
    `.../thumbnail.jpg`.
 
 `getUploadLimits` takes a token addressed to this service's DID instead.
@@ -54,11 +54,11 @@ uses, stores each video as a blob on the author's PDS, and serves it as HLS.
 | Env                                                | Default                 |
 | -------------------------------------------------- | ----------------------- |
 | `KRAO_VIDEO_PORT`                                  | `2591`                  |
-| `KRAO_VIDEO_DID`                                   | `did:web:video.krao.io` |
+| `KRAO_VIDEO_DID`                                   | `did:web:video.krao.net` |
 | `KRAO_VIDEO_PUBLIC_URL` (did:web document)         | –                       |
 | `KRAO_VIDEO_DATA_DIR`                              | `krao-video-data`       |
 | `KRAO_PLC_URL`                                     | `https://plc.directory` |
-| `KRAO_VIDEO_PDS_URLS` (comma separated, see below) | `https://pds.krao.io`   |
+| `KRAO_VIDEO_PDS_URLS` (comma separated, see below) | `https://pds.krao.net`   |
 | `KRAO_VIDEO_MAX_BYTES`                             | 100 MiB                 |
 | `KRAO_VIDEO_MAX_DURATION_SEC`                      | 180                     |
 | `KRAO_VIDEO_DAILY_VIDEOS`                          | 25                      |

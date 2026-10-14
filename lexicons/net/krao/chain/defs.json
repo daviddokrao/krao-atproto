@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.chain.defs",
+  "id": "net.krao.chain.defs",
   "description": "Shared blockchain primitives for Krao. Chains, accounts and assets use CAIP identifiers so EVM and non-EVM chains share one schema.",
   "defs": {
     "chainId": {

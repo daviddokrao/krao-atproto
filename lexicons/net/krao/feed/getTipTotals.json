@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.feed.getTipTotals",
+  "id": "net.krao.feed.getTipTotals",
   "defs": {
     "main": {
       "type": "query",
@@ -40,7 +40,7 @@
         "subject": { "type": "string", "format": "at-uri" },
         "totals": {
           "type": "array",
-          "items": { "type": "ref", "ref": "io.krao.feed.defs#tipTotal" }
+          "items": { "type": "ref", "ref": "net.krao.feed.defs#tipTotal" }
         }
       }
     }

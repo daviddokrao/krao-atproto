@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.feed.defs",
+  "id": "net.krao.feed.defs",
   "defs": {
     "tipView": {
       "type": "object",
@@ -22,13 +22,13 @@
         },
         "recipient": { "type": "string", "format": "did" },
         "subject": { "type": "string", "format": "at-uri" },
-        "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+        "asset": { "type": "ref", "ref": "net.krao.chain.defs#assetId" },
         "amount": { "type": "string", "maxLength": 80 },
         "txHash": { "type": "string", "maxLength": 128 },
         "message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
         "status": {
           "type": "ref",
-          "ref": "io.krao.chain.defs#verificationStatus"
+          "ref": "net.krao.chain.defs#verificationStatus"
         },
         "createdAt": { "type": "string", "format": "datetime" }
       }
@@ -38,7 +38,7 @@
       "description": "Sum of verified tips for one asset.",
       "required": ["asset", "amount", "count"],
       "properties": {
-        "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+        "asset": { "type": "ref", "ref": "net.krao.chain.defs#assetId" },
         "amount": {
           "type": "string",
           "description": "Total in the asset's smallest unit.",

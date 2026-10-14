@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "io.krao.feed.tip",
+  "id": "net.krao.feed.tip",
   "defs": {
     "main": {
       "type": "record",
@@ -20,7 +20,7 @@
             "ref": "com.atproto.repo.strongRef",
             "description": "The post being tipped, if any."
           },
-          "asset": { "type": "ref", "ref": "io.krao.chain.defs#assetId" },
+          "asset": { "type": "ref", "ref": "net.krao.chain.defs#assetId" },
           "amount": {
             "type": "string",
             "description": "Amount in the asset's smallest unit (eg wei), as a decimal integer string.",
@@ -33,12 +33,12 @@
           },
           "from": {
             "type": "ref",
-            "ref": "io.krao.chain.defs#accountId",
+            "ref": "net.krao.chain.defs#accountId",
             "description": "The sender's wallet. Should be a wallet linked to the sender's account."
           },
           "to": {
             "type": "ref",
-            "ref": "io.krao.chain.defs#accountId",
+            "ref": "net.krao.chain.defs#accountId",
             "description": "The recipient's wallet. Must be a wallet linked to the recipient's account."
           },
           "message": {

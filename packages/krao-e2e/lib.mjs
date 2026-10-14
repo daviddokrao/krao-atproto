@@ -127,10 +127,10 @@ export function deleteRecord(session, uri) {
   })
 }
 
-/** An io.krao.actor.wallet record whose SIWE proof is signed by `signer` */
+/** An net.krao.actor.wallet record whose SIWE proof is signed by `signer` */
 export function walletRecord(did, w, signer = w) {
   const message = formatSignInMessage({
-    domain: 'krao.io',
+    domain: 'krao.net',
     chain: 'Ethereum',
     address: w.address,
     statement: 'Link this wallet to my Krao account.',
@@ -151,7 +151,7 @@ export function walletRecord(did, w, signer = w) {
 export function linkWallet(session, w) {
   return createRecord(
     session,
-    'io.krao.actor.wallet',
+    'net.krao.actor.wallet',
     walletRecord(session.did, w),
   )
 }

@@ -2,7 +2,7 @@ import { InvalidAccountError, parseAccountId, sameAddress } from './account.js'
 import { InvalidMessageError, parseSignInMessage } from './message.js'
 import { verifySignature } from './signature.js'
 
-/** The `walletProof` object from `io.krao.chain.defs`. */
+/** The `walletProof` object from `net.krao.chain.defs`. */
 export type WalletProof = {
   type: string
   message: string
@@ -15,7 +15,7 @@ const PROOF_TYPE = { eip155: 'siwe', solana: 'siws' } as const
 const MESSAGE_CHAIN = { eip155: 'Ethereum', solana: 'Solana' } as const
 
 /**
- * Check an `io.krao.actor.wallet` link: the proof must be a sign-in message
+ * Check a `net.krao.actor.wallet` link: the proof must be a sign-in message
  * from the same wallet and chain as `account`, it must name `did` (as the URI
  * or one of the resources) so it cannot be replayed for another account, and
  * the signature must be valid. Link proofs are permanent attestations, so the

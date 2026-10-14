@@ -1,5 +1,5 @@
 // M3: wallet linking (SIWE proofs verified by the indexer) and sign in with
-// wallet on the PDS (io.krao.server.*).
+// wallet on the PDS (net.krao.server.*).
 import {
   ACCOUNTS,
   INDEXER,
@@ -16,12 +16,12 @@ import {
 } from './lib.mjs'
 
 async function walletLogin(w, signer = w) {
-  const ch = await xrpc(PDS, 'io.krao.server.getWalletChallenge', {
+  const ch = await xrpc(PDS, 'net.krao.server.getWalletChallenge', {
     query: { account: w.account },
   })
   if (!ch.ok) return ch
   const signature = signer.sign(ch.data.message)
-  const res = await xrpc(PDS, 'io.krao.server.createWalletSession', {
+  const res = await xrpc(PDS, 'net.krao.server.createWalletSession', {
     body: { account: w.account, message: ch.data.message, signature },
   })
   return { ...res, challenge: ch.data.message, signature }
@@ -35,30 +35,30 @@ const alice = await login(ACCOUNTS.alice)
 const w1 = wallet()
 const failedFirst = await createRecord(
   s,
-  'io.krao.actor.wallet',
+  'net.krao.actor.wallet',
   walletRecord(s.did, w1, wallet()),
 )
 const created = await createRecord(
   s,
-  'io.krao.actor.wallet',
+  'net.krao.actor.wallet',
   walletRecord(s.did, w1),
 )
 check('link wallet record accepted by PDS', created.ok, created.data.error)
 const linkedAgain = await createRecord(
   s,
-  'io.krao.actor.wallet',
+  'net.krao.actor.wallet',
   walletRecord(s.did, w1),
 )
 
 // 2. alice.test copies the link; its proof names krao.test's DID
 const stolen = await createRecord(
   alice,
-  'io.krao.actor.wallet',
+  'net.krao.actor.wallet',
   walletRecord(s.did, w1),
 )
 
 await sleep(1500)
-const prof = await xrpc(INDEXER, 'io.krao.actor.getChainProfiles', {
+const prof = await xrpc(INDEXER, 'net.krao.actor.getChainProfiles', {
   query: { actors: ['krao.test', 'alice.test'] },
 })
 const statusOf = (did) =>
@@ -103,7 +103,7 @@ if (session.ok) {
 }
 
 // 4. Attacks
-const replay = await xrpc(PDS, 'io.krao.server.createWalletSession', {
+const replay = await xrpc(PDS, 'net.krao.server.createWalletSession', {
   body: {
     account: w1.account,
     message: session.challenge,
@@ -127,7 +127,7 @@ check(
   !unlinked.ok && unlinked.data.error === 'WalletNotLinked',
   unlinked.data.error,
 )
-const badChain = await xrpc(PDS, 'io.krao.server.getWalletChallenge', {
+const badChain = await xrpc(PDS, 'net.krao.server.getWalletChallenge', {
   query: { account: 'cosmos:hub:abc' },
 })
 check(

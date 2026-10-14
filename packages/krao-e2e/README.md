@@ -6,7 +6,7 @@ exit non-zero on any failure.
 
 | Script              | Milestone | Covers                                                                |
 | ------------------- | --------- | --------------------------------------------------------------------- |
-| `records.mjs`       | M2        | PDS validates `io.krao.*` records against their lexicons              |
+| `records.mjs`       | M2        | PDS validates `net.krao.*` records against their lexicons              |
 | `wallet.mjs`        | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay         |
 | `tip.mjs`           | M4        | ETH/USDC tips verified on-chain, cheating tips rejected               |
 | `nft.mjs`           | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale           |
