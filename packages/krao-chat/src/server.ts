@@ -447,6 +447,10 @@ export function createApp(opts: {
   const app = express()
   app.set('trust proxy', true)
   app.use(cors())
+  // Plain landing text so uptime checks on the bare host get a 200
+  app.get('/', (_req, res) => {
+    res.type('text/plain').send('Krao chat service. Health: /_health')
+  })
   app.get('/_health', (_req, res) => {
     res.json({ ok: true, did: serviceDid })
   })
