@@ -6,7 +6,7 @@ exit non-zero on any failure.
 
 | Script              | Milestone | Covers                                                                |
 | ------------------- | --------- | --------------------------------------------------------------------- |
-| `records.mjs`       | M2        | PDS validates `net.krao.*` records against their lexicons              |
+| `records.mjs`       | M2        | PDS validates `net.krao.*` records against their lexicons             |
 | `wallet.mjs`        | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay         |
 | `tip.mjs`           | M4        | ETH/USDC tips verified on-chain, cheating tips rejected               |
 | `nft.mjs`           | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale           |
@@ -16,6 +16,7 @@ exit non-zero on any failure.
 | `gifs.mjs`          | —         | GIF media relay and search (needs internet; search needs a Klipy key) |
 | `starter-packs.mjs` | —         | Short links and starter pack share cards                              |
 | `video.mjs`         | —         | Multipart video upload, processing, PDS blob, HLS playback (ffmpeg)   |
+| `handles.mjs`       | —         | Handles that clash with app pages (short profile URLs) are reserved   |
 
 ## Prerequisites
 
