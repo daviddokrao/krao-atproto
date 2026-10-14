@@ -3,6 +3,7 @@
   "include": ["./src"],
   "references": [
     { "path": "../krao-indexer/tsconfig.build.json" },
+    { "path": "../krao-video/tsconfig.build.json" },
     { "path": "../api/tsconfig.build.json" },
     { "path": "../bsky/tsconfig.build.json" },
     { "path": "../bsync/tsconfig.build.json" },
