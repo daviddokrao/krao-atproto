@@ -1,7 +1,10 @@
 import type { EvmRpc } from './chain.js'
 import type { Database, NftAvatarTable } from './db.js'
+import { readLimited, safeFetch } from './safe-fetch.js'
 
 export const NFT_AVATAR_COLLECTION = 'net.krao.actor.nftAvatar'
+
+const MAX_METADATA_BYTES = 256 * 1024
 
 /** Gateway used to turn ipfs:// links in token metadata into https URLs */
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/'
@@ -110,9 +113,12 @@ async function fetchJson(
     }
     const url = toHttpUrl(uri)
     if (!url || url.startsWith('data:')) return undefined
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    // Token URIs are chosen by whoever deployed the contract: block internal
+    // hosts and cap the size
+    const { res } = await safeFetch(url)
     if (!res.ok) return undefined
-    return (await res.json()) as Record<string, unknown>
+    const body = await readLimited(res, MAX_METADATA_BYTES)
+    return JSON.parse(body.toString('utf8')) as Record<string, unknown>
   } catch {
     return undefined
   }
@@ -166,6 +172,11 @@ export async function verifyNftAvatar(
       checkedAt: new Date().toISOString(),
     })
     .where('did', '=', row.did)
+    // The avatar record or the wallets changed during the check (both set a
+    // new indexedAt): leave the row for the next round instead of writing a
+    // result for what is no longer there
+    .where('uri', '=', row.uri)
+    .where('indexedAt', '=', row.indexedAt)
     .execute()
   return result.status
 }
@@ -255,14 +266,33 @@ export async function deleteNftAvatar(db: Database, did: string) {
   await db.deleteFrom('nft_avatar').where('did', '=', did).execute()
 }
 
-/** NFT avatars due for a re-check (ownership can change at any time) */
-export async function getNftAvatarsToRecheck(db: Database, olderThan: string) {
+/**
+ * NFT avatars due for a re-check (ownership can change at any time): never
+ * checked, checked before `olderThan`, or invalid and checked before
+ * `invalidOlderThan`.
+ */
+export async function getNftAvatarsToRecheck(
+  db: Database,
+  olderThan: string,
+  invalidOlderThan = olderThan,
+) {
   return db
     .selectFrom('nft_avatar')
     .selectAll()
     .where((eb) =>
-      eb.or([eb('checkedAt', 'is', null), eb('checkedAt', '<', olderThan)]),
+      eb.or([
+        eb('checkedAt', 'is', null),
+        eb.and([
+          eb('status', '!=', 'invalid'),
+          eb('checkedAt', '<', olderThan),
+        ]),
+        eb.and([
+          eb('status', '=', 'invalid'),
+          eb('checkedAt', '<', invalidOlderThan),
+        ]),
+      ]),
     )
+    .orderBy('checkedAt', 'asc')
     .limit(100)
     .execute()
 }
@@ -280,7 +310,8 @@ export async function getNftAvatarsForDids(db: Database, dids: string[]) {
 export async function markNftAvatarStale(db: Database, did: string) {
   await db
     .updateTable('nft_avatar')
-    .set({ checkedAt: null })
+    // A new indexedAt also tells a check already running that it is stale
+    .set({ checkedAt: null, indexedAt: new Date().toISOString() })
     .where('did', '=', did)
     .execute()
 }

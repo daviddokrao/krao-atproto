@@ -33,7 +33,9 @@ import {
 import { deleteOrphanedMedia } from './gate-media.js'
 import {
   GATE_RULE_COLLECTION,
+  deleteContentWithoutRule,
   deleteGateDataForDid,
+  deleteGateDataForSubject,
   deleteGateRule,
   gateRuleRowFromRecord,
   upsertGateRule,
@@ -52,6 +54,7 @@ import {
   deleteTip,
   deleteTipsForDid,
   getPendingTips,
+  getTipsByUri,
   tipRowFromRecord,
   upsertTip,
   verifyTip,
@@ -65,6 +68,12 @@ import {
 } from './wallets.js'
 
 const CURSOR_ID = 'firehose'
+
+/** Delays before retrying an event whose handler failed */
+const EVENT_RETRY_DELAYS_MS = [200, 1_000, 5_000]
+
+/** Invalid NFT avatars are re-checked this many times less often */
+const INVALID_NFT_RECHECK_FACTOR = 6
 
 export type FeedIndexingOptions = {
   /** DID of the feed generator service; posts are only indexed when set */
@@ -98,9 +107,10 @@ export class FirehoseIndexer {
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
         GATE_RULE_COLLECTION,
+        // Always: a deleted post takes its gated content with it
+        POST_COLLECTION,
         ...(feed.did
           ? [
-              POST_COLLECTION,
               FEED_GENERATOR_COLLECTION,
               LIKE_COLLECTION,
               REPOST_COLLECTION,
@@ -119,20 +129,23 @@ export class FirehoseIndexer {
 
   private verifyTimer?: NodeJS.Timeout
   private cleanupTimer?: NodeJS.Timeout
+  private verifying?: Promise<void>
+  private verifyAgain = false
+  /** Tips indexed since the last round, checked before the backlog */
+  private freshTips = new Set<string>()
 
   start() {
     void this.firehose.start()
     // Re-check tips whose transactions were not confirmed yet
-    this.verifyTimer = setInterval(() => {
-      void this.verifyPendingTips()
-      void this.recheckNftAvatars()
-    }, 5_000)
-    // Gated uploads nobody attached to a post
+    this.verifyTimer = setInterval(() => this.kickVerification(), 5_000)
+    // Gated content without a rule, then uploads nobody attached to a post
     this.cleanupTimer = setInterval(
       () =>
-        void deleteOrphanedMedia(this.db).catch((err: unknown) =>
-          console.error('Krao indexer: gated media cleanup failed', err),
-        ),
+        void deleteContentWithoutRule(this.db)
+          .then(() => deleteOrphanedMedia(this.db))
+          .catch((err: unknown) =>
+            console.error('Krao indexer: gated media cleanup failed', err),
+          ),
       60 * 60 * 1000,
     )
   }
@@ -141,26 +154,112 @@ export class FirehoseIndexer {
     clearInterval(this.verifyTimer)
     clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
+    await this.verificationIdle()
   }
 
   /**
-   * NFTs can be sold or moved at any time, so avatars are re-checked: pending
-   * ones on every tick, verified ones every `nftRecheckMs`.
+   * Run on-chain verification in the background, never more than one round
+   * at a time. A kick during a round queues one more round, so records that
+   * arrived meanwhile are not left for the next tick.
+   */
+  kickVerification() {
+    if (this.verifying) {
+      this.verifyAgain = true
+      return
+    }
+    this.verifying = (async () => {
+      do {
+        this.verifyAgain = false
+        try {
+          await this.verifyPendingTips()
+          await this.recheckNftAvatars()
+        } catch (err) {
+          console.error('Krao indexer: verification round failed', err)
+        }
+      } while (this.verifyAgain)
+      // Cleared in the same tick the loop ends, so no kick falls in between
+      this.verifying = undefined
+    })()
+  }
+
+  /** Resolves once the current verification round, if any, is done */
+  async verificationIdle() {
+    while (this.verifying) await this.verifying
+  }
+
+  /**
+   * NFTs can be sold or moved at any time, so avatars are re-checked: new
+   * ones right away, others every `nftRecheckMs` (invalid ones less often).
    */
   async recheckNftAvatars() {
-    const due = new Date(Date.now() - this.nftRecheckMs).toISOString()
-    for (const row of await getNftAvatarsToRecheck(this.db, due)) {
-      await verifyNftAvatar(this.db, this.rpcs, row)
+    const now = Date.now()
+    const due = new Date(now - this.nftRecheckMs).toISOString()
+    const invalidDue = new Date(
+      now - this.nftRecheckMs * INVALID_NFT_RECHECK_FACTOR,
+    ).toISOString()
+    for (const row of await getNftAvatarsToRecheck(this.db, due, invalidDue)) {
+      await verifyNftAvatar(this.db, this.rpcs, row).catch((err: unknown) =>
+        console.error('Krao indexer: NFT avatar check failed', row.did, err),
+      )
     }
   }
 
+  /**
+   * Tips indexed since the last round go first: the backlog of pending tips
+   * (which may hold many that never confirm) must not hold up new ones.
+   */
   async verifyPendingTips() {
-    for (const tip of await getPendingTips(this.db)) {
-      await verifyTip(this.db, this.rpcs, tip)
+    const fresh = [...this.freshTips]
+    this.freshTips.clear()
+    const rows = [
+      ...(await getTipsByUri(this.db, fresh)),
+      ...(await getPendingTips(this.db)).filter((t) => !fresh.includes(t.uri)),
+    ]
+    for (const tip of rows) {
+      await verifyTip(this.db, this.rpcs, tip).catch((err: unknown) =>
+        console.error('Krao indexer: tip check failed', tip.uri, err),
+      )
     }
   }
 
+  /**
+   * Index one event. A failing handler is retried, then recorded in
+   * `failed_event` so the cursor can move on without silently losing it.
+   */
   async handleEvent(evt: Event): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.indexEvent(evt)
+        break
+      } catch (err) {
+        const delay = EVENT_RETRY_DELAYS_MS[attempt]
+        if (delay === undefined) {
+          console.error('Krao indexer: giving up on event', evt.seq, err)
+          await this.recordFailedEvent(evt, err)
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
+    await this.setCursor(evt.seq)
+  }
+
+  private async recordFailedEvent(evt: Event, err: unknown) {
+    const uri = 'uri' in evt ? evt.uri.toString() : null
+    await this.db
+      .insertInto('failed_event')
+      .values({
+        seq: evt.seq,
+        did: evt.did,
+        event: evt.event,
+        uri,
+        error: String((err as Error)?.message ?? err).slice(0, 1000),
+        failedAt: new Date().toISOString(),
+      })
+      .execute()
+  }
+
+  private async indexEvent(evt: Event): Promise<void> {
     if (evt.event === 'create' || evt.event === 'update') {
       if (evt.collection === WALLET_COLLECTION) {
         await upsertWallet(
@@ -171,7 +270,9 @@ export class FirehoseIndexer {
       } else if (evt.collection === TIP_COLLECTION) {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)
         await upsertTip(this.db, row)
-        await verifyTip(this.db, this.rpcs, row)
+        // Verified by the background worker: a slow RPC must not stall indexing
+        this.freshTips.add(row.uri)
+        this.kickVerification()
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         const row = gateRuleRowFromRecord(
           evt.uri.toString(),
@@ -187,7 +288,7 @@ export class FirehoseIndexer {
           evt.record,
         )
         await upsertNftAvatar(this.db, row)
-        await verifyNftAvatar(this.db, this.rpcs, row)
+        this.kickVerification()
       } else if (evt.collection === POST_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
           const row = feedPostRowFromRecord(
@@ -254,6 +355,7 @@ export class FirehoseIndexer {
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
         await deletePostTags(this.db, evt.uri.toString())
+        await deleteGateDataForSubject(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
         await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
@@ -276,7 +378,6 @@ export class FirehoseIndexer {
         await deleteDiscoveryDataForDid(this.db, evt.did)
       }
     }
-    await this.setCursor(evt.seq)
   }
 
   /** Whether the account's posts belong in the feed (see FeedIndexingOptions) */

@@ -1,4 +1,4 @@
-import { lexicons } from '../src/client/lexicons'
+import { lexicons } from '../src/client/lexicons.js'
 
 const DID = 'did:plc:p4ehtxo7hz6udhijpm4yjmb4'
 const EVM_ACCOUNT = 'eip155:8453:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb'

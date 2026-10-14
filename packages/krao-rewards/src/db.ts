@@ -281,4 +281,8 @@ export async function migrateDb(db: Database) {
   await sql`create index if not exists audit_log_subject_idx on audit_log (subject, id)`.execute(
     db,
   )
+  // Taking points back looks entries up by the event that granted them
+  await sql`create index if not exists points_entry_event_idx on points_entry (eventId)`.execute(
+    db,
+  )
 }

@@ -8,6 +8,8 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { sql } from 'kysely'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
 import { addModerationMethods, isChatDisabled } from './moderation.js'
@@ -225,17 +227,9 @@ export function createApp(opts: {
     auth,
     handler: async ({ auth: { credentials }, params }) => {
       const counts = { accepted: 0, request: 0 }
-      const { convos } = await service.listConvos(credentials.did, {
-        limit: 10_000,
-      })
-      for (const c of convos) {
-        const isGroup =
-          (c.kind as { $type?: string })?.$type ===
-          'chat.bsky.convo.defs#groupConvo'
-        if (isGroup && params.includeGroupChats === false) continue
-        if ((c.unreadCount as number) > 0 && !c.muted) {
-          counts[c.status === 'request' ? 'request' : 'accepted']++
-        }
+      for (const c of await service.unreadConvos(credentials.did)) {
+        if (c.kind === 'group' && params.includeGroupChats === false) continue
+        if (!c.muted) counts[c.status === 'request' ? 'request' : 'accepted']++
       }
       return json({
         unreadAcceptedConvos: counts.accepted,
@@ -325,16 +319,11 @@ export function createApp(opts: {
   server.add(convo.updateAllRead, {
     auth,
     handler: async ({ auth: { credentials }, input }) => {
-      const { convos } = await service.listConvos(credentials.did, {
-        limit: 10_000,
-        status: input.body.status,
-      })
       let updatedCount = 0
-      for (const c of convos) {
-        if ((c.unreadCount as number) > 0) {
-          await service.markRead(c.id as string, credentials.did)
-          updatedCount++
-        }
+      for (const c of await service.unreadConvos(credentials.did)) {
+        if (input.body.status && c.status !== input.body.status) continue
+        await service.markRead(c.convoId, credentials.did)
+        updatedCount++
       }
       return json({ updatedCount })
     },
@@ -485,14 +474,20 @@ export function createApp(opts: {
   })
 
   const app = express()
+  catchAsyncErrors(app)
   app.set('trust proxy', true)
   app.use(cors())
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao chat service. Health: /_health')
   })
-  app.get('/_health', (_req, res) => {
-    res.json({ ok: true, did: serviceDid })
+  app.get('/_health', async (_req, res) => {
+    try {
+      await sql`select 1`.execute(service.db)
+      res.json({ ok: true, did: serviceDid })
+    } catch {
+      res.status(503).json({ ok: false, did: serviceDid, error: 'Database' })
+    }
   })
   if (opts.publicUrl && serviceDid.startsWith('did:web:')) {
     app.get('/.well-known/did.json', (_req, res) => {
@@ -510,5 +505,6 @@ export function createApp(opts: {
     })
   }
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }

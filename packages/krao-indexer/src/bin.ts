@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { KraoIndexer } from './index.js'
 
+// Signs gated media URLs: a random secret would break them on every restart
+// and between instances
+if ((process.env.KRAO_GATE_MEDIA_SECRET ?? '').length < 32) {
+  throw new Error('KRAO_GATE_MEDIA_SECRET is required (at least 32 characters)')
+}
+
 const indexer = await KraoIndexer.create({
   port: Number(process.env.KRAO_INDEXER_PORT ?? 2589),
   dbLocation: process.env.KRAO_INDEXER_DB ?? 'krao-indexer.sqlite',

@@ -157,10 +157,60 @@ check(
   String(batch.data.subjects?.length),
 )
 
+// 4. Someone else claims a transfer they did not send. They post first, so
+// the earliest-claim rule alone would not stop them.
+const thief = await login(ACCOUNTS.lan)
+const tw = wallet(ANVIL_KEYS[2])
+await linkWallet(thief, tw)
+const post2 = (
+  await createRecord(recipient, 'app.bsky.feed.post', {
+    text: 'Another one',
+    createdAt: new Date().toISOString(),
+  })
+).data
+await sleep(1500)
+const spoofAmount = 2n * 10n ** 15n
+const spoofTx = await rpc('eth_sendTransaction', [
+  { from: sw.address, to: rw.address, value: '0x' + spoofAmount.toString(16) },
+])
+const claim = (session, extra) =>
+  createRecord(session, 'net.krao.feed.tip', {
+    recipient: recipient.did,
+    subject: { uri: post2.uri, cid: post2.cid },
+    asset: ETH_ASSET,
+    amount: spoofAmount.toString(),
+    txHash: spoofTx,
+    to: rw.account,
+    createdAt: new Date().toISOString(),
+    ...extra,
+  })
+await claim(thief, {}) // no sender wallet
+await claim(thief, { from: sw.account }) // a wallet that is not theirs
+await claim(thief, { from: tw.account }) // their wallet, but not the tx sender
+await sleep(1500)
+await claim(sender, { from: sw.account })
+await sleep(4000)
+const res2 = await xrpc(INDEXER, 'net.krao.feed.getTips', {
+  query: { subject: post2.uri },
+})
+const claims = (res2.data.tips ?? []).filter(
+  (t) => t.txHash === spoofTx.toLowerCase(),
+)
+check(
+  'spoofed claims on a transfer are rejected',
+  claims.length === 1 && claims[0].sender.handle === 'krao.test',
+  JSON.stringify(claims.map((t) => [t.sender.handle, t.status])),
+)
+check(
+  'the real sender is credited for the transfer',
+  claims[0]?.status === 'verified',
+  claims[0]?.status,
+)
+
 const received = (await tipsReceived()) - receivedBefore
 check(
-  'recipient profile counts the 2 verified tips',
-  received === 2,
+  'recipient profile counts the 3 verified tips',
+  received === 3,
   String(received),
 )
 done()

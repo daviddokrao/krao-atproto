@@ -66,12 +66,32 @@ export async function verifyTip(
       ? 'invalid'
       : result.status
   const reason = 'reason' in result ? result.reason : null
-  await db
-    .updateTable('tip')
-    .set({ status, reason })
-    .where('uri', '=', tip.uri)
-    .execute()
+  try {
+    await db
+      .updateTable('tip')
+      .set({ status, reason })
+      .where('uri', '=', tip.uri)
+      .execute()
+  } catch (err) {
+    // tip_tx_verified_idx: another tip was verified for this tx meanwhile
+    if (status !== 'verified' || !isUniqueViolation(err)) throw err
+    await db
+      .updateTable('tip')
+      .set({
+        status: 'invalid',
+        reason: 'Transaction already used by another tip',
+      })
+      .where('uri', '=', tip.uri)
+      .execute()
+    return 'invalid'
+  }
   return status
+}
+
+function isUniqueViolation(err: unknown) {
+  return String((err as { code?: unknown })?.code).startsWith(
+    'SQLITE_CONSTRAINT',
+  )
 }
 
 async function checkTip(
@@ -89,53 +109,64 @@ async function checkTip(
   if (!tip.toAccount) {
     return { status: 'invalid', reason: 'Missing recipient wallet' }
   }
+  // Without the sender wallet anyone could claim someone else's transfer
+  if (!tip.fromAccount) {
+    return { status: 'invalid', reason: 'Missing sender wallet' }
+  }
 
   let to: string
-  let from: string | undefined
+  let from: string
   try {
     const toAccount = parseAccountId(tip.toAccount)
-    if (toAccount.chainId !== asset.chainId) {
-      return {
-        status: 'invalid',
-        reason: 'Recipient wallet is on another chain',
-      }
+    const fromAccount = parseAccountId(tip.fromAccount)
+    if (
+      toAccount.chainId !== asset.chainId ||
+      fromAccount.chainId !== asset.chainId
+    ) {
+      return { status: 'invalid', reason: 'Wallet is on another chain' }
     }
     to = toAccount.address
-    from = tip.fromAccount ? parseAccountId(tip.fromAccount).address : undefined
+    from = fromAccount.address
   } catch {
     return { status: 'invalid', reason: 'Invalid wallet account id' }
   }
 
-  // The tip must go to a wallet the recipient has verifiably linked. EVM
-  // addresses are the same on every EVM chain, so any eip155 link counts.
-  const recipientWallets = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', tip.recipient)
-    .where('status', '=', 'verified')
-    .execute()
-  const linked = recipientWallets.some(
-    (w) =>
-      w.account.startsWith('eip155:') &&
-      w.account.split(':')[2] === to.toLowerCase(),
-  )
-  if (!linked) {
+  // The tip must go from a wallet the sender has verifiably linked to one the
+  // recipient has. EVM addresses are the same on every EVM chain, so any
+  // eip155 link counts.
+  if (!(await hasLinkedEvmWallet(db, tip.recipient, to))) {
     return { status: 'invalid', reason: 'Recipient wallet is not linked' }
   }
+  // The app only tips from a linked wallet, so this is someone else's transfer
+  if (!(await hasLinkedEvmWallet(db, tip.did, from))) {
+    return { status: 'invalid', reason: 'Sender wallet is not linked' }
+  }
 
-  // One transaction can only back one tip
-  const reused = await db
+  // One transaction can only back one tip, and the earliest claim goes first:
+  // a later record waits until an earlier pending one is settled. Only claims
+  // naming the same sender on the same chain count, since no other claim can
+  // ever verify; otherwise anyone could hold a tip back with a bogus claim.
+  const claims = await db
     .selectFrom('tip')
-    .select('uri')
+    .select(['uri', 'status', 'indexedAt', 'fromAccount'])
     .where('txHash', '=', tip.txHash)
     .where('uri', '!=', tip.uri)
-    .where('status', '=', 'verified')
-    .executeTakeFirst()
-  if (reused) {
+    .where('status', '!=', 'invalid')
+    .execute()
+  if (claims.some((c) => c.status === 'verified')) {
     return {
       status: 'invalid',
       reason: 'Transaction already used by another tip',
     }
+  }
+  const earlier = claims.some(
+    (c) =>
+      sameSender(c.fromAccount, asset.chainId, from) &&
+      (c.indexedAt < tip.indexedAt ||
+        (c.indexedAt === tip.indexedAt && c.uri < tip.uri)),
+  )
+  if (earlier) {
+    return { status: 'pending', reason: 'Another tip claims this transaction' }
   }
 
   const rpc = rpcs.get(asset.chainId)
@@ -151,6 +182,48 @@ async function checkTip(
   } catch (err) {
     return { status: 'pending', reason: `RPC error: ${(err as Error).message}` }
   }
+}
+
+function sameSender(
+  fromAccount: string | null,
+  chainId: string,
+  address: string,
+) {
+  if (!fromAccount) return false
+  try {
+    const account = parseAccountId(fromAccount)
+    return (
+      account.chainId === chainId &&
+      account.address.toLowerCase() === address.toLowerCase()
+    )
+  } catch {
+    return false
+  }
+}
+
+async function hasLinkedEvmWallet(db: Database, did: string, address: string) {
+  const wallets = await db
+    .selectFrom('wallet')
+    .select('account')
+    .where('did', '=', did)
+    .where('status', '=', 'verified')
+    .execute()
+  return wallets.some(
+    (w) =>
+      w.account.startsWith('eip155:') &&
+      w.account.split(':')[2] === address.toLowerCase(),
+  )
+}
+
+/** Pending tips among `uris` */
+export async function getTipsByUri(db: Database, uris: string[]) {
+  if (!uris.length) return []
+  return db
+    .selectFrom('tip')
+    .selectAll()
+    .where('uri', 'in', uris)
+    .where('status', '=', 'pending')
+    .execute()
 }
 
 export async function getPendingTips(db: Database) {

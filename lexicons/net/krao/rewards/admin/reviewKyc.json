@@ -9,12 +9,7 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": [
-            "did",
-            "decision",
-            "reasonCode",
-            "note"
-          ],
+          "required": ["did", "decision", "reasonCode", "note"],
           "properties": {
             "did": {
               "type": "string",
@@ -22,10 +17,7 @@
             },
             "decision": {
               "type": "string",
-              "knownValues": [
-                "approve",
-                "reject"
-              ]
+              "knownValues": ["approve", "reject"]
             },
             "reasonCode": {
               "type": "string",

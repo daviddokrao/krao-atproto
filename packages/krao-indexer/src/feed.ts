@@ -162,19 +162,13 @@ export function popularScore(
 }
 
 /**
- * Posts of the last week ranked by {@link popularScore}. The ranking moves
- * as time passes, so the cursor is a plain offset into it.
+ * Posts of the last week ranked for the "popular" feed, best first. Separate
+ * from paging so callers can cache the ranking and serve every page from it.
  */
-export async function getPopularPosts(
+export async function rankPopularPosts(
   db: Database,
-  limit: number,
-  cursor?: string,
   now = Date.now(),
-) {
-  const offset = cursor ? Number(cursor) : 0
-  if (!Number.isInteger(offset) || offset < 0) {
-    throw new Error('Malformed cursor')
-  }
+): Promise<string[]> {
   const since = new Date(now - POPULAR_WINDOW_MS).toISOString()
   const posts = await db
     .selectFrom('feed_post')
@@ -183,7 +177,7 @@ export async function getPopularPosts(
     .orderBy('indexedAt', 'desc')
     .limit(POPULAR_MAX_POSTS)
     .execute()
-  if (!posts.length) return { posts: [], cursor: undefined }
+  if (!posts.length) return []
   const counts = await db
     .selectFrom('feed_interaction')
     .select(['subject', 'kind', (eb) => eb.fn.countAll<number>().as('count')])
@@ -200,23 +194,40 @@ export async function getPopularPosts(
     const map = row.kind === 'like' ? likes : reposts
     map.set(row.subject, Number(row.count))
   }
-  const ranked = posts
-    .map((p) => ({ ...p, postedAt: postedAt(p) }))
-    // Imported or backdated posts are as old as they claim
-    .filter((p) => p.postedAt >= now - POPULAR_WINDOW_MS)
-    .map((p) => ({
-      uri: p.uri,
-      score: popularScore(
-        likes.get(p.uri) ?? 0,
-        reposts.get(p.uri) ?? 0,
-        now - p.postedAt,
-      ),
-    }))
-    .sort((a, b) => b.score - a.score)
-  const page = ranked.slice(offset, offset + limit)
+  return (
+    posts
+      .map((p) => ({ ...p, postedAt: postedAt(p) }))
+      // Imported or backdated posts are as old as they claim
+      .filter((p) => p.postedAt >= now - POPULAR_WINDOW_MS)
+      .map((p) => ({
+        uri: p.uri,
+        score: popularScore(
+          likes.get(p.uri) ?? 0,
+          reposts.get(p.uri) ?? 0,
+          now - p.postedAt,
+        ),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map((p) => p.uri)
+  )
+}
+
+/** A page of the "popular" feed; `ranked` is a ranking from rankPopularPosts */
+export async function getPopularPosts(
+  db: Database,
+  limit: number,
+  cursor?: string,
+  now = Date.now(),
+  ranked?: string[],
+) {
+  const offset = cursor ? Number(cursor) : 0
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error('Malformed cursor')
+  }
+  const uris = ranked ?? (await rankPopularPosts(db, now))
   return {
-    posts: page.map((p) => p.uri),
-    cursor: offset + limit < ranked.length ? String(offset + limit) : undefined,
+    posts: uris.slice(offset, offset + limit),
+    cursor: offset + limit < uris.length ? String(offset + limit) : undefined,
   }
 }
 

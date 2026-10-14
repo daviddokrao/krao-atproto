@@ -1,5 +1,5 @@
 import SqliteDB from 'better-sqlite3'
-import { Kysely, SqliteDialect, sql } from 'kysely'
+import { type Generated, Kysely, SqliteDialect, sql } from 'kysely'
 
 export type WalletStatus = 'verified' | 'invalid'
 
@@ -104,6 +104,18 @@ export interface CursorTable {
   seq: number
 }
 
+/** A firehose event whose handler kept failing, kept for a manual replay */
+export interface FailedEventTable {
+  id: Generated<number>
+  /** Writes of one commit share its seq */
+  seq: number
+  did: string
+  event: string
+  uri: string | null
+  error: string
+  failedAt: string
+}
+
 /** A top-level post in the "latest" feed */
 export interface FeedPostTable {
   uri: string
@@ -174,6 +186,7 @@ export interface DatabaseSchema {
   gated_content: GatedContentTable
   gated_media: GatedMediaTable
   cursor: CursorTable
+  failed_event: FailedEventTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -231,6 +244,14 @@ export async function migrateDb(db: Database): Promise<void> {
     db,
   )
   await sql`create index if not exists tip_tx_idx on tip (txHash)`.execute(db)
+  // A transaction can back only one verified tip. Older versions could verify
+  // two at once: keep the first and demote the rest before adding the index.
+  await sql`update tip set status = 'invalid', reason = 'Transaction already used by another tip' where status = 'verified' and rowid not in (select min(rowid) from tip where status = 'verified' group by txHash)`.execute(
+    db,
+  )
+  await sql`create unique index if not exists tip_tx_verified_idx on tip (txHash) where status = 'verified'`.execute(
+    db,
+  )
   await sql`create index if not exists tip_status_idx on tip (status)`.execute(
     db,
   )
@@ -298,6 +319,31 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('id', 'varchar', (col) => col.primaryKey())
     .addColumn('seq', 'integer', (col) => col.notNull())
     .execute()
+  // The first version keyed failed_event by seq, which the writes of one
+  // commit share. Its rows are only for manual replay: start it over.
+  const failedEventCols = await sql<{
+    name: string
+  }>`pragma table_info(failed_event)`.execute(db)
+  if (
+    failedEventCols.rows.length &&
+    !failedEventCols.rows.some((c) => c.name === 'id')
+  ) {
+    await db.schema.dropTable('failed_event').execute()
+  }
+  await db.schema
+    .createTable('failed_event')
+    .ifNotExists()
+    .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+    .addColumn('seq', 'integer', (col) => col.notNull())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('event', 'varchar', (col) => col.notNull())
+    .addColumn('uri', 'varchar')
+    .addColumn('error', 'varchar', (col) => col.notNull())
+    .addColumn('failedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists nft_avatar_checked_idx on nft_avatar (checkedAt)`.execute(
+    db,
+  )
   await db.schema
     .createTable('feed_post')
     .ifNotExists()

@@ -27,12 +27,14 @@
   },
   "devDependencies": {
     "@types/cors": "^2.8.12",
-    "@types/express": "^4.17.13"
+    "@types/express": "^4.17.13",
+    "vitest": "^4.1.10"
   },
   "scripts": {
     "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include app.bsky.video.defs app.bsky.video.getUploadLimits app.bsky.video.getJobStatus app.bsky.video.startUpload app.bsky.video.uploadPart app.bsky.video.finishUpload app.bsky.video.getUploadStatus app.bsky.video.abortUpload com.atproto.repo.uploadBlob",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
-    "start": "node --enable-source-maps dist/bin.js"
+    "start": "node --enable-source-maps dist/bin.js",
+    "test": "vitest run"
   }
 }

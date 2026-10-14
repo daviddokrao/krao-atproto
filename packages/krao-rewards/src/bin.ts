@@ -8,9 +8,10 @@ const list = (value?: string) =>
     .filter(Boolean)
 
 const env = process.env
-if (!env.KRAO_REWARDS_INTERNAL_TOKEN) {
+const internalToken = env.KRAO_REWARDS_INTERNAL_TOKEN ?? ''
+if (internalToken.length < 32) {
   throw new Error(
-    'KRAO_REWARDS_INTERNAL_TOKEN is required (shared with the PDS)',
+    'KRAO_REWARDS_INTERNAL_TOKEN is required (shared with the PDS, at least 32 characters)',
   )
 }
 const sumsub =
@@ -32,7 +33,7 @@ const rewards = await KraoRewards.create({
   serviceDid: env.KRAO_REWARDS_DID ?? 'did:web:rewards.krao.net',
   dbLocation: env.KRAO_REWARDS_DB ?? 'krao-rewards.sqlite',
   plcUrl: env.KRAO_PLC_URL ?? 'https://plc.directory',
-  internalToken: env.KRAO_REWARDS_INTERNAL_TOKEN,
+  internalToken,
   publicUrl: env.KRAO_REWARDS_PUBLIC_URL,
   adminDids: list(env.KRAO_REWARDS_ADMIN_DIDS),
   kycReviewerDids: list(env.KRAO_KYC_REVIEWER_DIDS),
