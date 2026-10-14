@@ -137,15 +137,18 @@ async function checkTip(
   if (!(await hasLinkedEvmWallet(db, tip.recipient, to))) {
     return { status: 'invalid', reason: 'Recipient wallet is not linked' }
   }
+  // The app only tips from a linked wallet, so this is someone else's transfer
   if (!(await hasLinkedEvmWallet(db, tip.did, from))) {
     return { status: 'invalid', reason: 'Sender wallet is not linked' }
   }
 
   // One transaction can only back one tip, and the earliest claim goes first:
-  // a later record waits until an earlier pending one is settled.
+  // a later record waits until an earlier pending one is settled. Only claims
+  // naming the same sender on the same chain count, since no other claim can
+  // ever verify; otherwise anyone could hold a tip back with a bogus claim.
   const claims = await db
     .selectFrom('tip')
-    .select(['uri', 'status', 'indexedAt'])
+    .select(['uri', 'status', 'indexedAt', 'fromAccount'])
     .where('txHash', '=', tip.txHash)
     .where('uri', '!=', tip.uri)
     .where('status', '!=', 'invalid')
@@ -158,8 +161,9 @@ async function checkTip(
   }
   const earlier = claims.some(
     (c) =>
-      c.indexedAt < tip.indexedAt ||
-      (c.indexedAt === tip.indexedAt && c.uri < tip.uri),
+      sameSender(c.fromAccount, asset.chainId, from) &&
+      (c.indexedAt < tip.indexedAt ||
+        (c.indexedAt === tip.indexedAt && c.uri < tip.uri)),
   )
   if (earlier) {
     return { status: 'pending', reason: 'Another tip claims this transaction' }
@@ -177,6 +181,23 @@ async function checkTip(
     })
   } catch (err) {
     return { status: 'pending', reason: `RPC error: ${(err as Error).message}` }
+  }
+}
+
+function sameSender(
+  fromAccount: string | null,
+  chainId: string,
+  address: string,
+) {
+  if (!fromAccount) return false
+  try {
+    const account = parseAccountId(fromAccount)
+    return (
+      account.chainId === chainId &&
+      account.address.toLowerCase() === address.toLowerCase()
+    )
+  } catch {
+    return false
   }
 }
 

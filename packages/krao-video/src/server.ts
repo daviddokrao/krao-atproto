@@ -7,6 +7,7 @@ import {
   type MethodAuthContext,
   createServer,
 } from '@atproto/xrpc-server'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { Uploader, VideoAuth } from './auth.js'
 import { type JobQueue, hlsDir } from './jobs.js'
 import * as lex from './lexicons/index.js'
@@ -209,6 +210,7 @@ export function createApp(opts: {
   })
 
   const app = express()
+  catchAsyncErrors(app)
   app.set('trust proxy', true)
   app.use(cors())
   // Plain landing text so uptime checks on the bare host get a 200
@@ -296,5 +298,6 @@ export function createApp(opts: {
   )
 
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }

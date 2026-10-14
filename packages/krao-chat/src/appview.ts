@@ -30,6 +30,8 @@ export type Relationship = {
 }
 
 const PROFILE_TTL_MS = 30_000
+const PROFILE_CACHE_MAX = 10_000
+const FETCH_TIMEOUT_MS = 5_000
 
 export class Appview {
   private profiles = new Map<
@@ -47,7 +49,9 @@ export class Appview {
     for (const [k, v] of Object.entries(params)) {
       for (const x of [v].flat()) url.searchParams.append(k, x)
     }
-    const res = await fetch(url)
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) throw new Error(`${nsid} failed: ${res.status}`)
     return (await res.json()) as T
   }
@@ -72,6 +76,7 @@ export class Appview {
         { actors: batch },
       )
       const found = new Map(profiles.map((p) => [p.did, p]))
+      if (this.profiles.size > PROFILE_CACHE_MAX) this.profiles.clear()
       for (const did of batch) {
         const profile = found.get(did) ?? null
         this.profiles.set(did, { at: now, profile })

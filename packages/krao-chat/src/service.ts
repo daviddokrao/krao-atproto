@@ -45,6 +45,20 @@ export class ChatService {
     public appview: Appview,
   ) {}
 
+  /**
+   * Run `fn` with a copy of this service whose database is a transaction.
+   * Keep network calls (AppView) out of `fn`: SQLite has one connection, so
+   * the transaction holds up every other query until it ends.
+   */
+  async transact<T>(fn: (svc: this) => Promise<T>): Promise<T> {
+    if (this.db.isTransaction) return fn(this)
+    return this.db.transaction().execute((trx) => {
+      const svc = Object.create(this) as this
+      svc.db = trx
+      return fn(svc)
+    })
+  }
+
   /*
    * Members and convos
    */
@@ -173,50 +187,65 @@ export class ChatService {
       .executeTakeFirst()
   }
 
+  /**
+   * Creates the direct convo between the two accounts and returns its id. If
+   * a concurrent request created it first, returns that one instead.
+   */
   async createDirectConvo(creator: string, other: string) {
-    const id = randomId()
-    const rev = nextRev()
-    await this.db
-      .insertInto('convo')
-      .values({
-        id,
-        kind: 'direct',
-        name: null,
-        ownerDid: null,
-        directKey: [creator, other].sort().join(' '),
-        lockStatus: 'unlocked',
-        memberLimit: 2,
-        createdAt: new Date().toISOString(),
-        rev,
-      })
-      .execute()
+    const directKey = [creator, other].sort().join(' ')
     const otherStatus: MemberStatus = (await this.follows(other, creator))
       ? 'accepted'
       : 'request'
-    for (const [did, status] of [
-      [creator, 'accepted'],
-      [other, otherStatus],
-    ] as const) {
-      await this.db
-        .insertInto('member')
-        .values({
+    const id = randomId()
+    try {
+      await this.transact(async (svc) => {
+        const rev = nextRev()
+        await svc.db
+          .insertInto('convo')
+          .values({
+            id,
+            kind: 'direct',
+            name: null,
+            ownerDid: null,
+            directKey,
+            lockStatus: 'unlocked',
+            memberLimit: 2,
+            createdAt: new Date().toISOString(),
+            rev,
+          })
+          .execute()
+        for (const [did, status] of [
+          [creator, 'accepted'],
+          [other, otherStatus],
+        ] as const) {
+          await svc.db
+            .insertInto('member')
+            .values({
+              convoId: id,
+              did,
+              role: null,
+              status,
+              state: 'active',
+              muted: 0,
+              addedBy: null,
+              joinedRev: '',
+              lastReadRev: rev,
+            })
+            .execute()
+        }
+        await svc.log([creator], id, (r) => ({
+          $type: T.log('logBeginConvo'),
+          rev: r,
           convoId: id,
-          did,
-          role: null,
-          status,
-          state: 'active',
-          muted: 0,
-          addedBy: null,
-          joinedRev: '',
-          lastReadRev: rev,
-        })
-        .execute()
+        }))
+      })
+    } catch (err) {
+      const existing = isUniqueViolation(err)
+        ? await this.findDirectConvo(creator, other)
+        : undefined
+      if (!existing) throw err
+      return existing.id
     }
-    await this.log([creator], id, (r) => ({
-      $type: T.log('logBeginConvo'),
-      rev: r,
-      convoId: id,
-    }))
     return id
   }
 
@@ -256,6 +285,7 @@ export class ChatService {
       throw new InvalidRequestError('This convo is locked', 'ConvoLocked')
     }
     const members = await this.listMembers(convoId)
+    let reopen: string | undefined
     if (convo.kind === 'direct') {
       const other = members.find((m) => m.did !== sender)
       if (other) {
@@ -264,12 +294,7 @@ export class ChatService {
         })
         // A member who left a direct convo gets it back, as a request
         if (other.state !== 'active') {
-          await this.db
-            .updateTable('member')
-            .set({ state: 'active', status: 'request' })
-            .where('convoId', '=', convoId)
-            .where('did', '=', other.did)
-            .execute()
+          reopen = other.did
           other.state = 'active'
         }
       }
@@ -282,10 +307,6 @@ export class ChatService {
           'ReplyTargetNotFound',
         )
       }
-    }
-    // Replying to a request accepts it
-    if (member.status === 'request') {
-      await this.acceptConvo(convoId, sender)
     }
     const rev = nextRev()
     const row: MessageTable = {
@@ -300,22 +321,37 @@ export class ChatService {
       sentAt: new Date().toISOString(),
       rev,
     }
-    await this.db.insertInto('message').values(row).execute()
-    await this.touchConvo(convoId, rev)
-    // The sender has read their own message
-    await this.db
-      .updateTable('member')
-      .set({ lastReadRev: rev })
-      .where('convoId', '=', convoId)
-      .where('did', '=', sender)
-      .execute()
+    // Before any write: embeds may need the AppView
     const [view] = await this.messageViews([row], sender)
-    await this.log(this.activeDids(members), convoId, (r) => ({
-      $type: T.log('logCreateMessage'),
-      rev: r,
-      convoId,
-      message: view,
-    }))
+    await this.transact(async (svc) => {
+      if (reopen) {
+        await svc.db
+          .updateTable('member')
+          .set({ state: 'active', status: 'request' })
+          .where('convoId', '=', convoId)
+          .where('did', '=', reopen)
+          .execute()
+      }
+      // Replying to a request accepts it
+      if (member.status === 'request') {
+        await svc.acceptConvo(convoId, sender)
+      }
+      await svc.db.insertInto('message').values(row).execute()
+      await svc.touchConvo(convoId, rev)
+      // The sender has read their own message
+      await svc.db
+        .updateTable('member')
+        .set({ lastReadRev: rev })
+        .where('convoId', '=', convoId)
+        .where('did', '=', sender)
+        .execute()
+      await svc.log(svc.activeDids(members), convoId, (r) => ({
+        $type: T.log('logCreateMessage'),
+        rev: r,
+        convoId,
+        message: view,
+      }))
+    })
     return view
   }
 
@@ -532,58 +568,63 @@ export class ChatService {
         'ReactionMessageDeleted',
       )
     }
-    const rev = nextRev()
     const reaction = {
       value,
       sender: { did },
       createdAt: new Date().toISOString(),
     }
-    if (add) {
-      const mine = await this.db
-        .selectFrom('reaction')
-        .select('value')
-        .where('messageId', '=', messageId)
-        .where('did', '=', did)
-        .execute()
-      if (mine.some((r) => r.value === value)) {
-        const [view] = await this.messageViews([message], did)
-        return view
-      }
-      if (mine.length >= REACTION_LIMIT) {
-        throw new InvalidRequestError(
-          `At most ${REACTION_LIMIT} reactions per message`,
-          'ReactionLimitReached',
-        )
-      }
-      await this.db
-        .insertInto('reaction')
-        .values({
-          messageId,
-          convoId,
-          did,
-          value,
-          createdAt: reaction.createdAt,
-          rev,
-        })
-        .execute()
-    } else {
-      await this.db
-        .deleteFrom('reaction')
-        .where('messageId', '=', messageId)
-        .where('did', '=', did)
-        .where('value', '=', value)
-        .execute()
+    const mine = await this.db
+      .selectFrom('reaction')
+      .select('value')
+      .where('messageId', '=', messageId)
+      .where('did', '=', did)
+      .execute()
+    // Before any write: embeds may need the AppView
+    const [before] = await this.messageViews([message], did)
+    if (add && mine.some((r) => r.value === value)) return before
+    if (add && mine.length >= REACTION_LIMIT) {
+      throw new InvalidRequestError(
+        `At most ${REACTION_LIMIT} reactions per message`,
+        'ReactionLimitReached',
+      )
     }
-    await this.touchConvo(convoId, rev)
-    const [view] = await this.messageViews([message], did)
-    const members = await this.listMembers(convoId)
-    await this.log(this.activeDids(members), convoId, (r) => ({
-      $type: T.log(add ? 'logAddReaction' : 'logRemoveReaction'),
-      rev: r,
-      convoId,
-      message: view,
-      reaction,
-    }))
+    const others = ((before.reactions ?? []) as Json[]).filter(
+      (r) =>
+        !(r.value === value && (r.sender as { did?: string })?.did === did),
+    )
+    const view = { ...before, reactions: add ? [...others, reaction] : others }
+    await this.transact(async (svc) => {
+      const rev = nextRev()
+      if (add) {
+        await svc.db
+          .insertInto('reaction')
+          .values({
+            messageId,
+            convoId,
+            did,
+            value,
+            createdAt: reaction.createdAt,
+            rev,
+          })
+          .execute()
+      } else {
+        await svc.db
+          .deleteFrom('reaction')
+          .where('messageId', '=', messageId)
+          .where('did', '=', did)
+          .where('value', '=', value)
+          .execute()
+      }
+      await svc.touchConvo(convoId, rev)
+      const members = await svc.listMembers(convoId)
+      await svc.log(svc.activeDids(members), convoId, (r) => ({
+        $type: T.log(add ? 'logAddReaction' : 'logRemoveReaction'),
+        rev: r,
+        convoId,
+        message: view,
+        reaction,
+      }))
+    })
     return view
   }
 
@@ -1022,4 +1063,10 @@ function referredDids(data: Json): string[] {
     if (typeof did === 'string') dids.push(did)
   }
   return dids
+}
+
+function isUniqueViolation(err: unknown) {
+  return String((err as { code?: unknown })?.code).startsWith(
+    'SQLITE_CONSTRAINT',
+  )
 }

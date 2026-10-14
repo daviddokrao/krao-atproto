@@ -8,6 +8,8 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { sql } from 'kysely'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
 import { addModerationMethods, isChatDisabled } from './moderation.js'
@@ -485,14 +487,20 @@ export function createApp(opts: {
   })
 
   const app = express()
+  catchAsyncErrors(app)
   app.set('trust proxy', true)
   app.use(cors())
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao chat service. Health: /_health')
   })
-  app.get('/_health', (_req, res) => {
-    res.json({ ok: true, did: serviceDid })
+  app.get('/_health', async (_req, res) => {
+    try {
+      await sql`select 1`.execute(service.db)
+      res.json({ ok: true, did: serviceDid })
+    } catch {
+      res.status(503).json({ ok: false, did: serviceDid, error: 'Database' })
+    }
   })
   if (opts.publicUrl && serviceDid.startsWith('did:web:')) {
     app.get('/.well-known/did.json', (_req, res) => {
@@ -510,5 +518,6 @@ export function createApp(opts: {
     })
   }
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }

@@ -22,6 +22,8 @@ export class FfmpegError extends Error {}
 
 /** Keep only the end of a process's stderr, where ffmpeg puts the error */
 const STDERR_TAIL = 4096
+/** A stuck ffmpeg or ffprobe is killed after this long */
+const RUN_TIMEOUT_MS = 15 * 60 * 1000
 
 function run(
   cmd: string,
@@ -31,7 +33,8 @@ function run(
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      signal: opts.signal,
+      signal: opts.signal ?? AbortSignal.timeout(RUN_TIMEOUT_MS),
+      killSignal: 'SIGKILL',
     })
     let stdout = ''
     let stderr = ''

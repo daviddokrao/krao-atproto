@@ -21,6 +21,12 @@ const TIMEOUT_MS = 5_000
  */
 const SETTLE_MS = 10_000
 const DELIVER_SOON_MS = SETTLE_MS + 2_000
+/** Delivered rows are kept this long, then pruned */
+const KEEP_DELIVERED_MS = 30 * 24 * 60 * 60 * 1000
+
+/** The service answered, and asking again will not change its answer */
+class RejectedError extends Error {}
+const REJECTED_STATUSES = new Set([400, 404, 409, 422])
 
 export class KraoReferral {
   private timer?: NodeJS.Timeout
@@ -72,6 +78,7 @@ export class KraoReferral {
         attempts: 0,
         lastError: null,
         deliveredAt: null,
+        failedAt: null,
       })
       .execute()
   }
@@ -107,6 +114,7 @@ export class KraoReferral {
         attempts: 0,
         lastError: null,
         deliveredAt: null,
+        failedAt: null,
       })
       .execute()
   }
@@ -121,6 +129,9 @@ export class KraoReferral {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
+    if (REJECTED_STATUSES.has(res.status)) {
+      throw new RejectedError(`HTTP ${res.status}: ${await res.text()}`)
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
   }
 
@@ -130,6 +141,7 @@ export class KraoReferral {
     this.delivering = true
     try {
       if (await this.deliverSignups()) await this.deliverTakedowns()
+      await this.pruneDelivered()
     } finally {
       this.delivering = false
     }
@@ -141,6 +153,7 @@ export class KraoReferral {
       .selectFrom('krao_referral_outbox')
       .selectAll()
       .where('deliveredAt', 'is', null)
+      .where('failedAt', 'is', null)
       .where('createdAt', '<=', new Date(Date.now() - SETTLE_MS).toISOString())
       .orderBy('createdAt')
       .limit(BATCH)
@@ -158,14 +171,23 @@ export class KraoReferral {
           .where('did', '=', row.did)
           .execute()
       } catch (err) {
+        const rejected = err instanceof RejectedError
         await this.db.db
           .updateTable('krao_referral_outbox')
           .set({
             attempts: row.attempts + 1,
             lastError: String(err).slice(0, 500),
+            failedAt: rejected ? currentDatetimeString() : null,
           })
           .where('did', '=', row.did)
           .execute()
+        if (rejected) {
+          pdsLogger.error(
+            { err, did: row.did },
+            'krao referral rejected by the rewards service, skipping it',
+          )
+          continue
+        }
         pdsLogger.warn(
           { err, did: row.did },
           'krao referral delivery failed, will retry',
@@ -182,6 +204,7 @@ export class KraoReferral {
       .selectFrom('krao_takedown_outbox')
       .selectAll()
       .where('deliveredAt', 'is', null)
+      .where('failedAt', 'is', null)
       // After the account's sign-up, so its points exist to take back
       .where((eb) =>
         eb.not(
@@ -194,7 +217,8 @@ export class KraoReferral {
                 '=',
                 'krao_takedown_outbox.did',
               )
-              .where('krao_referral_outbox.deliveredAt', 'is', null),
+              .where('krao_referral_outbox.deliveredAt', 'is', null)
+              .where('krao_referral_outbox.failedAt', 'is', null),
           ),
         ),
       )
@@ -213,14 +237,23 @@ export class KraoReferral {
           .where('id', '=', row.id)
           .execute()
       } catch (err) {
+        const rejected = err instanceof RejectedError
         await this.db.db
           .updateTable('krao_takedown_outbox')
           .set({
             attempts: row.attempts + 1,
             lastError: String(err).slice(0, 500),
+            failedAt: rejected ? currentDatetimeString() : null,
           })
           .where('id', '=', row.id)
           .execute()
+        if (rejected) {
+          pdsLogger.error(
+            { err, did: row.did },
+            'krao takedown rejected by the rewards service, skipping it',
+          )
+          continue
+        }
         pdsLogger.warn(
           { err, did: row.did },
           'krao takedown delivery failed, will retry',
@@ -228,5 +261,17 @@ export class KraoReferral {
         return
       }
     }
+  }
+
+  private async pruneDelivered() {
+    const before = new Date(Date.now() - KEEP_DELIVERED_MS).toISOString()
+    await this.db.db
+      .deleteFrom('krao_referral_outbox')
+      .where('deliveredAt', '<', before)
+      .execute()
+    await this.db.db
+      .deleteFrom('krao_takedown_outbox')
+      .where('deliveredAt', '<', before)
+      .execute()
   }
 }

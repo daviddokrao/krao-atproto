@@ -261,14 +261,33 @@ export async function deleteNftAvatar(db: Database, did: string) {
   await db.deleteFrom('nft_avatar').where('did', '=', did).execute()
 }
 
-/** NFT avatars due for a re-check (ownership can change at any time) */
-export async function getNftAvatarsToRecheck(db: Database, olderThan: string) {
+/**
+ * NFT avatars due for a re-check (ownership can change at any time): never
+ * checked, checked before `olderThan`, or invalid and checked before
+ * `invalidOlderThan`.
+ */
+export async function getNftAvatarsToRecheck(
+  db: Database,
+  olderThan: string,
+  invalidOlderThan = olderThan,
+) {
   return db
     .selectFrom('nft_avatar')
     .selectAll()
     .where((eb) =>
-      eb.or([eb('checkedAt', 'is', null), eb('checkedAt', '<', olderThan)]),
+      eb.or([
+        eb('checkedAt', 'is', null),
+        eb.and([
+          eb('status', '!=', 'invalid'),
+          eb('checkedAt', '<', olderThan),
+        ]),
+        eb.and([
+          eb('status', '=', 'invalid'),
+          eb('checkedAt', '<', invalidOlderThan),
+        ]),
+      ]),
     )
+    .orderBy('checkedAt', 'asc')
     .limit(100)
     .execute()
 }

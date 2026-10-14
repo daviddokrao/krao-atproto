@@ -14,6 +14,7 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
@@ -611,6 +612,7 @@ export function createApp(
   })
 
   const app = express()
+  catchAsyncErrors(app)
   /*
    * Behind a reverse proxy, req.protocol and req.ip should follow the
    * X-Forwarded-* headers, but only when a proxy on a private network set them
@@ -629,8 +631,25 @@ export function createApp(
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao indexer. Health: /_health')
   })
-  app.get('/_health', (_req, res) => {
-    res.json({ ok: true })
+  app.get('/_health', async (_req, res) => {
+    try {
+      const cursor = await db
+        .selectFrom('cursor')
+        .select('seq')
+        .where('id', '=', 'firehose')
+        .executeTakeFirst()
+      const failed = await db
+        .selectFrom('failed_event')
+        .select((eb) => eb.fn.countAll<number>().as('count'))
+        .executeTakeFirst()
+      res.json({
+        ok: true,
+        firehoseSeq: cursor?.seq ?? null,
+        failedEvents: Number(failed?.count ?? 0),
+      })
+    } catch {
+      res.status(503).json({ ok: false, error: 'Database' })
+    }
   })
   /*
    * Internal lookup used by Krao PDSes to sign users in with a wallet. The
@@ -725,6 +744,7 @@ export function createApp(
     }
   })
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }
 
