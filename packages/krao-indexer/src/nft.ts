@@ -172,6 +172,13 @@ export async function verifyNftAvatar(
       checkedAt: new Date().toISOString(),
     })
     .where('did', '=', row.did)
+    // Wallets changed during the check (markNftAvatarStale): leave the row
+    // for the next round instead of writing a result for the old wallets
+    .where((eb) =>
+      row.checkedAt === null
+        ? eb('checkedAt', 'is', null)
+        : eb('checkedAt', '=', row.checkedAt),
+    )
     .execute()
   return result.status
 }

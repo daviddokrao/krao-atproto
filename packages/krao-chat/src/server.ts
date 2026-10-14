@@ -227,17 +227,9 @@ export function createApp(opts: {
     auth,
     handler: async ({ auth: { credentials }, params }) => {
       const counts = { accepted: 0, request: 0 }
-      const { convos } = await service.listConvos(credentials.did, {
-        limit: 10_000,
-      })
-      for (const c of convos) {
-        const isGroup =
-          (c.kind as { $type?: string })?.$type ===
-          'chat.bsky.convo.defs#groupConvo'
-        if (isGroup && params.includeGroupChats === false) continue
-        if ((c.unreadCount as number) > 0 && !c.muted) {
-          counts[c.status === 'request' ? 'request' : 'accepted']++
-        }
+      for (const c of await service.unreadConvos(credentials.did)) {
+        if (c.kind === 'group' && params.includeGroupChats === false) continue
+        if (!c.muted) counts[c.status === 'request' ? 'request' : 'accepted']++
       }
       return json({
         unreadAcceptedConvos: counts.accepted,
@@ -327,16 +319,11 @@ export function createApp(opts: {
   server.add(convo.updateAllRead, {
     auth,
     handler: async ({ auth: { credentials }, input }) => {
-      const { convos } = await service.listConvos(credentials.did, {
-        limit: 10_000,
-        status: input.body.status,
-      })
       let updatedCount = 0
-      for (const c of convos) {
-        if ((c.unreadCount as number) > 0) {
-          await service.markRead(c.id as string, credentials.did)
-          updatedCount++
-        }
+      for (const c of await service.unreadConvos(credentials.did)) {
+        if (input.body.status && c.status !== input.body.status) continue
+        await service.markRead(c.convoId, credentials.did)
+        updatedCount++
       }
       return json({ updatedCount })
     },

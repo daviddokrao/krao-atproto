@@ -52,6 +52,7 @@ import {
   deleteTip,
   deleteTipsForDid,
   getPendingTips,
+  getTipsByUri,
   tipRowFromRecord,
   upsertTip,
   verifyTip,
@@ -127,6 +128,8 @@ export class FirehoseIndexer {
   private cleanupTimer?: NodeJS.Timeout
   private verifying?: Promise<void>
   private verifyAgain = false
+  /** Tips indexed since the last round, checked before the backlog */
+  private freshTips = new Set<string>()
 
   start() {
     void this.firehose.start()
@@ -169,9 +172,9 @@ export class FirehoseIndexer {
           console.error('Krao indexer: verification round failed', err)
         }
       } while (this.verifyAgain)
-    })().finally(() => {
+      // Cleared in the same tick the loop ends, so no kick falls in between
       this.verifying = undefined
-    })
+    })()
   }
 
   /** Resolves once the current verification round, if any, is done */
@@ -196,8 +199,18 @@ export class FirehoseIndexer {
     }
   }
 
+  /**
+   * Tips indexed since the last round go first: the backlog of pending tips
+   * (which may hold many that never confirm) must not hold up new ones.
+   */
   async verifyPendingTips() {
-    for (const tip of await getPendingTips(this.db)) {
+    const fresh = [...this.freshTips]
+    this.freshTips.clear()
+    const rows = [
+      ...(await getTipsByUri(this.db, fresh)),
+      ...(await getPendingTips(this.db)).filter((t) => !fresh.includes(t.uri)),
+    ]
+    for (const tip of rows) {
       await verifyTip(this.db, this.rpcs, tip).catch((err: unknown) =>
         console.error('Krao indexer: tip check failed', tip.uri, err),
       )
@@ -238,7 +251,6 @@ export class FirehoseIndexer {
         error: String((err as Error)?.message ?? err).slice(0, 1000),
         failedAt: new Date().toISOString(),
       })
-      .onConflict((oc) => oc.column('seq').doNothing())
       .execute()
   }
 
@@ -254,6 +266,7 @@ export class FirehoseIndexer {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)
         await upsertTip(this.db, row)
         // Verified by the background worker: a slow RPC must not stall indexing
+        this.freshTips.add(row.uri)
         this.kickVerification()
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         const row = gateRuleRowFromRecord(

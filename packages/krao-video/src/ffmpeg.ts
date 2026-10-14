@@ -33,7 +33,10 @@ function run(
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      signal: opts.signal ?? AbortSignal.timeout(RUN_TIMEOUT_MS),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(RUN_TIMEOUT_MS),
+        ...(opts.signal ? [opts.signal] : []),
+      ]),
       killSignal: 'SIGKILL',
     })
     let stdout = ''

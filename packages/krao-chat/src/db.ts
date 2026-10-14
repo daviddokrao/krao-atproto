@@ -186,6 +186,10 @@ export async function migrateDb(db: Database) {
   await sql`create index if not exists message_convo_rev_idx on message (convoId, rev)`.execute(
     db,
   )
+  // Moderation and account deletion look messages up by sender
+  await sql`create index if not exists message_sender_idx on message (senderDid)`.execute(
+    db,
+  )
   await db.schema
     .createTable('hidden_message')
     .ifNotExists()

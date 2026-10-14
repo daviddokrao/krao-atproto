@@ -24,9 +24,12 @@ const DELIVER_SOON_MS = SETTLE_MS + 2_000
 /** Delivered rows are kept this long, then pruned */
 const KEEP_DELIVERED_MS = 30 * 24 * 60 * 60 * 1000
 
-/** The service answered, and asking again will not change its answer */
+/*
+ * The service answered, and asking again will not change its answer. Only a
+ * 400 means that: a 404 more likely comes from a wrong URL or an older build.
+ */
 class RejectedError extends Error {}
-const REJECTED_STATUSES = new Set([400, 404, 409, 422])
+const REJECTED_STATUSES = new Set([400])
 
 export class KraoReferral {
   private timer?: NodeJS.Timeout

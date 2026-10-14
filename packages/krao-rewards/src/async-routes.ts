@@ -45,15 +45,33 @@ function wrap(arg: unknown): unknown {
   }
 }
 
-/** Last middleware: log the error and answer with a generic 500 */
+/**
+ * Last middleware. Client errors that Express or body-parser flag with a 4xx
+ * status (bad JSON, body too large, bad URL escape) keep it; anything else is
+ * logged and answered with a generic 500.
+ */
 export const errorHandler: express.ErrorRequestHandler = (
   err,
   req,
   res,
   next,
 ) => {
-  console.error(`Krao: ${req.method} ${req.path} failed`, err)
   if (res.headersSent) return next(err)
+  const { status, statusCode, expose, message } = (err ?? {}) as {
+    status?: unknown
+    statusCode?: unknown
+    expose?: boolean
+    message?: string
+  }
+  const code = typeof status === 'number' ? status : statusCode
+  if (typeof code === 'number' && code >= 400 && code < 500) {
+    res.status(code).json({
+      error: 'InvalidRequest',
+      message: expose && message ? message : 'Invalid request',
+    })
+    return
+  }
+  console.error(`Krao: ${req.method} ${req.path} failed`, err)
   res
     .status(500)
     .json({ error: 'InternalServerError', message: 'Internal server error' })

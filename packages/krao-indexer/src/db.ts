@@ -1,5 +1,5 @@
 import SqliteDB from 'better-sqlite3'
-import { Kysely, SqliteDialect, sql } from 'kysely'
+import { type Generated, Kysely, SqliteDialect, sql } from 'kysely'
 
 export type WalletStatus = 'verified' | 'invalid'
 
@@ -106,6 +106,8 @@ export interface CursorTable {
 
 /** A firehose event whose handler kept failing, kept for a manual replay */
 export interface FailedEventTable {
+  id: Generated<number>
+  /** Writes of one commit share its seq */
   seq: number
   did: string
   event: string
@@ -320,7 +322,8 @@ export async function migrateDb(db: Database): Promise<void> {
   await db.schema
     .createTable('failed_event')
     .ifNotExists()
-    .addColumn('seq', 'integer', (col) => col.primaryKey())
+    .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+    .addColumn('seq', 'integer', (col) => col.notNull())
     .addColumn('did', 'varchar', (col) => col.notNull())
     .addColumn('event', 'varchar', (col) => col.notNull())
     .addColumn('uri', 'varchar')

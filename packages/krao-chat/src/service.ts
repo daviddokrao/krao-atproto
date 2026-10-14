@@ -308,9 +308,8 @@ export class ChatService {
         )
       }
     }
-    const rev = nextRev()
     const row: MessageTable = {
-      id: rev,
+      id: '',
       convoId,
       senderDid: sender,
       text: input.text,
@@ -319,9 +318,10 @@ export class ChatService {
       replyTo: input.replyTo?.messageId ?? null,
       system: null,
       sentAt: new Date().toISOString(),
-      rev,
+      rev: '',
     }
-    // Before any write: embeds may need the AppView
+    // Before any write: embeds may need the AppView. The rev is only taken
+    // in the transaction, so a slow lookup cannot leave it behind newer revs.
     const [view] = await this.messageViews([row], sender)
     await this.transact(async (svc) => {
       if (reopen) {
@@ -336,6 +336,9 @@ export class ChatService {
       if (member.status === 'request') {
         await svc.acceptConvo(convoId, sender)
       }
+      const rev = nextRev()
+      row.id = row.rev = rev
+      view.id = view.rev = rev
       await svc.db.insertInto('message').values(row).execute()
       await svc.touchConvo(convoId, rev)
       // The sender has read their own message
@@ -848,6 +851,48 @@ export class ChatService {
     }))
   }
 
+  /**
+   * The viewer's active convos that have unread messages, with their unread
+   * count, in one query (for badges and "mark all read").
+   */
+  async unreadConvos(viewer: string) {
+    const rows = await this.db
+      .selectFrom('member')
+      .innerJoin('convo', 'convo.id', 'member.convoId')
+      .innerJoin('message', 'message.convoId', 'member.convoId')
+      .select([
+        'member.convoId as convoId',
+        'member.status as status',
+        'member.muted as muted',
+        'convo.kind as kind',
+      ])
+      .select((eb) => eb.fn.countAll<number>().as('unread'))
+      .where('member.did', '=', viewer)
+      .where('member.state', '=', 'active')
+      .whereRef('message.rev', '>', 'member.lastReadRev')
+      .whereRef('message.rev', '>=', 'member.joinedRev')
+      .where((eb) =>
+        eb.or([
+          eb('message.senderDid', 'is', null),
+          eb('message.senderDid', '!=', viewer),
+        ]),
+      )
+      .where('message.id', 'not in', (qb) =>
+        qb
+          .selectFrom('hidden_message')
+          .select('messageId')
+          .where('did', '=', viewer),
+      )
+      .groupBy([
+        'member.convoId',
+        'member.status',
+        'member.muted',
+        'convo.kind',
+      ])
+      .execute()
+    return rows.map((r) => ({ ...r, unread: Number(r.unread) }))
+  }
+
   /** Messages in the convo the member can see, ignoring per-viewer hiding */
   async unreadCount(convoId: string, member: MemberTable) {
     const row = await this.db
@@ -974,18 +1019,30 @@ export class ChatService {
     if (opts.lockStatus) {
       qb = qb.where('convo.lockStatus', '=', opts.lockStatus as 'unlocked')
     }
-    const convos: Json[] = []
-    let cursor: string | undefined
     // Direct convos without messages yet stay out of the lists
-    for (const row of await qb.execute()) {
-      if (row.kind === 'direct' && !(await this.hasMessages(row.id))) continue
-      const view = await this.convoView(row, viewer)
-      if (opts.readState === 'unread' && !(view.unreadCount as number)) continue
-      convos.push(view)
-      cursor = row.rev
-      if (convos.length >= opts.limit) break
+    qb = qb.where((eb) =>
+      eb.or([
+        eb('convo.kind', '!=', 'direct'),
+        eb.exists(
+          eb
+            .selectFrom('message')
+            .select('message.id')
+            .whereRef('message.convoId', '=', 'convo.id'),
+        ),
+      ]),
+    )
+    if (opts.readState === 'unread') {
+      const unread = (await this.unreadConvos(viewer)).map((r) => r.convoId)
+      if (!unread.length) return { convos: [], cursor: undefined }
+      qb = qb.where('convo.id', 'in', unread)
     }
-    return { convos, cursor: convos.length >= opts.limit ? cursor : undefined }
+    const rows = await qb.limit(opts.limit).execute()
+    const convos: Json[] = []
+    for (const row of rows) convos.push(await this.convoView(row, viewer))
+    return {
+      convos,
+      cursor: rows.length >= opts.limit ? rows.at(-1)?.rev : undefined,
+    }
   }
 
   async getLog(viewer: string, cursor?: string) {

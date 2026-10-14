@@ -215,6 +215,17 @@ async function hasLinkedEvmWallet(db: Database, did: string, address: string) {
   )
 }
 
+/** Pending tips among `uris` */
+export async function getTipsByUri(db: Database, uris: string[]) {
+  if (!uris.length) return []
+  return db
+    .selectFrom('tip')
+    .selectAll()
+    .where('uri', 'in', uris)
+    .where('status', '=', 'pending')
+    .execute()
+}
+
 export async function getPendingTips(db: Database) {
   return db
     .selectFrom('tip')
