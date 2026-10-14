@@ -86,7 +86,7 @@ export async function upsertGateRule(db: Database, row: GateRuleTable) {
 export async function deleteGateRule(db: Database, uri: string) {
   const rule = await db
     .selectFrom('gate_rule')
-    .select('subject')
+    .select(['subject', 'indexedAt'])
     .where('uri', '=', uri)
     .executeTakeFirst()
   await db.deleteFrom('gate_rule').where('uri', '=', uri).execute()
@@ -97,9 +97,12 @@ export async function deleteGateRule(db: Database, uri: string) {
     .where('subject', '=', rule.subject)
     .executeTakeFirst()
   if (!remaining) {
+    // Content stored after the rule was indexed belongs to a new gate whose
+    // rule has not arrived yet (remove, then add again right away)
     await db
       .deleteFrom('gated_content')
       .where('subject', '=', rule.subject)
+      .where('updatedAt', '<=', rule.indexedAt)
       .execute()
   }
 }

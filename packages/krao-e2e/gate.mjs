@@ -342,11 +342,30 @@ const rulesAfter = await xrpc(GATE, 'net.krao.gate.getRules', {
 })
 const afterRemoval = await getContent(author, post2.uri)
 check(
-  'removing the rule removes the gate and its content',
-  (rulesAfter.data.rules ?? []).length === 0 &&
-    !afterRemoval.ok &&
-    !JSON.stringify(afterRemoval.data).includes('short-lived secret'),
+  'removing the rule removes the gate',
+  (rulesAfter.data.rules ?? []).length === 0 && !afterRemoval.ok,
   `${(rulesAfter.data.rules ?? []).length} rules, ${afterRemoval.data.error}`,
+)
+// A new rule without new content: the old content must be gone for good
+await createRecord(author, 'net.krao.gate.rule', {
+  subject: { uri: post2.uri, cid: post2.cid },
+  conditions: [
+    {
+      $type: 'net.krao.gate.defs#tokenBalance',
+      asset: USDC_ASSET,
+      minAmount: '1',
+    },
+  ],
+  match: 'all',
+  service: GATE_DID,
+  createdAt: new Date().toISOString(),
+})
+await sleep(2500)
+const regated = await getContent(holder, post2.uri)
+check(
+  'the removed gate content does not come back with a new rule',
+  !JSON.stringify(regated.data).includes('short-lived secret'),
+  `${regated.status} ${regated.data.error}`,
 )
 
 // Leave a gated post for manual testing, with the poor wallet back at 1 USDC
