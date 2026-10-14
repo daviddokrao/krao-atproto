@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.adjustPoints",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add or remove points by hand. The entry is approved at once and logged. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did", "amount", "note"],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "amount": {
+              "type": "integer"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.points.defs#entryView"
+        }
+      }
+    }
+  }
+}

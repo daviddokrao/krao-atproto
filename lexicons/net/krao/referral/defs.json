@@ -1,0 +1,25 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.referral.defs",
+  "defs": {
+    "referralView": {
+      "type": "object",
+      "required": ["did", "joinedAt", "verified"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether the referred account has passed identity verification (KYC)."
+        }
+      },
+      "description": "An account that signed up with the viewer's referral code."
+    }
+  }
+}

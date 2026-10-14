@@ -1,0 +1,63 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.createCode",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a campaign or partner referral code. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "description": "The code to create; a random one if omitted."
+            },
+            "kind": {
+              "type": "string",
+              "knownValues": ["campaign", "partner"]
+            },
+            "ownerDid": {
+              "type": "string",
+              "format": "did",
+              "description": "Account credited as the referrer of sign-ups with this code."
+            },
+            "campaignId": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "maxUses": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.rewards.admin.defs#codeView"
+        }
+      },
+      "errors": [
+        {
+          "name": "CodeTaken",
+          "description": "The code already exists."
+        }
+      ]
+    }
+  }
+}

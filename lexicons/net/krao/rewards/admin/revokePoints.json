@@ -1,0 +1,45 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.revokePoints",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Take back an account's points (eg fraud): pending entries are voided, approved ones reversed. Pending points others would get through it (eg its referrer) are voided too. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did", "note"],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["voided", "reversed"],
+          "properties": {
+            "voided": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reversed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

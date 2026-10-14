@@ -3,7 +3,15 @@
 // Covers direct messages (requests, replies, reactions, reads, deletes,
 // record embeds, who may message whom) and groups (members, join links,
 // approvals, locks, roles).
-import { ACCOUNTS, PDS, checker, createRecord, login, xrpc } from './lib.mjs'
+import {
+  ACCOUNTS,
+  PDS,
+  SIGNUP_CODE,
+  checker,
+  createRecord,
+  login,
+  xrpc,
+} from './lib.mjs'
 
 const CHAT = process.env.KRAO_CHAT_URL ?? 'http://localhost:2590'
 const { check, done } = checker()
@@ -35,7 +43,12 @@ async function call(session, method, { query, body } = {}) {
 async function freshAccount(prefix) {
   const handle = `${prefix}${Date.now().toString(36).slice(-6)}.test`
   const res = await xrpc(PDS, 'com.atproto.server.createAccount', {
-    body: { handle, email: `${handle}@example.com`, password: 'krao-dev-pass' },
+    body: {
+      handle,
+      email: `${handle}@example.com`,
+      password: 'krao-dev-pass',
+      inviteCode: SIGNUP_CODE,
+    },
   })
   if (!res.ok) throw new Error(`createAccount: ${res.data.message}`)
   return res.data

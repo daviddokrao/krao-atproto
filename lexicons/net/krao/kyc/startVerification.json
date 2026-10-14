@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.startVerification",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Start or resume identity verification. Returns a link to the provider's verification flow, to open in a browser. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["url"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "KycUnavailable",
+          "description": "No verification provider is configured."
+        },
+        {
+          "name": "AlreadyVerified",
+          "description": "The account has already passed verification."
+        },
+        {
+          "name": "VerificationClosed",
+          "description": "Verification was rejected for good and cannot be retried."
+        }
+      ]
+    }
+  }
+}

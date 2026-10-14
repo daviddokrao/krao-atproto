@@ -49,6 +49,7 @@
     "@did-plc/server": "^0.0.1",
     "@krao/chat": "workspace:^",
     "@krao/indexer": "workspace:^",
+    "@krao/rewards": "workspace:^",
     "@krao/video": "workspace:^",
     "express": "^4.18.2",
     "get-port": "^5.1.1",

@@ -47,6 +47,7 @@ import * as authorizedClientHelper from './helpers/authorized-client.js'
 import * as emailAuthFactor from './helpers/email-auth-factor.js'
 import * as emailToken from './helpers/email-token.js'
 import * as invite from './helpers/invite.js'
+import { KraoReferral } from './helpers/krao-referral.js'
 import * as password from './helpers/password.js'
 import * as repo from './helpers/repo.js'
 import * as scrypt from './helpers/scrypt.js'
@@ -113,6 +114,8 @@ export type AccountManagerDbConfig = {
 
 export class AccountManager {
   readonly db: AccountDb
+  /** Set when invite codes are Krao referral codes (see KraoReferral) */
+  readonly kraoReferral?: KraoReferral
 
   constructor(
     readonly cfg: ServerConfig,
@@ -125,6 +128,9 @@ export class AccountManager {
     readonly plcRotationKey: Keypair,
   ) {
     this.db = getDb(cfg.db.accountDbLoc, cfg.db.disableWalAutoCheckpoint)
+    if (cfg.kraoRewards) {
+      this.kraoReferral = new KraoReferral(this.db, cfg.kraoRewards)
+    }
   }
 
   get serviceDid(): DidString {
@@ -138,9 +144,11 @@ export class AccountManager {
   async migrateOrThrow() {
     await this.db.ensureWal()
     await getMigrator(this.db).migrateToLatestOrThrow()
+    this.kraoReferral?.start()
   }
 
   async close() {
+    this.kraoReferral?.stop()
     await this.db.close()
   }
 
@@ -282,8 +290,11 @@ export class AccountManager {
       email && password ? await scrypt.genSaltAndHash(password) : undefined
 
     const now = currentDatetimeString()
-    return this.db.transaction(async (dbTxn) => {
-      if (inviteCode) {
+    const kraoReferral = this.kraoReferral
+    // A Krao referral code was checked with the rewards service beforehand
+    const kraoCode = kraoReferral && inviteCode ? inviteCode : undefined
+    await this.db.transaction(async (dbTxn) => {
+      if (inviteCode && !kraoCode) {
         await invite.ensureInviteIsAvailable(dbTxn, inviteCode)
       }
 
@@ -297,11 +308,15 @@ export class AccountManager {
         })
       }
 
-      await invite.recordInviteUse(dbTxn, {
-        did,
-        inviteCode,
-        now,
-      })
+      if (kraoCode) {
+        await kraoReferral!.recordSignup(dbTxn, did, kraoCode)
+      } else {
+        await invite.recordInviteUse(dbTxn, {
+          did,
+          inviteCode,
+          now,
+        })
+      }
 
       if (refreshJwt) {
         await auth.storeRefreshToken(
@@ -313,6 +328,12 @@ export class AccountManager {
 
       await repo.updateRoot(dbTxn, did, repoCid, repoRev)
     })
+    /*
+     * Report the sign-up soon, once the rest of account creation has
+     * succeeded or been rolled back (which drops the outbox row). The
+     * outbox retries if this fails.
+     */
+    if (kraoCode) kraoReferral!.deliverSoon()
   }
 
   async createAccountAndSession(opts: {
@@ -766,6 +787,9 @@ export class AccountManager {
   // ----------
 
   async ensureInviteIsAvailable(code: string) {
+    if (this.kraoReferral) {
+      return this.kraoReferral.ensureCodeIsValid(code)
+    }
     return invite.ensureInviteIsAvailable(this.db, code)
   }
 

@@ -202,6 +202,13 @@ export const deleteAccount = async (
   await db.executeWithRetry(
     db.db.deleteFrom('actor').where('actor.did', '=', did),
   )
+  // A Krao sign-up not yet reported (eg a failed account creation)
+  await db.executeWithRetry(
+    db.db
+      .deleteFrom('krao_referral_outbox')
+      .where('did', '=', did)
+      .where('deliveredAt', 'is', null),
+  )
 }
 
 export const updateHandle = async (

@@ -1,0 +1,210 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.defs",
+  "defs": {
+    "kycRecord": {
+      "type": "object",
+      "required": ["did", "status", "updatedAt"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["none", "pending", "retry", "approved", "rejected"]
+        },
+        "provider": {
+          "type": "string",
+          "knownValues": ["sumsub", "manual"],
+          "maxLength": 32
+        },
+        "rejectReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "pendingSecondApproval": {
+          "type": "boolean",
+          "description": "A manual approval waiting for a second reviewer."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "codeView": {
+      "type": "object",
+      "required": ["code", "kind", "uses", "disabled", "createdAt"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "description": "A referral code: letters, digits and dashes, case-insensitive."
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": ["personal", "campaign", "partner"]
+        },
+        "ownerDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "campaignId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "maxUses": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "uses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "enabled",
+        "event",
+        "beneficiary",
+        "amount",
+        "vesting"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Stable id, eg referral.inviter."
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bumped on every change; ledger entries keep the version that created them."
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "event": {
+          "type": "string",
+          "knownValues": ["account.created", "kyc.approved"],
+          "description": "What triggers the rule."
+        },
+        "beneficiary": {
+          "type": "string",
+          "knownValues": ["actor", "referrer", "referrer2"],
+          "description": "Who gets the points: the account of the event, its referrer, or its referrer's referrer."
+        },
+        "amount": {
+          "type": "integer"
+        },
+        "vesting": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "knownValues": ["kyc:self", "kyc:related"]
+          },
+          "description": "Conditions for the points to be approved; empty means approved at once."
+        },
+        "codeKinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "knownValues": ["personal", "campaign", "partner"]
+          },
+          "description": "Only for sign-ups with these kinds of codes. Empty means any."
+        },
+        "campaignId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Only for sign-ups with codes of this campaign."
+        },
+        "validFrom": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "validUntil": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "capPerBeneficiary": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Most points one account may get from this rule, in total."
+        },
+        "capPerDay": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Most entries one account may get from this rule per day (UTC)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "auditEntry": {
+      "type": "object",
+      "required": ["id", "actor", "action", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "actor": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "DID of the admin, or \"system\"."
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "Details, as JSON."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

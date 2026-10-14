@@ -4,6 +4,7 @@ import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
+import { KraoRewards } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { generateMockSetup } from './mock/index.js'
@@ -13,6 +14,12 @@ import { mockMailer } from './util.js'
 const KRAO_INDEXER_PORT = 2589
 const KRAO_VIDEO_PORT = 2591
 const KRAO_CHAT_PORT = 2590
+const KRAO_REWARDS_PORT = 2592
+
+/** Shared by the dev PDS and rewards service; dev only */
+const KRAO_REWARDS_TOKEN = 'krao-dev-rewards-token'
+/** Campaign code for the seed scripts and e2e tests to sign up with */
+const KRAO_DEV_CODE = 'KRAO-DEV'
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -47,6 +54,9 @@ const run = async () => {
        */
       enableDidDocWithSession: PDS_HOSTNAME === 'localhost',
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      // Invite codes are Krao referral codes (required once set up, below)
+      kraoRewardsUrl: `http://localhost:${KRAO_REWARDS_PORT}`,
+      kraoRewardsToken: KRAO_REWARDS_TOKEN,
       // Videos are stored as blobs, up to the video service's limit
       blobUploadLimit: 100 * 1024 * 1024,
       // Shown on the sign-up screen (describeServer)
@@ -169,9 +179,60 @@ const run = async () => {
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)
 
+  // Krao rewards service: referral codes, points and KYC (no KYC provider
+  // here; admins review by hand)
+  const kraoRewards = await KraoRewards.create({
+    port: KRAO_REWARDS_PORT,
+    serviceDid: 'did:web:rewards.krao.test',
+    dbLocation: ':memory:',
+    plcUrl: network.plc.url,
+    internalToken: KRAO_REWARDS_TOKEN,
+    insecureFetch: true,
+    // Tests review KYC by hand on every run
+    manualReview: { dailyLimit: 1000 },
+  })
+  await kraoRewards.start()
+  await kraoRewards.service.createCode('system', {
+    code: KRAO_DEV_CODE,
+    kind: 'campaign',
+    note: 'Dev-env sign-ups',
+  })
+  console.log(`🎁 Krao rewards service ${kraoRewards.url}`)
+
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
+
+  /*
+   * Sign-up needs a referral code from here on. The dev-env's own accounts
+   * (service profiles, mock users) are created by then, without codes. OAuth
+   * sign-up keeps the setting it started with.
+   */
+  Object.assign(network.pds.ctx.cfg, {
+    invites: { required: true, interval: null, epoch: 0 },
+  })
+  const admin = await createKraoAccount(network.pds.url, 'rewards-admin')
+  kraoRewards.addAdmin(admin)
+  console.log(
+    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin rewards-admin.test (${admin})`,
+  )
   console.timeEnd('✅ Dev environment is ready')
+}
+
+/** Signs up an account with the dev code; returns its DID */
+async function createKraoAccount(pdsUrl: string, name: string) {
+  const res = await fetch(`${pdsUrl}/xrpc/com.atproto.server.createAccount`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      handle: `${name}.test`,
+      email: `${name}@krao.test`,
+      password: 'krao-dev-pass',
+      inviteCode: KRAO_DEV_CODE,
+    }),
+  })
+  const body = (await res.json()) as { did?: string; message?: string }
+  if (!body.did) throw new Error(`Could not create ${name}: ${body.message}`)
+  return body.did
 }
 
 /**

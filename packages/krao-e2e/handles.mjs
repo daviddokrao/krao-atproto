@@ -1,6 +1,6 @@
 // The PDS refuses handles that clash with the app's top-level pages, since
 // the app serves profiles at short URLs (krao.net/<name>).
-import { PDS, checker, xrpc } from './lib.mjs'
+import { PDS, SIGNUP_CODE, checker, xrpc } from './lib.mjs'
 
 const { check, done } = checker()
 const createAccount = (name) =>
@@ -9,6 +9,7 @@ const createAccount = (name) =>
       handle: `${name}.test`,
       email: `${name}-${Date.now()}@example.com`,
       password: 'krao-dev-pass',
+      inviteCode: SIGNUP_CODE,
     },
   })
 

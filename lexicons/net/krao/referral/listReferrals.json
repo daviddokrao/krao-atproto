@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.referral.listReferrals",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Accounts that signed up with the viewer's referral codes, newest first. Requires service auth for the rewards service.",
+      "parameters": {
+        "type": "params",
+        "required": [],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["referrals"],
+          "properties": {
+            "referrals": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.referral.defs#referralView"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    }
+  }
+}

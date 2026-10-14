@@ -194,6 +194,10 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     ? { indexerUrl: env.kraoIndexerUrl }
     : null
 
+  const kraoRewardsCfg: ServerConfig['kraoRewards'] = env.kraoRewardsUrl
+    ? { url: env.kraoRewardsUrl, token: env.kraoRewardsToken ?? '' }
+    : null
+
   let bskyAppViewCfg: ServerConfig['bskyAppView'] = null
   if (env.bskyAppViewUrl) {
     assert(
@@ -358,6 +362,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     subscription: subscriptionCfg,
     bskyAppView: bskyAppViewCfg,
     krao: kraoCfg,
+    kraoRewards: kraoRewardsCfg,
     modService: modServiceCfg,
     reportService: reportServiceCfg,
     redis: redisCfg,
@@ -384,6 +389,7 @@ export type ServerConfig = {
   subscription: SubscriptionConfig
   bskyAppView: BksyAppViewConfig | null
   krao: KraoConfig | null
+  kraoRewards: KraoRewardsConfig | null
   modService: ModServiceConfig | null
   reportService: ReportServiceConfig | null
   redis: RedisScratchConfig | null
@@ -539,6 +545,16 @@ export type RateLimitsConfig =
 
 export type KraoConfig = {
   indexerUrl: string
+}
+
+/**
+ * Krao rewards service. When set, invite codes are Krao referral codes:
+ * checked by the service, and each sign-up reported to it.
+ */
+export type KraoRewardsConfig = {
+  url: string
+  /** Shared secret for its /internal routes */
+  token: string
 }
 
 export type BksyAppViewConfig = {

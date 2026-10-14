@@ -14,6 +14,11 @@ export const INDEXER = process.env.KRAO_INDEXER_URL ?? 'http://localhost:2589'
 export const GATE = process.env.KRAO_GATE_URL ?? INDEXER
 export const GATE_DID = process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.test'
 export const RPC = process.env.KRAO_RPC_URL ?? 'http://localhost:8545'
+export const REWARDS = process.env.KRAO_REWARDS_URL ?? 'http://localhost:2592'
+export const REWARDS_DID =
+  process.env.KRAO_REWARDS_DID ?? 'did:web:rewards.krao.test'
+/** Campaign code the dev-env creates; sign-up needs a referral code */
+export const SIGNUP_CODE = process.env.KRAO_SIGNUP_CODE ?? 'KRAO-DEV'
 
 export const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 export const ETH_ASSET = 'eip155:8453/slip44:60'
@@ -33,6 +38,7 @@ export const ACCOUNTS = {
   mai: ['dao-mai.test', 'krao-dev-pass'],
   lan: ['nft-lan.test', 'krao-dev-pass'],
   alice: ['alice.test', 'hunter2'],
+  rewardsAdmin: ['rewards-admin.test', 'krao-dev-pass'],
 }
 
 /** An EVM wallet from a hex private key, or a random one */
