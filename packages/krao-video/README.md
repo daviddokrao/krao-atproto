@@ -51,20 +51,20 @@ uses, stores each video as a blob on the author's PDS, and serves it as HLS.
 
 ## Configuration (`bin.ts`)
 
-| Env                                                | Default                 |
-| -------------------------------------------------- | ----------------------- |
-| `KRAO_VIDEO_PORT`                                  | `2591`                  |
+| Env                                                | Default                  |
+| -------------------------------------------------- | ------------------------ |
+| `KRAO_VIDEO_PORT`                                  | `2591`                   |
 | `KRAO_VIDEO_DID`                                   | `did:web:video.krao.net` |
-| `KRAO_VIDEO_PUBLIC_URL` (did:web document)         | –                       |
-| `KRAO_VIDEO_DATA_DIR`                              | `krao-video-data`       |
-| `KRAO_PLC_URL`                                     | `https://plc.directory` |
+| `KRAO_VIDEO_PUBLIC_URL` (did:web document)         | –                        |
+| `KRAO_VIDEO_DATA_DIR`                              | `krao-video-data`        |
+| `KRAO_PLC_URL`                                     | `https://plc.directory`  |
 | `KRAO_VIDEO_PDS_URLS` (comma separated, see below) | `https://pds.krao.net`   |
-| `KRAO_VIDEO_MAX_BYTES`                             | 100 MiB                 |
-| `KRAO_VIDEO_MAX_DURATION_SEC`                      | 180                     |
-| `KRAO_VIDEO_DAILY_VIDEOS`                          | 25                      |
-| `KRAO_VIDEO_DAILY_BYTES`                           | 10 GiB                  |
-| `KRAO_VIDEO_CONCURRENCY`                           | 1                       |
-| `KRAO_FFMPEG_PATH` / `KRAO_FFPROBE_PATH`           | `ffmpeg` / `ffprobe`    |
+| `KRAO_VIDEO_MAX_BYTES`                             | 100 MiB                  |
+| `KRAO_VIDEO_MAX_DURATION_SEC`                      | 180                      |
+| `KRAO_VIDEO_DAILY_VIDEOS`                          | 25                       |
+| `KRAO_VIDEO_DAILY_BYTES`                           | 10 GiB                   |
+| `KRAO_VIDEO_CONCURRENCY`                           | 1                        |
+| `KRAO_FFMPEG_PATH` / `KRAO_FFPROBE_PATH`           | `ffmpeg` / `ffprobe`     |
 
 Each `KRAO_VIDEO_PDS_URLS` entry is either a public PDS URL, or
 `<public url>=<internal url>` when this service reaches the PDS at a different

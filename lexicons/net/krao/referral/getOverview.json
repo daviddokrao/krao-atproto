@@ -9,11 +9,7 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": [
-            "code",
-            "referralCount",
-            "verifiedCount"
-          ],
+          "required": ["code", "referralCount", "verifiedCount"],
           "properties": {
             "code": {
               "type": "string",
