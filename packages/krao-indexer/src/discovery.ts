@@ -59,9 +59,11 @@ export function postTags(record: unknown): string[] {
   for (const tag of value.tags ?? []) {
     if (typeof tag === 'string') tags.add(tag)
   }
-  return [...tags]
+  // Normalize before deduplicating: #DeFi and defi are the same tag
+  const normalized = [...tags]
     .map((tag) => tag.replace(/^#/, '').trim().toLowerCase())
     .filter((tag) => tag.length > 0 && tag.length <= 64)
+  return [...new Set(normalized)]
 }
 
 export async function setPostTags(

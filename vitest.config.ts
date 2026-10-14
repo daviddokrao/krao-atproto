@@ -15,6 +15,7 @@ export default defineConfig({
       'packages/aws',
       'packages/common',
       'packages/internal/*',
+      'packages/krao-indexer',
       'packages/lex/*',
       'packages/lexicon-resolver',
       'packages/oauth/*',
