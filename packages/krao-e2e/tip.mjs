@@ -115,8 +115,8 @@ check(
 )
 check('tip to an unlinked wallet is not listed', byTx(strangerTx).length === 0)
 check(
-  'tip with an unknown tx stays pending',
-  byTx(unknownTx).some((t) => t.status === 'pending'),
+  'a tip whose transaction is not confirmed is not shown publicly',
+  byTx(unknownTx).length === 0,
 )
 const eth = res.data.totals?.find((t) => t.asset === ETH_ASSET)
 const usdc = res.data.totals?.find((t) => t.asset === USDC_ASSET)

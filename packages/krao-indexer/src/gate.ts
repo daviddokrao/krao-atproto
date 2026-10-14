@@ -1,6 +1,6 @@
 import { AtUri } from '@atproto/syntax'
 import { type EvmRpc, parseAssetId } from './chain.js'
-import type { Database, GateRuleTable } from './db.js'
+import { type Database, type GateRuleTable, visibleDid } from './db.js'
 import { erc1155BalanceOf, erc721OwnerOf, parseTokenId } from './nft.js'
 import { ownedEvmAddresses } from './wallets.js'
 
@@ -152,6 +152,8 @@ export async function getRulesForSubjects(db: Database, subjects: string[]) {
     .selectFrom('gate_rule')
     .selectAll()
     .where('subject', 'in', subjects)
+    // A hidden (taken down) author's gated content is not served
+    .where(visibleDid('did'))
     .orderBy('createdAt', 'desc')
     .execute()
   const latest = new Map<string, GateRuleTable>()

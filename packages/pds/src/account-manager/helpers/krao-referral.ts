@@ -122,6 +122,26 @@ export class KraoReferral {
       .execute()
   }
 
+  /**
+   * The account was deleted. Not in a transaction (account deletion runs
+   * step by step); written after the account rows are gone.
+   */
+  async recordDeletion(did: string) {
+    await this.db.db
+      .insertInto('krao_takedown_outbox')
+      .values({
+        did,
+        applied: 1,
+        kind: 'deleted',
+        createdAt: currentDatetimeString(),
+        attempts: 0,
+        lastError: null,
+        deliveredAt: null,
+        failedAt: null,
+      })
+      .execute()
+  }
+
   private async post(path: string, body: unknown) {
     const res = await fetch(new URL(path, this.cfg.url), {
       method: 'POST',
@@ -230,10 +250,14 @@ export class KraoReferral {
       .execute()
     for (const row of rows) {
       try {
-        await this.post('/internal/takedowns', {
-          did: row.did,
-          applied: row.applied === 1,
-        })
+        if (row.kind === 'deleted') {
+          await this.post('/internal/deletions', { did: row.did })
+        } else {
+          await this.post('/internal/takedowns', {
+            did: row.did,
+            applied: row.applied === 1,
+          })
+        }
         await this.db.db
           .updateTable('krao_takedown_outbox')
           .set({ deliveredAt: currentDatetimeString(), lastError: null })

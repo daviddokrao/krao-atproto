@@ -30,7 +30,10 @@ export function shortLinkTarget(path: unknown, webUrl: string): string | null {
   }
   const base = new URL(webUrl)
   const url = new URL(path, base)
-  return url.origin === base.origin ? url.toString() : null
+  // `/..//x` resolves to `//x` on the same origin: harmless here, but a
+  // protocol-relative path if anything later uses it as a relative link
+  if (url.origin !== base.origin || url.pathname.startsWith('//')) return null
+  return url.toString()
 }
 
 function newCode(length = 8) {

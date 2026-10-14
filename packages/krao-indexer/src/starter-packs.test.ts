@@ -22,6 +22,8 @@ describe('shortLinkTarget', () => {
       '/\n/evil.com',
       'https://evil.com/',
       'evil.com',
+      '/..//evil.com',
+      '/%2e%2e//evil.com',
     ]) {
       expect(shortLinkTarget(path, WEB)).toBeNull()
     }

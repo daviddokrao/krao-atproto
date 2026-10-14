@@ -36,6 +36,7 @@ async function linkWallet(did: string, address: string) {
     did,
     account: `${BASE}:${address}`,
     accountRaw: `${BASE}:${address}`,
+    evmAddress: address.toLowerCase(),
     label: null,
     status: 'verified',
     reason: null,

@@ -656,6 +656,24 @@ export function createApp(opts: AppOptions): Express {
     },
   )
 
+  // Account deletions on the PDS (its takedown outbox, kind "deleted")
+  app.post(
+    '/internal/deletions',
+    internalAuth,
+    jsonBody({ limit: '10kb' }),
+    (req, res, next) => {
+      const { did } = req.body ?? {}
+      if (typeof did !== 'string' || !did.startsWith('did:')) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      service
+        .accountDeleted(did)
+        .then(() => res.json({ ok: true }))
+        .catch(next)
+    },
+  )
+
   // Verification outcomes from the KYC provider, checked by signature
   app.post(
     '/webhooks/:provider',

@@ -1,5 +1,5 @@
 import type { EvmRpc } from './chain.js'
-import type { Database, NftAvatarTable } from './db.js'
+import { type Database, type NftAvatarTable, visibleDid } from './db.js'
 import { readLimited, safeFetch } from './safe-fetch.js'
 import { ownedEvmAddresses } from './wallets.js'
 
@@ -244,12 +244,16 @@ async function checkNftAvatar(
       standard: standard ?? undefined,
     }
   }
-  const metadata = await getNftMetadata(
-    rpc,
-    row.contract,
-    tokenId,
-    standard === 'erc1155' ? 'erc1155' : 'erc721',
-  )
+  // Ownership is what changes; the metadata of a token rarely does, and a
+  // new avatar record starts without it
+  const metadata = row.image
+    ? undefined
+    : await getNftMetadata(
+        rpc,
+        row.contract,
+        tokenId,
+        standard === 'erc1155' ? 'erc1155' : 'erc721',
+      )
   return { status: 'verified', standard: standard ?? undefined, metadata }
 }
 
@@ -302,6 +306,7 @@ export async function getNftAvatarsForDids(db: Database, dids: string[]) {
     .selectFrom('nft_avatar')
     .selectAll()
     .where('did', 'in', dids)
+    .where(visibleDid('did'))
     .execute()
 }
 

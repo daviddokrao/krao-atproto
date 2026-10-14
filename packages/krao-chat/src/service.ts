@@ -639,6 +639,8 @@ export class ChatService {
     did: string,
     profile: AppviewProfile | null | undefined,
     kind?: Json,
+    /** A moderator cut the account off from chat */
+    chatDisabled = false,
   ): Json {
     return {
       did,
@@ -649,7 +651,7 @@ export class ChatService {
       labels: profile?.labels ?? [],
       ...(profile?.createdAt ? { createdAt: profile.createdAt } : {}),
       ...(profile?.verification ? { verification: profile.verification } : {}),
-      chatDisabled: false,
+      chatDisabled,
       ...(kind ? { kind } : {}),
     }
   }
@@ -664,6 +666,21 @@ export class ChatService {
       ...shown.map((m) => m.did),
       ...addedBy,
     ])
+    const disabled = new Set(
+      (shown.length
+        ? await this.db
+            .selectFrom('actor_access')
+            .select('did')
+            .where(
+              'did',
+              'in',
+              shown.map((m) => m.did),
+            )
+            .where('allowAccess', '=', 0)
+            .execute()
+        : []
+      ).map((r) => r.did),
+    )
     return shown.map((m) =>
       this.profileView(
         m.did,
@@ -682,6 +699,7 @@ export class ChatService {
                   }
                 : {}),
             },
+        disabled.has(m.did),
       ),
     )
   }
@@ -1043,6 +1061,22 @@ export class ChatService {
       convos,
       cursor: rows.length >= opts.limit ? rows.at(-1)?.rev : undefined,
     }
+  }
+
+  /**
+   * Drop log entries older than `maxAgeMs`. Clients sync from a recent
+   * cursor; one older than that starts over from the convo list.
+   */
+  async pruneLog(maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
+    const oldest = await this.db
+      .selectFrom('message')
+      .select('rev')
+      .where('sentAt', '>=', new Date(Date.now() - maxAgeMs).toISOString())
+      .orderBy('rev', 'asc')
+      .limit(1)
+      .executeTakeFirst()
+    if (!oldest) return
+    await this.db.deleteFrom('log').where('rev', '<', oldest.rev).execute()
   }
 
   async getLog(viewer: string, cursor?: string) {

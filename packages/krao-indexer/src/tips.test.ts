@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EvmRpc } from './chain.js'
 import { type Database, type TipTable, createDb, migrateDb } from './db.js'
-import { tipRowFromRecord, upsertTip, verifyTip } from './tips.js'
+import {
+  getPendingTips,
+  listTips,
+  tipRowFromRecord,
+  upsertTip,
+  verifyTip,
+} from './tips.js'
 import { upsertWallet } from './wallets.js'
 
 const BASE = 'eip155:8453'
@@ -58,6 +64,7 @@ async function linkWallet(did: string, address: string) {
     did,
     account: `${BASE}:${address}`,
     accountRaw: `${BASE}:${address}`,
+    evmAddress: address.toLowerCase(),
     label: null,
     status: 'verified',
     reason: null,
@@ -165,5 +172,27 @@ describe('verifyTip', () => {
 
   it('refuses a transfer to a wallet the recipient has not linked', async () => {
     expect(await tip(SENDER, { to: `${BASE}:${addr(9)}` })).toBe('invalid')
+  })
+
+  it('shows only verified tips, and none from hidden accounts', async () => {
+    await tip(SENDER, {})
+    await tip(SENDER, { txHash: `0x${'cd'.repeat(32)}` }) // never mined
+    const listed = await listTips(db, { recipient: RECIPIENT }, 10)
+    expect(listed.map((t) => t.status)).toEqual(['verified'])
+    await db
+      .insertInto('hidden_actor')
+      .values({
+        did: SENDER,
+        status: 'takendown',
+        since: new Date().toISOString(),
+      })
+      .execute()
+    expect(await listTips(db, { recipient: RECIPIENT }, 10)).toEqual([])
+  })
+
+  it('checks a pending tip again later, not on every round', async () => {
+    await tip(SENDER, { txHash: `0x${'ef'.repeat(32)}` }) // never mined
+    expect(await getPendingTips(db)).toHaveLength(0)
+    expect(await getPendingTips(db, Date.now() + 6_000)).toHaveLength(1)
   })
 })

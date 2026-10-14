@@ -1,5 +1,5 @@
 import { normalizeAccountId, verifyWalletProof } from '@krao/wallet'
-import type { Database, WalletTable } from './db.js'
+import { type Database, type WalletTable, visibleDid } from './db.js'
 
 export const WALLET_COLLECTION = 'net.krao.actor.wallet'
 
@@ -42,11 +42,15 @@ export function walletRowFromRecord(
     if (result.ok) account = normalizeAccountId(accountRaw)
   }
 
+  const evmAddress = account.startsWith('eip155:')
+    ? (account.split(':')[2]?.toLowerCase() ?? null)
+    : null
   return {
     uri,
     did,
     account,
     accountRaw,
+    evmAddress,
     label,
     status: result.ok ? 'verified' : 'invalid',
     reason: result.ok ? null : result.reason,
@@ -97,6 +101,7 @@ export async function getWalletsForDids(db: Database, dids: string[]) {
     .selectFrom('wallet')
     .selectAll()
     .where('did', 'in', dids)
+    .where(visibleDid('did'))
     .orderBy('createdAt', 'asc')
     .execute()
 }
@@ -140,10 +145,19 @@ export async function getWalletOwners(
   db: Database,
   accountId: string,
 ): Promise<string[]> {
+  const account = normalizeAccountId(accountId)
+  // EVM: one owner per address on every chain, as for gates and tips
+  const evmAddress = account.startsWith('eip155:')
+    ? account.split(':')[2]?.toLowerCase()
+    : undefined
   const row = await db
     .selectFrom('wallet')
     .select('did')
-    .where('account', '=', normalizeAccountId(accountId))
+    .where((eb) =>
+      evmAddress
+        ? eb('evmAddress', '=', evmAddress)
+        : eb('account', '=', account),
+    )
     .where('status', '=', 'verified')
     .orderBy('indexedAt', 'asc')
     .orderBy('uri', 'asc')
@@ -163,29 +177,26 @@ export async function ownedEvmAddresses(
 ): Promise<Set<string>> {
   const mine = await db
     .selectFrom('wallet')
-    .select('account')
+    .select('evmAddress')
     .where('did', '=', did)
     .where('status', '=', 'verified')
-    .where('account', 'like', 'eip155:%')
+    .where('evmAddress', 'is not', null)
     .execute()
-  const addresses = [
-    ...new Set(mine.map((w) => w.account.split(':')[2]?.toLowerCase())),
-  ].filter((a): a is string => !!a)
+  const addresses = [...new Set(mine.map((w) => w.evmAddress!))]
   if (!addresses.length) return new Set()
   const links = await db
     .selectFrom('wallet')
-    .select(['did', 'account', 'indexedAt', 'uri'])
+    .select(['did', 'evmAddress'])
     .where('status', '=', 'verified')
-    .where((eb) =>
-      eb.or(addresses.map((a) => eb('account', 'like', `eip155:%:${a}`))),
-    )
+    .where('evmAddress', 'in', addresses)
     .orderBy('indexedAt', 'asc')
     .orderBy('uri', 'asc')
     .execute()
   const owner = new Map<string, string>()
   for (const link of links) {
-    const address = link.account.split(':')[2]?.toLowerCase()
-    if (address && !owner.has(address)) owner.set(address, link.did)
+    if (link.evmAddress && !owner.has(link.evmAddress)) {
+      owner.set(link.evmAddress, link.did)
+    }
   }
   return new Set(addresses.filter((a) => owner.get(a) === did))
 }
