@@ -8,6 +8,7 @@ import type * as authorizedClient from './authorized-client.js'
 import type * as device from './device.js'
 import type * as emailToken from './email-token.js'
 import type * as inviteCode from './invite-code.js'
+import type * as kraoReferralOutbox from './krao-referral-outbox.js'
 import type * as lexicon from './lexicon.js'
 import type * as refreshToken from './refresh-token.js'
 import type * as repoRoot from './repo-root.js'
@@ -30,7 +31,8 @@ export type DatabaseSchema = actor.PartialDB &
   inviteCode.PartialDB &
   lexicon.PartialDB &
   emailToken.PartialDB &
-  walletChallenge.PartialDB
+  walletChallenge.PartialDB &
+  kraoReferralOutbox.PartialDB
 
 export type { Actor, ActorEntry } from './actor.js'
 export type { Account, AccountEntry } from './account.js'
@@ -46,3 +48,4 @@ export type { AppPassword } from './app-password.js'
 export type { InviteCode, InviteCodeUse } from './invite-code.js'
 export type { EmailToken, EmailTokenPurpose } from './email-token.js'
 export type { WalletChallenge } from './wallet-challenge.js'
+export type { KraoReferralOutbox } from './krao-referral-outbox.js'

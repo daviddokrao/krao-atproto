@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.referral.getOverview",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The viewer's own referral code (created on first call), who referred them, and how many people they referred. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["code", "referralCount", "verifiedCount"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "description": "A referral code: letters, digits and dashes, case-insensitive."
+            },
+            "invitedBy": {
+              "type": "string",
+              "format": "did"
+            },
+            "referralCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "verifiedCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Referred accounts that have passed KYC."
+            }
+          }
+        }
+      }
+    }
+  }
+}

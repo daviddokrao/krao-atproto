@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.getStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The viewer's identity verification (KYC) status. Documents stay with the verification provider; Krao keeps only the outcome. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["status", "available"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": [
+                "none",
+                "pending",
+                "retry",
+                "approved",
+                "rejected"
+              ]
+            },
+            "available": {
+              "type": "boolean",
+              "description": "Whether verification can be started (a provider is configured)."
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "datetime"
+            }
+          }
+        }
+      }
+    }
+  }
+}

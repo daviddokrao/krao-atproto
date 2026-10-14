@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.updateCode",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Disable or re-enable a code, or change its limits. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 32,
+              "description": "A referral code: letters, digits and dashes, case-insensitive."
+            },
+            "disabled": {
+              "type": "boolean"
+            },
+            "maxUses": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.rewards.admin.defs#codeView"
+        }
+      },
+      "errors": [
+        {
+          "name": "NotFound",
+          "description": "No such code."
+        }
+      ]
+    }
+  }
+}

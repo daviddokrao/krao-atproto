@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.referral.checkCode",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Check a referral code before signing up. Public; rate limited.",
+      "parameters": {
+        "type": "params",
+        "required": ["code"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 32,
+            "description": "A referral code: letters, digits and dashes, case-insensitive."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["valid"],
+          "properties": {
+            "valid": {
+              "type": "boolean"
+            },
+            "referrer": {
+              "type": "string",
+              "format": "did",
+              "description": "The account the code belongs to, if any (campaign codes have none)."
+            }
+          }
+        }
+      }
+    }
+  }
+}

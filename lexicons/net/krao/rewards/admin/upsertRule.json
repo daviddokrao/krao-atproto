@@ -1,0 +1,24 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.upsertRule",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a reward rule or change one. A change bumps its version; points already given keep the old version. Rules apply to events from now on. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.rewards.admin.defs#rule"
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.rewards.admin.defs#rule"
+        }
+      }
+    }
+  }
+}

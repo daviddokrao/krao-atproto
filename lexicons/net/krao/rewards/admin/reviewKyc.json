@@ -1,0 +1,73 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.reviewKyc",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Approve or reject an account's KYC by hand. For exceptional cases only: needs a reason and a note, counts against a daily limit, may need a second reviewer, and is logged. Admins only (service auth from a DID in the service's admin list).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "did",
+            "decision",
+            "reasonCode",
+            "note"
+          ],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "decision": {
+              "type": "string",
+              "knownValues": [
+                "approve",
+                "reject"
+              ]
+            },
+            "reasonCode": {
+              "type": "string",
+              "knownValues": [
+                "provider_outage",
+                "provider_false_reject",
+                "unsupported_document",
+                "partner_verified",
+                "fraud",
+                "other"
+              ],
+              "maxLength": 64
+            },
+            "note": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.rewards.admin.defs#kycRecord"
+        }
+      },
+      "errors": [
+        {
+          "name": "DailyLimitReached",
+          "description": "The daily limit of manual reviews has been reached."
+        },
+        {
+          "name": "SameReviewer",
+          "description": "The second approval must come from another reviewer."
+        },
+        {
+          "name": "SelfReview",
+          "description": "Reviewers cannot review their own account."
+        }
+      ]
+    }
+  }
+}

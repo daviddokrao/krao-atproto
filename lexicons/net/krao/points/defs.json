@@ -1,0 +1,69 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.points.defs",
+  "defs": {
+    "balance": {
+      "type": "object",
+      "required": ["pending", "approved"],
+      "properties": {
+        "pending": {
+          "type": "integer",
+          "description": "Points waiting for their conditions (eg KYC) to be met."
+        },
+        "approved": {
+          "type": "integer",
+          "description": "Points that are final."
+        }
+      }
+    },
+    "entryView": {
+      "type": "object",
+      "required": ["id", "amount", "status", "waitingFor", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "amount": {
+          "type": "integer",
+          "description": "Positive for rewards, negative for reversals and redemptions."
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["pending", "approved", "void"]
+        },
+        "ruleId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Rule that created the entry, eg referral.inviter. Empty for manual adjustments."
+        },
+        "relatedDid": {
+          "type": "string",
+          "format": "did",
+          "description": "The other account involved, eg the referred account."
+        },
+        "waitingFor": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "knownValues": ["kyc:self", "kyc:related"]
+          },
+          "description": "For pending entries: the conditions not met yet."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "decidedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      },
+      "description": "A line of the viewer's points ledger."
+    }
+  }
+}

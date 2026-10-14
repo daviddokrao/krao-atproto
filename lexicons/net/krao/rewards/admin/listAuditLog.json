@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.rewards.admin.listAuditLog",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Admin and system actions, newest first. Admins only (service auth from a DID in the service's admin list).",
+      "parameters": {
+        "type": "params",
+        "required": [],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["entries"],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.rewards.admin.defs#auditEntry"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    }
+  }
+}

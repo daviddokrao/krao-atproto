@@ -101,6 +101,9 @@ export function readEnv() {
     // appview
     // Krao indexer, used to find which account linked a wallet
     kraoIndexerUrl: envStr('PDS_KRAO_INDEXER_URL'),
+    // Krao rewards service: invite codes are its referral codes when set
+    kraoRewardsUrl: envStr('PDS_KRAO_REWARDS_URL'),
+    kraoRewardsToken: envStr('PDS_KRAO_REWARDS_TOKEN'),
 
     bskyAppViewUrl: envStr('PDS_BSKY_APP_VIEW_URL'),
     bskyAppViewDid: envStr('PDS_BSKY_APP_VIEW_DID'),
