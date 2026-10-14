@@ -30,7 +30,11 @@ import {
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
-import { suggestedAccounts, trendingTags } from './discovery.js'
+import {
+  suggestedAccounts,
+  suggestedStarterPacks,
+  trendingTags,
+} from './discovery.js'
 import {
   GATED_MEDIA_MAX_BYTES,
   MediaSigner,
@@ -529,17 +533,24 @@ export function createApp(
       ) as AtUriString[],
     },
   }))
-  // Krao has no starter pack ranking yet; an empty list hides the section
-  server.add(unspecced.getSuggestedStarterPacksSkeleton, async () => ({
+  const starterPacksSkeleton = async (params: {
+    viewer?: string
+    limit?: number
+  }) => ({
     encoding: 'application/json' as const,
-    body: { starterPacks: [] },
-  }))
+    body: {
+      starterPacks: (await suggestedStarterPacks(db, {
+        viewer: params.viewer,
+        limit: params.limit ?? 10,
+      })) as AtUriString[],
+    },
+  })
+  server.add(unspecced.getSuggestedStarterPacksSkeleton, ({ params }) =>
+    starterPacksSkeleton(params),
+  )
   server.add(
     unspecced.getOnboardingSuggestedStarterPacksSkeleton,
-    async () => ({
-      encoding: 'application/json' as const,
-      body: { starterPacks: [] },
-    }),
+    ({ params }) => starterPacksSkeleton(params),
   )
   server.add(unspecced.getTrendingTopics, async ({ params }) => {
     const tags = await trendingTags(db, params.limit ?? 10)

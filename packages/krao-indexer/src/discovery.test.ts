@@ -5,8 +5,10 @@ import {
   postTags,
   setPostTags,
   suggestedAccounts,
+  suggestedStarterPacks,
   trendingTags,
   upsertFeedFollow,
+  upsertStarterPack,
 } from './discovery.js'
 
 describe('postTags', () => {
@@ -101,6 +103,17 @@ describe('with a database', () => {
       limit: 10,
     })
     expect(dids[0]).toBe('did:d')
+  })
+
+  it("suggests starter packs, not the viewer's own or of people they follow", async () => {
+    await upsertStarterPack(db, 'at://did:b/sp/1', 'did:b')
+    await upsertStarterPack(db, 'at://did:c/sp/1', 'did:c')
+    await upsertStarterPack(db, 'at://did:a/sp/1', 'did:a')
+    await follow('did:a', 'did:b')
+    expect(
+      await suggestedStarterPacks(db, { viewer: 'did:a', limit: 10 }),
+    ).toEqual(['at://did:c/sp/1'])
+    expect(await suggestedStarterPacks(db, { limit: 10 })).toHaveLength(3)
   })
 
   it('ranks hashtags by the posts using them this week', async () => {

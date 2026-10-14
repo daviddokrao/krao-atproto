@@ -139,6 +139,13 @@ export interface FeedTagTable {
   indexedAt: string
 }
 
+/** A starter pack made by a Krao account, for starter pack suggestions */
+export interface FeedStarterPackTable {
+  uri: string
+  did: string
+  indexedAt: string
+}
+
 /** A feed generator record that names this service */
 export interface FeedGeneratorTable {
   uri: string
@@ -161,6 +168,7 @@ export interface DatabaseSchema {
   feed_interaction: FeedInteractionTable
   feed_follow: FeedFollowTable
   feed_tag: FeedTagTable
+  feed_starter_pack: FeedStarterPackTable
   feed_generator: FeedGeneratorTable
   short_link: ShortLinkTable
   gated_content: GatedContentTable
@@ -349,6 +357,13 @@ export async function migrateDb(db: Database): Promise<void> {
   await sql`create index if not exists feed_tag_time_idx on feed_tag (indexedAt)`.execute(
     db,
   )
+  await db.schema
+    .createTable('feed_starter_pack')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('feed_generator')
     .ifNotExists()

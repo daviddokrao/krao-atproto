@@ -2,6 +2,7 @@ import { sql } from 'kysely'
 import type { Database, FeedFollowTable, FeedTagTable } from './db.js'
 
 export const FOLLOW_COLLECTION = 'app.bsky.graph.follow'
+export const STARTER_PACK_COLLECTION = 'app.bsky.graph.starterpack'
 
 /** How far back trending hashtags look */
 const TRENDING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -83,7 +84,52 @@ export async function deletePostTags(db: Database, uri: string) {
   await db.deleteFrom('feed_tag').where('uri', '=', uri).execute()
 }
 
+export async function upsertStarterPack(
+  db: Database,
+  uri: string,
+  did: string,
+) {
+  await db
+    .insertInto('feed_starter_pack')
+    .values({ uri, did, indexedAt: new Date().toISOString() })
+    .onConflict((oc) => oc.column('uri').doNothing())
+    .execute()
+}
+
+export async function deleteStarterPack(db: Database, uri: string) {
+  await db.deleteFrom('feed_starter_pack').where('uri', '=', uri).execute()
+}
+
+/**
+ * Starter packs to suggest, newest first, leaving out the viewer's own and
+ * those of accounts they already follow (they joined through those already
+ * or don't need them).
+ */
+export async function suggestedStarterPacks(
+  db: Database,
+  opts: { viewer?: string; limit: number },
+): Promise<string[]> {
+  let qb = db
+    .selectFrom('feed_starter_pack')
+    .select('uri')
+    .orderBy('indexedAt', 'desc')
+    .limit(opts.limit)
+  if (opts.viewer) {
+    const viewer = opts.viewer
+    qb = qb
+      .where('did', '!=', viewer)
+      .where('did', 'not in', (eb) =>
+        eb
+          .selectFrom('feed_follow')
+          .select('subject')
+          .where('feed_follow.did', '=', viewer),
+      )
+  }
+  return (await qb.execute()).map((r) => r.uri)
+}
+
 export async function deleteDiscoveryDataForDid(db: Database, did: string) {
+  await db.deleteFrom('feed_starter_pack').where('did', '=', did).execute()
   await db.deleteFrom('feed_follow').where('did', '=', did).execute()
   await db.deleteFrom('feed_follow').where('subject', '=', did).execute()
   await db.deleteFrom('feed_tag').where('did', '=', did).execute()

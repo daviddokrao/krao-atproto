@@ -19,6 +19,9 @@ import {
 } from './feed.js'
 import {
   FOLLOW_COLLECTION,
+  STARTER_PACK_COLLECTION,
+  deleteStarterPack,
+  upsertStarterPack,
   deleteDiscoveryDataForDid,
   deleteFeedFollow,
   deletePostTags,
@@ -101,6 +104,7 @@ export class FirehoseIndexer {
               LIKE_COLLECTION,
               REPOST_COLLECTION,
               FOLLOW_COLLECTION,
+              STARTER_PACK_COLLECTION,
             ]
           : []),
       ],
@@ -189,6 +193,10 @@ export class FirehoseIndexer {
             postTags(evt.record),
           )
         }
+      } else if (evt.collection === STARTER_PACK_COLLECTION) {
+        if (await this.isFeedAuthor(evt.did)) {
+          await upsertStarterPack(this.db, evt.uri.toString(), evt.did)
+        }
       } else if (evt.collection === FOLLOW_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
           const row = feedFollowRowFromRecord(
@@ -237,6 +245,8 @@ export class FirehoseIndexer {
         await deletePostTags(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
         await deleteFeedFollow(this.db, evt.uri.toString())
+      } else if (evt.collection === STARTER_PACK_COLLECTION) {
+        await deleteStarterPack(this.db, evt.uri.toString())
       } else if (
         evt.collection === LIKE_COLLECTION ||
         evt.collection === REPOST_COLLECTION

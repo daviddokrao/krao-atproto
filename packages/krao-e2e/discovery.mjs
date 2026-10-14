@@ -121,6 +121,36 @@ check(
   feeds.data.error ?? feeds.data.message,
 )
 
+const list = (
+  await createRecord(krao, 'app.bsky.graph.list', {
+    purpose: 'app.bsky.graph.defs#referencelist',
+    name: 'Krao web3 builders',
+    createdAt: new Date().toISOString(),
+  })
+).data
+const pack = (
+  await createRecord(krao, 'app.bsky.graph.starterpack', {
+    name: `Krao builders ${tag}`,
+    list: list.uri,
+    createdAt: new Date().toISOString(),
+  })
+).data
+await sleep(2500)
+const packs = await xrpc(
+  APPVIEW,
+  'app.bsky.unspecced.getSuggestedStarterPacks',
+  {
+    query: { limit: 10 },
+  },
+)
+check(
+  'new Krao starter packs are suggested',
+  packs.ok && packs.data.starterPacks?.some((p) => p.uri === pack.uri),
+  packs.data.error ?? packs.data.message,
+)
+await deleteRecord(krao, pack.uri)
+await deleteRecord(krao, list.uri)
+
 for (const post of posts) {
   await deleteRecord(post.uri.includes(krao.did) ? krao : minh, post.uri)
 }
