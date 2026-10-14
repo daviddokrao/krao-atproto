@@ -47,6 +47,8 @@ export type KraoIndexerConfig = {
   klipyApiKey?: string
   /** Public URL of this service, for the link preview image URLs it returns */
   publicUrl?: string
+  /** Secret that signs gated media URLs; random per process when unset */
+  gateMediaSecret?: string
   /** Only feed posts by accounts on this PDS, see FeedIndexingOptions */
   feedPdsUrl?: string
 }
@@ -93,6 +95,7 @@ export class KraoIndexer {
         gateDid: cfg.gateDid ?? 'did:web:gate.krao.net',
         feedGenDid: cfg.feedGenDid,
         publicUrl: cfg.publicUrl,
+        gateMediaSecret: cfg.gateMediaSecret,
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
       }),

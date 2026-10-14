@@ -1,7 +1,12 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { AtUri, type AtUriString, type DatetimeString } from '@atproto/syntax'
+import {
+  AtUri,
+  type AtUriString,
+  type DatetimeString,
+  type UriString,
+} from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -18,6 +23,7 @@ import {
   listFeedGenerators,
 } from './feed.js'
 import {
+  type StoredGatedMedia,
   getGatedContent,
   getRulesForSubjects,
   isEligible,
@@ -25,6 +31,16 @@ import {
   subjectsWithContent,
 } from './gate.js'
 import { suggestedAccounts, trendingTags } from './discovery.js'
+import {
+  GATED_MEDIA_MAX_BYTES,
+  MediaSigner,
+  addGatedMediaRoute,
+  insertGatedMedia,
+  mediaIdFromUrl,
+  ownedGatedMedia,
+  readBounded,
+  sniffImageType,
+} from './gate-media.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -70,6 +86,8 @@ export function createApp(
     klipyApiKey?: string
     /** Public URL of this service, for links it hands out (default: from the request) */
     publicUrl?: string
+    /** Secret for signed gated media URLs (default: random per process) */
+    gateMediaSecret?: string
   },
 ): Express {
   const {
@@ -82,6 +100,11 @@ export function createApp(
     webUrl = 'https://krao.net',
   } = opts
   const server = createServer([], {})
+  const mediaSigner = new MediaSigner(opts.gateMediaSecret)
+  const baseUrl = (req: {
+    protocol: string
+    get(name: string): string | undefined
+  }) => publicUrl ?? `${req.protocol}://${req.get('host')}`
 
   /*
    * Gate methods use atproto service auth: the client asks its PDS for a
@@ -128,7 +151,7 @@ export function createApp(
 
   server.add(net.krao.gate.getContent, {
     auth: serviceAuth(net.krao.gate.getContent.$lxm),
-    handler: async ({ params, auth }) => {
+    handler: async ({ params, auth, req }) => {
       const viewer = (auth.credentials as { did: string }).did
       const [rule] = await getRulesForSubjects(db, [params.uri])
       const content = await getGatedContent(db, params.uri)
@@ -150,6 +173,14 @@ export function createApp(
           uri: params.uri,
           text: content.text,
           facets: content.facets ? JSON.parse(content.facets) : undefined,
+          media: content.media
+            ? (JSON.parse(content.media) as StoredGatedMedia[]).map((m) => ({
+                url: mediaSigner.url(baseUrl(req), m.id) as UriString,
+                mimeType: m.mimeType,
+                alt: m.alt,
+                aspectRatio: m.aspectRatio,
+              }))
+            : undefined,
         },
       }
     },
@@ -172,18 +203,74 @@ export function createApp(
           'NotAuthor',
         )
       }
-      if (body.media?.length) {
-        throw new InvalidRequestError('Gated media is not supported yet')
+      // Media must have been uploaded by the author to this service
+      const ids = (body.media ?? []).map((m) => mediaIdFromUrl(m.url))
+      if (ids.some((id) => !id)) {
+        throw new InvalidRequestError('Gated media must come from uploadMedia')
       }
-      if (!body.text?.trim()) {
-        throw new InvalidRequestError('Gated text is required')
+      const owned = await ownedGatedMedia(db, caller, ids as string[])
+      if (owned.size !== new Set(ids).size) {
+        throw new InvalidRequestError('Unknown gated media')
+      }
+      const media: StoredGatedMedia[] = (body.media ?? []).map((m, i) => ({
+        id: ids[i] as string,
+        mimeType: owned.get(ids[i] as string) as string,
+        ...(m.alt ? { alt: m.alt } : {}),
+        ...(m.aspectRatio
+          ? {
+              aspectRatio: {
+                width: m.aspectRatio.width,
+                height: m.aspectRatio.height,
+              },
+            }
+          : {}),
+      }))
+      if (!body.text?.trim() && !media.length) {
+        throw new InvalidRequestError('Gated text or media is required')
       }
       await putGatedContent(db, {
         subject: body.uri,
         did: caller,
-        text: body.text,
+        text: body.text ?? '',
         facets: body.facets,
+        media,
       })
+    },
+  })
+
+  server.add(net.krao.gate.uploadMedia, {
+    auth: serviceAuth(net.krao.gate.uploadMedia.$lxm),
+    opts: { blobLimit: GATED_MEDIA_MAX_BYTES },
+    handler: async ({ auth, input, req }) => {
+      const caller = (auth.credentials as { did: string }).did
+      let data: Buffer
+      try {
+        data = await readBounded(
+          input.body as AsyncIterable<Uint8Array>,
+          GATED_MEDIA_MAX_BYTES,
+        )
+      } catch {
+        throw new InvalidRequestError(
+          `Gated images can be at most ${GATED_MEDIA_MAX_BYTES / 1024 / 1024} MB`,
+        )
+      }
+      // Trust the bytes, not the declared content type
+      const mimeType = sniffImageType(data)
+      if (!mimeType) {
+        throw new InvalidRequestError(
+          'Gated media must be a JPEG, PNG, GIF or WebP image',
+        )
+      }
+      const id = await insertGatedMedia(db, caller, mimeType, data)
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          media: {
+            url: mediaSigner.url(baseUrl(req), id) as UriString,
+            mimeType,
+          },
+        },
+      }
     },
   })
 
@@ -530,6 +617,7 @@ export function createApp(
    * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
    * image named by the token's own on-chain metadata is fetched.
    */
+  addGatedMediaRoute(app, db, mediaSigner)
   addGifRoutes(app, klipyApiKey)
   addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 

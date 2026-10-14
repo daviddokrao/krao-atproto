@@ -15,6 +15,7 @@ const indexer = await KraoIndexer.create({
   feedGenDid: process.env.KRAO_FEEDGEN_DID,
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
+  gateMediaSecret: process.env.KRAO_GATE_MEDIA_SECRET,
   klipyApiKey: process.env.KRAO_KLIPY_API_KEY,
   webUrl: process.env.KRAO_WEB_URL,
   handleResolverUrl:

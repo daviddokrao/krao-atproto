@@ -84,7 +84,19 @@ export interface GatedContentTable {
   text: string
   /** JSON array of app.bsky.richtext.facet */
   facets: string | null
+  /** JSON array of {id, mimeType, alt?, aspectRatio?}, see gate-media.ts */
+  media: string | null
   updatedAt: string
+}
+
+/** An image uploaded for gated content; never part of a public repo */
+export interface GatedMediaTable {
+  id: string
+  did: string
+  mimeType: string
+  data: Buffer
+  size: number
+  createdAt: string
 }
 
 export interface CursorTable {
@@ -152,6 +164,7 @@ export interface DatabaseSchema {
   feed_generator: FeedGeneratorTable
   short_link: ShortLinkTable
   gated_content: GatedContentTable
+  gated_media: GatedMediaTable
   cursor: CursorTable
 }
 
@@ -254,6 +267,23 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('facets', 'varchar')
     .addColumn('updatedAt', 'varchar', (col) => col.notNull())
     .execute()
+  // Added after gated_content shipped, so older databases get it here too
+  await sql`alter table gated_content add column media varchar`
+    .execute(db)
+    .catch(() => {})
+  await db.schema
+    .createTable('gated_media')
+    .ifNotExists()
+    .addColumn('id', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('mimeType', 'varchar', (col) => col.notNull())
+    .addColumn('data', 'blob', (col) => col.notNull())
+    .addColumn('size', 'integer', (col) => col.notNull())
+    .addColumn('createdAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists gated_media_did_idx on gated_media (did)`.execute(
+    db,
+  )
   await db.schema
     .createTable('cursor')
     .ifNotExists()
