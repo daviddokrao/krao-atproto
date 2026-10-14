@@ -33,7 +33,9 @@ import {
 import { deleteOrphanedMedia } from './gate-media.js'
 import {
   GATE_RULE_COLLECTION,
+  deleteContentWithoutRule,
   deleteGateDataForDid,
+  deleteGateDataForSubject,
   deleteGateRule,
   gateRuleRowFromRecord,
   upsertGateRule,
@@ -105,9 +107,10 @@ export class FirehoseIndexer {
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
         GATE_RULE_COLLECTION,
+        // Always: a deleted post takes its gated content with it
+        POST_COLLECTION,
         ...(feed.did
           ? [
-              POST_COLLECTION,
               FEED_GENERATOR_COLLECTION,
               LIKE_COLLECTION,
               REPOST_COLLECTION,
@@ -135,12 +138,14 @@ export class FirehoseIndexer {
     void this.firehose.start()
     // Re-check tips whose transactions were not confirmed yet
     this.verifyTimer = setInterval(() => this.kickVerification(), 5_000)
-    // Gated uploads nobody attached to a post
+    // Gated content without a rule, then uploads nobody attached to a post
     this.cleanupTimer = setInterval(
       () =>
-        void deleteOrphanedMedia(this.db).catch((err: unknown) =>
-          console.error('Krao indexer: gated media cleanup failed', err),
-        ),
+        void deleteContentWithoutRule(this.db)
+          .then(() => deleteOrphanedMedia(this.db))
+          .catch((err: unknown) =>
+            console.error('Krao indexer: gated media cleanup failed', err),
+          ),
       60 * 60 * 1000,
     )
   }
@@ -350,6 +355,7 @@ export class FirehoseIndexer {
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
         await deletePostTags(this.db, evt.uri.toString())
+        await deleteGateDataForSubject(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
         await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (evt.collection === STARTER_PACK_COLLECTION) {

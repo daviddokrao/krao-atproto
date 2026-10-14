@@ -172,13 +172,11 @@ export async function verifyNftAvatar(
       checkedAt: new Date().toISOString(),
     })
     .where('did', '=', row.did)
-    // Wallets changed during the check (markNftAvatarStale): leave the row
-    // for the next round instead of writing a result for the old wallets
-    .where((eb) =>
-      row.checkedAt === null
-        ? eb('checkedAt', 'is', null)
-        : eb('checkedAt', '=', row.checkedAt),
-    )
+    // The avatar record or the wallets changed during the check (both set a
+    // new indexedAt): leave the row for the next round instead of writing a
+    // result for what is no longer there
+    .where('uri', '=', row.uri)
+    .where('indexedAt', '=', row.indexedAt)
     .execute()
   return result.status
 }
@@ -312,7 +310,8 @@ export async function getNftAvatarsForDids(db: Database, dids: string[]) {
 export async function markNftAvatarStale(db: Database, did: string) {
   await db
     .updateTable('nft_avatar')
-    .set({ checkedAt: null })
+    // A new indexedAt also tells a check already running that it is stale
+    .set({ checkedAt: null, indexedAt: new Date().toISOString() })
     .where('did', '=', did)
     .execute()
 }

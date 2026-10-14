@@ -79,8 +79,60 @@ export async function upsertGateRule(db: Database, row: GateRuleTable) {
     .execute()
 }
 
+/**
+ * Delete a rule record's row. Once a post has no rule left, its gated content
+ * goes too: removing the gate is how authors take the content down.
+ */
 export async function deleteGateRule(db: Database, uri: string) {
+  const rule = await db
+    .selectFrom('gate_rule')
+    .select('subject')
+    .where('uri', '=', uri)
+    .executeTakeFirst()
   await db.deleteFrom('gate_rule').where('uri', '=', uri).execute()
+  if (!rule) return
+  const remaining = await db
+    .selectFrom('gate_rule')
+    .select('uri')
+    .where('subject', '=', rule.subject)
+    .executeTakeFirst()
+  if (!remaining) {
+    await db
+      .deleteFrom('gated_content')
+      .where('subject', '=', rule.subject)
+      .execute()
+  }
+}
+
+/** A deleted post takes its gates and gated content with it */
+export async function deleteGateDataForSubject(db: Database, subject: string) {
+  await db.deleteFrom('gate_rule').where('subject', '=', subject).execute()
+  await db.deleteFrom('gated_content').where('subject', '=', subject).execute()
+}
+
+/**
+ * Gated content whose post never got a rule (the rule write failed after the
+ * content was stored) is never served; drop it after a day.
+ */
+export async function deleteContentWithoutRule(
+  db: Database,
+  now = Date.now(),
+): Promise<number> {
+  const cutoff = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+  const result = await db
+    .deleteFrom('gated_content')
+    .where('updatedAt', '<', cutoff)
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('gate_rule')
+            .select('gate_rule.uri')
+            .whereRef('gate_rule.subject', '=', 'gated_content.subject'),
+        ),
+      ),
+    )
+    .executeTakeFirst()
+  return Number(result.numDeletedRows)
 }
 
 export async function deleteGateDataForDid(db: Database, did: string) {

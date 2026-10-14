@@ -319,6 +319,17 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('id', 'varchar', (col) => col.primaryKey())
     .addColumn('seq', 'integer', (col) => col.notNull())
     .execute()
+  // The first version keyed failed_event by seq, which the writes of one
+  // commit share. Its rows are only for manual replay: start it over.
+  const failedEventCols = await sql<{
+    name: string
+  }>`pragma table_info(failed_event)`.execute(db)
+  if (
+    failedEventCols.rows.length &&
+    !failedEventCols.rows.some((c) => c.name === 'id')
+  ) {
+    await db.schema.dropTable('failed_event').execute()
+  }
   await db.schema
     .createTable('failed_event')
     .ifNotExists()
