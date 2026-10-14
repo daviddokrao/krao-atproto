@@ -42,6 +42,7 @@ import {
   addGatedMediaRoute,
   insertGatedMedia,
   mediaIdFromUrl,
+  withinUploadQuota,
   ownedGatedMedia,
   readBounded,
   sniffMediaType,
@@ -269,6 +270,12 @@ export function createApp(
       if (data.length > maxBytesFor(mimeType)) {
         throw new InvalidRequestError(
           `Gated ${mimeType.split('/')[0]}s can be at most ${maxBytesFor(mimeType) / 1024 / 1024} MB`,
+        )
+      }
+      if (!(await withinUploadQuota(db, caller, data.length))) {
+        throw new InvalidRequestError(
+          'Daily limit for gated uploads reached, try again tomorrow',
+          'UploadLimitExceeded',
         )
       }
       const id = await insertGatedMedia(db, caller, mimeType, data)

@@ -30,6 +30,7 @@ import {
   setPostTags,
   upsertFeedFollow,
 } from './discovery.js'
+import { deleteOrphanedMedia } from './gate-media.js'
 import {
   GATE_RULE_COLLECTION,
   deleteGateDataForDid,
@@ -117,6 +118,7 @@ export class FirehoseIndexer {
   }
 
   private verifyTimer?: NodeJS.Timeout
+  private cleanupTimer?: NodeJS.Timeout
 
   start() {
     void this.firehose.start()
@@ -125,10 +127,16 @@ export class FirehoseIndexer {
       void this.verifyPendingTips()
       void this.recheckNftAvatars()
     }, 5_000)
+    // Gated uploads nobody attached to a post
+    this.cleanupTimer = setInterval(
+      () => void deleteOrphanedMedia(this.db).catch(() => {}),
+      60 * 60 * 1000,
+    )
   }
 
   async destroy() {
     clearInterval(this.verifyTimer)
+    clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
   }
 

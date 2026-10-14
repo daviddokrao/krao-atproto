@@ -17,6 +17,12 @@ export const GATED_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 export const GATED_VIDEO_MAX_BYTES = 50 * 1024 * 1024
 /** Largest upload of any kind; the type decides the real limit */
 export const GATED_MEDIA_MAX_BYTES = GATED_VIDEO_MAX_BYTES
+/** What one account may upload in a day */
+export const GATED_MEDIA_DAILY_BYTES = 200 * 1024 * 1024
+export const GATED_MEDIA_DAILY_FILES = 50
+/** Uploads not attached to any gated content are deleted after this */
+const ORPHAN_MEDIA_TTL_MS = 24 * 60 * 60 * 1000
+
 /** How long a signed media URL from getContent stays valid */
 const MEDIA_URL_TTL_MS = 10 * 60 * 1000
 /** Path the media is served under, followed by the media id */
@@ -107,6 +113,69 @@ export async function ownedGatedMedia(
     .where('id', 'in', ids)
     .execute()
   return new Map(rows.map((r) => [r.id, r.mimeType]))
+}
+
+/**
+ * Whether `did` may upload `size` more bytes today. Uploads are stored in the
+ * gate's own database, so they are capped per account.
+ */
+export async function withinUploadQuota(
+  db: Database,
+  did: string,
+  size: number,
+  now = Date.now(),
+): Promise<boolean> {
+  const since = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+  const row = await db
+    .selectFrom('gated_media')
+    .select([
+      (eb) => eb.fn.countAll<number>().as('files'),
+      (eb) => eb.fn.sum<number>('size').as('bytes'),
+    ])
+    .where('did', '=', did)
+    .where('createdAt', '>=', since)
+    .executeTakeFirst()
+  const files = Number(row?.files ?? 0)
+  const bytes = Number(row?.bytes ?? 0)
+  return (
+    files + 1 <= GATED_MEDIA_DAILY_FILES &&
+    bytes + size <= GATED_MEDIA_DAILY_BYTES
+  )
+}
+
+/**
+ * Deletes uploads that no gated content refers to after a day: an author who
+ * uploads and never saves, or replaces an image, would otherwise leave the
+ * bytes behind forever. Returns how many were deleted.
+ */
+export async function deleteOrphanedMedia(
+  db: Database,
+  now = Date.now(),
+): Promise<number> {
+  const cutoff = new Date(now - ORPHAN_MEDIA_TTL_MS).toISOString()
+  const old = await db
+    .selectFrom('gated_media')
+    .select(['id', 'did'])
+    .where('createdAt', '<', cutoff)
+    .execute()
+  if (!old.length) return 0
+  const contents = await db
+    .selectFrom('gated_content')
+    .select('media')
+    .where('did', 'in', [...new Set(old.map((m) => m.did))])
+    .where('media', 'is not', null)
+    .execute()
+  const used = new Set<string>()
+  for (const { media } of contents) {
+    for (const item of JSON.parse(media ?? '[]') as { id: string }[]) {
+      used.add(item.id)
+    }
+  }
+  const orphans = old.filter((m) => !used.has(m.id)).map((m) => m.id)
+  if (orphans.length) {
+    await db.deleteFrom('gated_media').where('id', 'in', orphans).execute()
+  }
+  return orphans.length
 }
 
 export async function deleteGatedMediaForDid(db: Database, did: string) {

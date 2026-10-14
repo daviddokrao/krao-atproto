@@ -1,13 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type Database, createDb, migrateDb } from './db.js'
 import {
+  GATED_MEDIA_DAILY_FILES,
   MediaSigner,
+  deleteOrphanedMedia,
+  insertGatedMedia,
   maxBytesFor,
   mediaIdFromUrl,
   parseRange,
   readBounded,
   sniffImageType,
   sniffMediaType,
+  withinUploadQuota,
 } from './gate-media.js'
+import { putGatedContent } from './gate.js'
 
 const bytes = (...b: number[]) => Uint8Array.from(b)
 
@@ -109,5 +115,57 @@ describe('readBounded', () => {
   it('reads up to the limit and refuses more', async () => {
     expect((await readBounded(chunks(3, 4), 7)).length).toBe(7)
     await expect(readBounded(chunks(3, 5), 7)).rejects.toThrow('TooLarge')
+  })
+})
+
+describe('with a database', () => {
+  let db: Database
+
+  beforeEach(async () => {
+    db = createDb(':memory:')
+    await migrateDb(db)
+  })
+
+  afterEach(async () => {
+    await db.destroy()
+  })
+
+  it('caps the number of uploads per account per day', async () => {
+    for (let i = 0; i < GATED_MEDIA_DAILY_FILES; i++) {
+      await insertGatedMedia(db, 'did:a', 'image/png', Buffer.alloc(10))
+    }
+    expect(await withinUploadQuota(db, 'did:a', 10)).toBe(false)
+    expect(await withinUploadQuota(db, 'did:b', 10)).toBe(true)
+    // A day later the quota is back
+    expect(
+      await withinUploadQuota(db, 'did:a', 10, Date.now() + 25 * 3_600_000),
+    ).toBe(true)
+  })
+
+  it('deletes day-old uploads that no gated content uses', async () => {
+    const used = await insertGatedMedia(
+      db,
+      'did:a',
+      'image/png',
+      Buffer.alloc(1),
+    )
+    const orphan = await insertGatedMedia(
+      db,
+      'did:a',
+      'image/png',
+      Buffer.alloc(1),
+    )
+    await putGatedContent(db, {
+      subject: 'at://did:a/app.bsky.feed.post/1',
+      did: 'did:a',
+      text: '',
+      facets: undefined,
+      media: [{ id: used, mimeType: 'image/png' }],
+    })
+    expect(await deleteOrphanedMedia(db)).toBe(0)
+    expect(await deleteOrphanedMedia(db, Date.now() + 25 * 3_600_000)).toBe(1)
+    const left = await db.selectFrom('gated_media').select('id').execute()
+    expect(left.map((r) => r.id)).toEqual([used])
+    expect(left.map((r) => r.id)).not.toContain(orphan)
   })
 })
