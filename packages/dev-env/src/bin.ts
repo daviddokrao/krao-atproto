@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
+import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
@@ -11,6 +12,7 @@ import { mockMailer } from './util.js'
 
 const KRAO_INDEXER_PORT = 2589
 const KRAO_VIDEO_PORT = 2591
+const KRAO_CHAT_PORT = 2590
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -90,7 +92,13 @@ const run = async () => {
     console.log(`🤖 Feed Generator (${fg.did}) http://localhost:${fg.port}`)
   }
 
-  const feedGenDid = await createKraoFeedGenDid(network.plc.url)
+  const feedGenDid = await createServiceDid(network.plc.url, {
+    key: '0894dfe194b02e2cb6b89104555be95d1b361f59c4389ab92c3967e057817ef2',
+    handle: 'feed.krao.test',
+    endpoint: `http://localhost:${KRAO_INDEXER_PORT}`,
+    serviceId: 'bsky_fg',
+    serviceType: 'BskyFeedGenerator',
+  })
   console.log(`📰 Krao feed generator DID ${feedGenDid}`)
 
   // Krao indexer: follows the main PDS firehose, in memory like the rest of
@@ -133,31 +141,59 @@ const run = async () => {
   await kraoVideo.start()
   console.log(`🎬 Krao video service ${kraoVideo.url}`)
 
+  // Krao chat service, reached through the PDS (atproto-proxy) at its DID
+  const chatDid = await createServiceDid(network.plc.url, {
+    key: 'fed1834dfe994df0369545ad3218d7ceaa499f162548a8ce689f7d9ec1a1b9ea',
+    handle: 'chat.krao.test',
+    endpoint: `http://localhost:${KRAO_CHAT_PORT}`,
+    serviceId: 'bsky_chat',
+    serviceType: 'BskyChatService',
+  })
+  const kraoChat = await KraoChat.create({
+    port: KRAO_CHAT_PORT,
+    serviceDid: chatDid,
+    dbLocation: ':memory:',
+    plcUrl: network.plc.url,
+    appviewUrl: network.bsky.url,
+    insecureFetch: true,
+  })
+  await kraoChat.start()
+  console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)
+
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
   console.timeEnd('✅ Dev environment is ready')
 }
 
 /**
- * The Krao indexer doubles as the feed generator for Krao's "latest" feed.
- * Registers its did:plc with a fixed dev-only key, so the DID stays the same
- * across runs (like the dev-env AppView's).
+ * Registers a did:plc for a Krao service (the indexer as feed generator, the
+ * chat service) with a fixed dev-only key, so the DID stays the same across
+ * runs (like the dev-env AppView's) and clients can be configured with it.
  */
-async function createKraoFeedGenDid(plcUrl: string): Promise<string> {
-  const keypair = await Secp256k1Keypair.import(
-    '0894dfe194b02e2cb6b89104555be95d1b361f59c4389ab92c3967e057817ef2',
-  )
+async function createServiceDid(
+  plcUrl: string,
+  opts: {
+    key: string
+    handle: string
+    endpoint: string
+    serviceId: string
+    serviceType: string
+  },
+): Promise<string> {
+  const keypair = await Secp256k1Keypair.import(opts.key)
   const plcClient = new PlcClient(plcUrl)
-  const endpoint = `http://localhost:${KRAO_INDEXER_PORT}`
   const did = await plcClient.createDid({
     signingKey: keypair.did(),
     rotationKeys: [keypair.did()],
-    handle: 'feed.krao.test',
-    pds: endpoint,
+    handle: opts.handle,
+    pds: opts.endpoint,
     signer: keypair,
   })
   await plcClient.updateData(did, keypair, (data) => {
-    data.services['bsky_fg'] = { type: 'BskyFeedGenerator', endpoint }
+    data.services[opts.serviceId] = {
+      type: opts.serviceType,
+      endpoint: opts.endpoint,
+    }
     return data
   })
   return did

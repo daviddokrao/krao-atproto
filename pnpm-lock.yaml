@@ -744,6 +744,9 @@ importers:
       '@did-plc/server':
         specifier: ^0.0.1
         version: 0.0.1
+      '@krao/chat':
+        specifier: workspace:^
+        version: link:../krao-chat
       '@krao/indexer':
         specifier: workspace:^
         version: link:../krao-indexer
@@ -1012,6 +1015,46 @@ importers:
       '@atproto/xrpc-server':
         specifier: workspace:^
         version: link:../../xrpc-server
+
+  packages/krao-chat:
+    dependencies:
+      '@atproto/identity':
+        specifier: workspace:^
+        version: link:../identity
+      '@atproto/lex':
+        specifier: workspace:^
+        version: link:../lex/lex
+      '@atproto/syntax':
+        specifier: workspace:^
+        version: link:../syntax
+      '@atproto/xrpc-server':
+        specifier: workspace:^
+        version: link:../xrpc-server
+      better-sqlite3:
+        specifier: ^12.0.0
+        version: 12.9.0
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      express:
+        specifier: ^4.17.2
+        version: 4.18.2
+      kysely:
+        specifier: ^0.29.2
+        version: 0.29.2
+      unicode-segmenter:
+        specifier: ^0.14.0
+        version: 0.14.0
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.11
+        version: 7.6.13
+      '@types/cors':
+        specifier: ^2.8.12
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.13
+        version: 4.17.21
 
   packages/krao-e2e:
     dependencies:
@@ -13071,7 +13114,7 @@ snapshots:
     dependencies:
       '@jest/fake-timers': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 22.20.1
+      '@types/node': 22.20.4
       jest-mock: 30.4.1
 
   '@jest/environment@30.5.2':
@@ -13342,7 +13385,7 @@ snapshots:
       '@jest/schemas': 30.4.1
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 22.20.1
+      '@types/node': 22.20.4
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
@@ -18281,7 +18324,7 @@ snapshots:
   jest-mock@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 22.20.1
+      '@types/node': 22.20.4
       jest-util: 30.4.1
 
   jest-mock@30.5.2:
