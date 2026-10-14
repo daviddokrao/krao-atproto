@@ -86,6 +86,7 @@ export async function deleteGateRule(db: Database, uri: string) {
 export async function deleteGateDataForDid(db: Database, did: string) {
   await db.deleteFrom('gate_rule').where('did', '=', did).execute()
   await db.deleteFrom('gated_content').where('did', '=', did).execute()
+  await db.deleteFrom('gated_media').where('did', '=', did).execute()
 }
 
 /** The most recent rule for each of the given posts */
@@ -106,13 +107,20 @@ export async function getRulesForSubjects(db: Database, subjects: string[]) {
 
 export async function putGatedContent(
   db: Database,
-  content: { subject: string; did: string; text: string; facets: unknown },
+  content: {
+    subject: string
+    did: string
+    text: string
+    facets: unknown
+    media?: StoredGatedMedia[]
+  },
 ) {
   const row = {
     subject: content.subject,
     did: content.did,
     text: content.text,
     facets: content.facets ? JSON.stringify(content.facets) : null,
+    media: content.media?.length ? JSON.stringify(content.media) : null,
     updatedAt: new Date().toISOString(),
   }
   await db
@@ -120,6 +128,14 @@ export async function putGatedContent(
     .values(row)
     .onConflict((oc) => oc.column('subject').doUpdateSet(row))
     .execute()
+}
+
+/** How gated content refers to its media (the URL is signed per viewer) */
+export type StoredGatedMedia = {
+  id: string
+  mimeType: string
+  alt?: string
+  aspectRatio?: { width: number; height: number }
 }
 
 export async function getGatedContent(db: Database, subject: string) {

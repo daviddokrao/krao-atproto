@@ -26,7 +26,9 @@ jobs:
     # unvetted code). Branch PRs can only be
     # created by people with write access, i.e. org members.
     # Bot-authored PRs (dependabot, changesets) are also skipped.
+    # Needs Bluesky's agent gateway and secrets, so it only runs upstream
     if: >
+      github.repository == 'bluesky-social/atproto' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.type != 'Bot'

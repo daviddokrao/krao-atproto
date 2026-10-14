@@ -99,6 +99,14 @@ export interface PrefsTable {
   prefs: string
 }
 
+/** Chat access a moderator set for an account (chat.bsky.moderation.updateActorAccess) */
+export interface ActorAccessTable {
+  did: string
+  allowAccess: number
+  ref: string | null
+  updatedAt: string
+}
+
 export interface DatabaseSchema {
   convo: ConvoTable
   member: MemberTable
@@ -109,6 +117,7 @@ export interface DatabaseSchema {
   join_link: JoinLinkTable
   join_request: JoinRequestTable
   prefs: PrefsTable
+  actor_access: ActorAccessTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -122,6 +131,14 @@ export function createDb(location: string): Database {
 }
 
 export async function migrateDb(db: Database) {
+  await db.schema
+    .createTable('actor_access')
+    .ifNotExists()
+    .addColumn('did', 'varchar', (col) => col.primaryKey())
+    .addColumn('allowAccess', 'integer', (col) => col.notNull())
+    .addColumn('ref', 'varchar')
+    .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('convo')
     .ifNotExists()

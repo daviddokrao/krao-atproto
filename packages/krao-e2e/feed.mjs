@@ -1,5 +1,5 @@
-// Krao's "latest" feed: the indexer is the feed generator, the AppView
-// serves it like any other custom feed.
+// Krao's "latest" and "popular" feeds: the indexer is the feed generator,
+// the AppView serves them like any other custom feed.
 import {
   ACCOUNTS,
   APPVIEW,
@@ -91,6 +91,74 @@ check(
   appviewFeed.data.feed?.[0]?.post?.uri === post.uri,
   appviewFeed.data.error ?? appviewFeed.data.feed?.[0]?.post?.uri,
 )
+
+// "popular" ranks by likes and reposts, decayed by age
+const popularUri = `at://${krao.did}/app.bsky.feed.generator/popular`
+await putRecord(krao, 'app.bsky.feed.generator', 'popular', {
+  did: desc.data.did,
+  displayName: 'Nổi bật',
+  createdAt: new Date().toISOString(),
+})
+const liked = (
+  await createRecord(krao, 'app.bsky.feed.post', {
+    text: `Popular check ${Date.now()}`,
+    createdAt: new Date().toISOString(),
+  })
+).data
+const likedRef = { uri: liked.uri, cid: liked.cid }
+const interactions = [
+  await createRecord(minh, 'app.bsky.feed.like', {
+    subject: likedRef,
+    createdAt: new Date().toISOString(),
+  }),
+  await createRecord(minh, 'app.bsky.feed.repost', {
+    subject: likedRef,
+    createdAt: new Date().toISOString(),
+  }),
+]
+// Newer than `liked`, but nobody interacted with it
+const plain = (
+  await createRecord(minh, 'app.bsky.feed.post', {
+    text: `Plain check ${Date.now()}`,
+    createdAt: new Date().toISOString(),
+  })
+).data
+await sleep(2500)
+const popular = await xrpc(INDEXER, 'app.bsky.feed.getFeedSkeleton', {
+  query: { feed: popularUri, limit: 50 },
+})
+const ranked = popular.data.feed?.map((item) => item.post) ?? []
+check(
+  'popular ranks a liked and reposted post above a newer plain one',
+  ranked.includes(plain.uri) &&
+    ranked.indexOf(liked.uri) !== -1 &&
+    ranked.indexOf(liked.uri) < ranked.indexOf(plain.uri),
+  `${ranked.indexOf(liked.uri)} vs ${ranked.indexOf(plain.uri)}`,
+)
+const popularPage = await xrpc(INDEXER, 'app.bsky.feed.getFeedSkeleton', {
+  query: { feed: popularUri, limit: 1 },
+})
+const popularNext = await xrpc(INDEXER, 'app.bsky.feed.getFeedSkeleton', {
+  query: { feed: popularUri, limit: 1, cursor: popularPage.data.cursor },
+})
+check(
+  'the popular cursor pages on',
+  popularPage.data.cursor === '1' &&
+    popularNext.data.feed?.[0]?.post === ranked[1],
+)
+
+for (const created of interactions) await deleteRecord(minh, created.data.uri)
+await sleep(2500)
+const unliked = await xrpc(INDEXER, 'app.bsky.feed.getFeedSkeleton', {
+  query: { feed: popularUri, limit: 50 },
+})
+const reranked = unliked.data.feed?.map((item) => item.post) ?? []
+check(
+  'removing the like and repost drops the post back',
+  reranked.indexOf(plain.uri) < reranked.indexOf(liked.uri),
+)
+await deleteRecord(krao, liked.uri)
+await deleteRecord(minh, plain.uri)
 
 await deleteRecord(minh, post.uri)
 await deleteRecord(krao, reply.uri)

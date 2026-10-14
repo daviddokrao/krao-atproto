@@ -1,7 +1,12 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { AtUri, type AtUriString } from '@atproto/syntax'
+import {
+  AtUri,
+  type AtUriString,
+  type DatetimeString,
+  type UriString,
+} from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -11,14 +16,38 @@ import {
 } from '@atproto/xrpc-server'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
-import { getLatestPosts, listFeedGenerators } from './feed.js'
 import {
+  POPULAR_FEED_RKEY,
+  getLatestPosts,
+  getPopularPosts,
+  listFeedGenerators,
+} from './feed.js'
+import {
+  type StoredGatedMedia,
   getGatedContent,
   getRulesForSubjects,
   isEligible,
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
+import {
+  suggestedAccounts,
+  suggestedStarterPacks,
+  trendingTags,
+} from './discovery.js'
+import {
+  GATED_MEDIA_MAX_BYTES,
+  MediaSigner,
+  maxBytesFor,
+  addGatedMediaRoute,
+  insertGatedMedia,
+  mediaIdFromUrl,
+  withUploadLock,
+  withinUploadQuota,
+  ownedGatedMedia,
+  readBounded,
+  sniffMediaType,
+} from './gate-media.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -64,6 +93,8 @@ export function createApp(
     klipyApiKey?: string
     /** Public URL of this service, for links it hands out (default: from the request) */
     publicUrl?: string
+    /** Secret for signed gated media URLs (default: random per process) */
+    gateMediaSecret?: string
   },
 ): Express {
   const {
@@ -76,6 +107,11 @@ export function createApp(
     webUrl = 'https://krao.net',
   } = opts
   const server = createServer([], {})
+  const mediaSigner = new MediaSigner(opts.gateMediaSecret)
+  const baseUrl = (req: {
+    protocol: string
+    get(name: string): string | undefined
+  }) => publicUrl ?? `${req.protocol}://${req.get('host')}`
 
   /*
    * Gate methods use atproto service auth: the client asks its PDS for a
@@ -122,7 +158,7 @@ export function createApp(
 
   server.add(net.krao.gate.getContent, {
     auth: serviceAuth(net.krao.gate.getContent.$lxm),
-    handler: async ({ params, auth }) => {
+    handler: async ({ params, auth, req }) => {
       const viewer = (auth.credentials as { did: string }).did
       const [rule] = await getRulesForSubjects(db, [params.uri])
       const content = await getGatedContent(db, params.uri)
@@ -144,6 +180,14 @@ export function createApp(
           uri: params.uri,
           text: content.text,
           facets: content.facets ? JSON.parse(content.facets) : undefined,
+          media: content.media
+            ? (JSON.parse(content.media) as StoredGatedMedia[]).map((m) => ({
+                url: mediaSigner.url(baseUrl(req), m.id) as UriString,
+                mimeType: m.mimeType,
+                alt: m.alt,
+                aspectRatio: m.aspectRatio,
+              }))
+            : undefined,
         },
       }
     },
@@ -166,18 +210,87 @@ export function createApp(
           'NotAuthor',
         )
       }
-      if (body.media?.length) {
-        throw new InvalidRequestError('Gated media is not supported yet')
+      // Media must have been uploaded by the author to this service
+      const ids = (body.media ?? []).map((m) => mediaIdFromUrl(m.url))
+      if (ids.some((id) => !id)) {
+        throw new InvalidRequestError('Gated media must come from uploadMedia')
       }
-      if (!body.text?.trim()) {
-        throw new InvalidRequestError('Gated text is required')
+      const owned = await ownedGatedMedia(db, caller, ids as string[])
+      if (owned.size !== new Set(ids).size) {
+        throw new InvalidRequestError('Unknown gated media')
+      }
+      const media: StoredGatedMedia[] = (body.media ?? []).map((m, i) => ({
+        id: ids[i] as string,
+        mimeType: owned.get(ids[i] as string) as string,
+        ...(m.alt ? { alt: m.alt } : {}),
+        ...(m.aspectRatio
+          ? {
+              aspectRatio: {
+                width: m.aspectRatio.width,
+                height: m.aspectRatio.height,
+              },
+            }
+          : {}),
+      }))
+      if (!body.text?.trim() && !media.length) {
+        throw new InvalidRequestError('Gated text or media is required')
       }
       await putGatedContent(db, {
         subject: body.uri,
         did: caller,
-        text: body.text,
+        text: body.text ?? '',
         facets: body.facets,
+        media,
       })
+    },
+  })
+
+  server.add(net.krao.gate.uploadMedia, {
+    auth: serviceAuth(net.krao.gate.uploadMedia.$lxm),
+    opts: { blobLimit: GATED_MEDIA_MAX_BYTES },
+    handler: async ({ auth, input, req }) => {
+      const caller = (auth.credentials as { did: string }).did
+      let data: Buffer
+      try {
+        data = await readBounded(
+          input.body as AsyncIterable<Uint8Array>,
+          GATED_MEDIA_MAX_BYTES,
+        )
+      } catch {
+        throw new InvalidRequestError(
+          `Gated media can be at most ${GATED_MEDIA_MAX_BYTES / 1024 / 1024} MB`,
+        )
+      }
+      // Trust the bytes, not the declared content type
+      const mimeType = sniffMediaType(data)
+      if (!mimeType) {
+        throw new InvalidRequestError(
+          'Gated media must be a JPEG, PNG, GIF or WebP image, or an MP4 or WebM video',
+        )
+      }
+      if (data.length > maxBytesFor(mimeType)) {
+        throw new InvalidRequestError(
+          `Gated ${mimeType.split('/')[0]}s can be at most ${maxBytesFor(mimeType) / 1024 / 1024} MB`,
+        )
+      }
+      const id = await withUploadLock(caller, async () => {
+        if (!(await withinUploadQuota(db, caller, data.length))) {
+          throw new InvalidRequestError(
+            'Daily limit for gated uploads reached, try again tomorrow',
+            'UploadLimitExceeded',
+          )
+        }
+        return insertGatedMedia(db, caller, mimeType, data)
+      })
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          media: {
+            url: mediaSigner.url(baseUrl(req), id) as UriString,
+            mimeType,
+          },
+        },
+      }
     },
   })
 
@@ -337,7 +450,7 @@ export function createApp(
   })
 
   /*
-   * Feed generator for Krao's "latest" feed. AppViews call it with service
+   * Feed generator for Krao's "latest" and "popular" feeds. AppViews call it with service
    * auth, but the feed is the same for everyone so the token is not checked.
    */
   if (feedGenDid) {
@@ -356,7 +469,12 @@ export function createApp(
       if (!feeds.includes(params.feed)) {
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
-      const { posts, cursor } = await getLatestPosts(
+      // The record's rkey picks the ranking: "popular", else newest first
+      const rank =
+        params.feed.split('/').pop() === POPULAR_FEED_RKEY
+          ? getPopularPosts
+          : getLatestPosts
+      const { posts, cursor } = await rank(
         db,
         params.limit ?? 50,
         params.cursor,
@@ -373,6 +491,113 @@ export function createApp(
     })
   }
 
+  /*
+   * Discovery skeletons for the AppView (its suggestions, topics and iris
+   * services all point here). They list public data only; `viewer` just
+   * leaves out what that account already follows.
+   */
+  const usersSkeleton = async (params: {
+    viewer?: string
+    limit?: number
+  }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      dids: (await suggestedAccounts(db, {
+        viewer: params.viewer,
+        limit: params.limit ?? 25,
+      })) as `did:${string}:${string}`[],
+    },
+  })
+  const unspecced = bskyApp.bsky.unspecced
+  server.add(unspecced.getSuggestedUsersSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForExploreSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForDiscoverSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForSeeMoreSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getOnboardingSuggestedUsersSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestionsSkeleton, async ({ params }) => {
+    const dids = await suggestedAccounts(db, {
+      viewer: params.viewer,
+      relativeTo: params.relativeToDid,
+      limit: params.limit ?? 50,
+    })
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        actors: dids.map((did) => ({ did: did as `did:${string}:${string}` })),
+        ...(params.relativeToDid
+          ? { relativeToDid: params.relativeToDid }
+          : {}),
+      },
+    }
+  })
+  server.add(unspecced.getSuggestedFeedsSkeleton, async ({ params }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      feeds: (await listFeedGenerators(db)).slice(
+        0,
+        params.limit ?? 10,
+      ) as AtUriString[],
+    },
+  }))
+  const starterPacksSkeleton = async (params: {
+    viewer?: string
+    limit?: number
+  }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      starterPacks: (await suggestedStarterPacks(db, {
+        viewer: params.viewer,
+        limit: params.limit ?? 10,
+      })) as AtUriString[],
+    },
+  })
+  server.add(unspecced.getSuggestedStarterPacksSkeleton, ({ params }) =>
+    starterPacksSkeleton(params),
+  )
+  server.add(
+    unspecced.getOnboardingSuggestedStarterPacksSkeleton,
+    ({ params }) => starterPacksSkeleton(params),
+  )
+  server.add(unspecced.getTrendingTopics, async ({ params }) => {
+    const tags = await trendingTags(db, params.limit ?? 10)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        topics: tags.map((t) => ({
+          topic: `#${t.tag}`,
+          link: `/hashtag/${encodeURIComponent(t.tag)}`,
+        })),
+        suggested: [],
+      },
+    }
+  })
+  server.add(unspecced.getTrendsSkeleton, async ({ params }) => {
+    const tags = await trendingTags(db, params.limit ?? 10)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        trends: tags.map((t) => ({
+          topic: t.tag,
+          displayName: `#${t.tag}`,
+          link: `/hashtag/${encodeURIComponent(t.tag)}`,
+          startedAt: t.startedAt as DatetimeString,
+          postCount: t.postCount,
+          dids: t.dids as `did:${string}:${string}`[],
+        })),
+      },
+    }
+  })
+
   server.add(net.krao.feed.getTipTotals, async ({ params }) => {
     const subjects = await tipTotalsForSubjects(db, params.subjects)
     return {
@@ -387,6 +612,10 @@ export function createApp(
   // Behind a reverse proxy, req.protocol should follow X-Forwarded-Proto
   app.set('trust proxy', true)
   app.use(cors())
+  // Plain landing text so uptime checks on the bare host get a 200
+  app.get('/', (_req, res) => {
+    res.type('text/plain').send('Krao indexer. Health: /_health')
+  })
   app.get('/_health', (_req, res) => {
     res.json({ ok: true })
   })
@@ -415,6 +644,7 @@ export function createApp(
    * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
    * image named by the token's own on-chain metadata is fetched.
    */
+  addGatedMediaRoute(app, db, mediaSigner)
   addGifRoutes(app, klipyApiKey)
   addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 

@@ -4,14 +4,33 @@ import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
   FEED_GENERATOR_COLLECTION,
+  LIKE_COLLECTION,
   POST_COLLECTION,
+  REPOST_COLLECTION,
   deleteFeedDataForDid,
   deleteFeedGenerator,
+  deleteFeedInteraction,
   deleteFeedPost,
+  feedInteractionRowFromRecord,
   feedPostRowFromRecord,
   upsertFeedGenerator,
+  upsertFeedInteraction,
   upsertFeedPost,
 } from './feed.js'
+import {
+  FOLLOW_COLLECTION,
+  STARTER_PACK_COLLECTION,
+  deleteStarterPack,
+  upsertStarterPack,
+  deleteDiscoveryDataForDid,
+  deleteFeedFollow,
+  deletePostTags,
+  feedFollowRowFromRecord,
+  postTags,
+  setPostTags,
+  upsertFeedFollow,
+} from './discovery.js'
+import { deleteOrphanedMedia } from './gate-media.js'
 import {
   GATE_RULE_COLLECTION,
   deleteGateDataForDid,
@@ -79,7 +98,16 @@ export class FirehoseIndexer {
         TIP_COLLECTION,
         NFT_AVATAR_COLLECTION,
         GATE_RULE_COLLECTION,
-        ...(feed.did ? [POST_COLLECTION, FEED_GENERATOR_COLLECTION] : []),
+        ...(feed.did
+          ? [
+              POST_COLLECTION,
+              FEED_GENERATOR_COLLECTION,
+              LIKE_COLLECTION,
+              REPOST_COLLECTION,
+              FOLLOW_COLLECTION,
+              STARTER_PACK_COLLECTION,
+            ]
+          : []),
       ],
       excludeIdentity: true,
       excludeSync: true,
@@ -90,6 +118,7 @@ export class FirehoseIndexer {
   }
 
   private verifyTimer?: NodeJS.Timeout
+  private cleanupTimer?: NodeJS.Timeout
 
   start() {
     void this.firehose.start()
@@ -98,10 +127,19 @@ export class FirehoseIndexer {
       void this.verifyPendingTips()
       void this.recheckNftAvatars()
     }, 5_000)
+    // Gated uploads nobody attached to a post
+    this.cleanupTimer = setInterval(
+      () =>
+        void deleteOrphanedMedia(this.db).catch((err: unknown) =>
+          console.error('Krao indexer: gated media cleanup failed', err),
+        ),
+      60 * 60 * 1000,
+    )
   }
 
   async destroy() {
     clearInterval(this.verifyTimer)
+    clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
   }
 
@@ -159,6 +197,38 @@ export class FirehoseIndexer {
             evt.record,
           )
           if (row) await upsertFeedPost(this.db, row)
+          await setPostTags(
+            this.db,
+            evt.uri.toString(),
+            evt.did,
+            postTags(evt.record),
+          )
+        }
+      } else if (evt.collection === STARTER_PACK_COLLECTION) {
+        if (await this.isFeedAuthor(evt.did)) {
+          await upsertStarterPack(this.db, evt.uri.toString(), evt.did)
+        }
+      } else if (evt.collection === FOLLOW_COLLECTION) {
+        if (await this.isFeedAuthor(evt.did)) {
+          const row = feedFollowRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.record,
+          )
+          if (row) await upsertFeedFollow(this.db, row)
+        }
+      } else if (
+        evt.collection === LIKE_COLLECTION ||
+        evt.collection === REPOST_COLLECTION
+      ) {
+        if (await this.isFeedAuthor(evt.did)) {
+          const row = feedInteractionRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.collection,
+            evt.record,
+          )
+          if (row) await upsertFeedInteraction(this.db, row)
         }
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
@@ -183,6 +253,16 @@ export class FirehoseIndexer {
         await deleteGateRule(this.db, evt.uri.toString())
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
+        await deletePostTags(this.db, evt.uri.toString())
+      } else if (evt.collection === FOLLOW_COLLECTION) {
+        await deleteFeedFollow(this.db, evt.uri.toString())
+      } else if (evt.collection === STARTER_PACK_COLLECTION) {
+        await deleteStarterPack(this.db, evt.uri.toString())
+      } else if (
+        evt.collection === LIKE_COLLECTION ||
+        evt.collection === REPOST_COLLECTION
+      ) {
+        await deleteFeedInteraction(this.db, evt.uri.toString())
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         await deleteFeedGenerator(this.db, evt.uri.toString())
       }
@@ -193,6 +273,7 @@ export class FirehoseIndexer {
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)
         await deleteFeedDataForDid(this.db, evt.did)
+        await deleteDiscoveryDataForDid(this.db, evt.did)
       }
     }
     await this.setCursor(evt.seq)

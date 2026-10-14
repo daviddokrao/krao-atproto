@@ -20,6 +20,8 @@ export type KraoChatConfig = {
   appviewUrl: string
   /** Public URL of this service, published in its did:web document */
   publicUrl?: string
+  /** DIDs of the moderation services that may call chat.bsky.moderation.* */
+  moderatorDids?: string[]
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
 }
@@ -46,6 +48,7 @@ export class KraoChat {
       idResolver,
       serviceDid: cfg.serviceDid,
       publicUrl: cfg.publicUrl,
+      moderatorDids: cfg.moderatorDids,
     })
     return new KraoChat(cfg, db, app)
   }

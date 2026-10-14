@@ -34,7 +34,9 @@ jobs:
     # Skip comments/reviews that don't mention @claude, non-PR issue
     # comments, and events from claude[bot] itself (its review prose
     # often quotes "@claude" and must not retrigger the workflow).
+    # Needs Bluesky's agent gateway and secrets, so it only runs upstream
     if: >
+      github.repository == 'bluesky-social/atproto' &&
       (
         (github.event_name == 'issue_comment' &&
           github.event.issue.pull_request != null &&

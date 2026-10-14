@@ -10,6 +10,7 @@ import {
 } from '@atproto/xrpc-server'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
+import { addModerationMethods, isChatDisabled } from './moderation.js'
 import {
   ChatService,
   GROUP_MEMBER_LIMIT,
@@ -30,6 +31,26 @@ const DEFAULT_PREFS = {
   chatRequest: { include: 'all', push: true },
 }
 
+/**
+ * Methods that reach other people. An account a moderator cut off from chat
+ * may still read, leave, mute and delete, but not use these.
+ */
+const BLOCKED_WHEN_DISABLED = new Set([
+  'chat.bsky.convo.getConvoForMembers',
+  'chat.bsky.convo.sendMessage',
+  'chat.bsky.convo.sendMessageBatch',
+  'chat.bsky.convo.addReaction',
+  'chat.bsky.convo.acceptConvo',
+  'chat.bsky.group.createGroup',
+  'chat.bsky.group.editGroup',
+  'chat.bsky.group.addMembers',
+  'chat.bsky.group.createJoinLink',
+  'chat.bsky.group.editJoinLink',
+  'chat.bsky.group.enableJoinLink',
+  'chat.bsky.group.requestJoin',
+  'chat.bsky.group.approveJoinRequest',
+])
+
 export type ChatAuth = ({ req }: MethodAuthContext) => Promise<{
   credentials: { did: string }
 }>
@@ -39,6 +60,8 @@ export function createApp(opts: {
   idResolver: IdResolver
   serviceDid: string
   publicUrl?: string
+  /** Moderation services (eg Krao's Ozone) allowed to call chat.bsky.moderation.* */
+  moderatorDids?: string[]
 }): Express {
   const { service, idResolver, serviceDid } = opts
   const server = createServer([], {})
@@ -60,7 +83,17 @@ export function createApp(opts: {
       (iss, forceRefresh) =>
         idResolver.did.resolveAtprotoKey(iss.split('#')[0], forceRefresh),
     )
-    return { credentials: { did: payload.iss.split('#')[0] } }
+    const did = payload.iss.split('#')[0]
+    if (
+      BLOCKED_WHEN_DISABLED.has(nsid) &&
+      (await isChatDisabled(service.db, did))
+    ) {
+      throw new InvalidRequestError(
+        'A moderator has disabled chat for this account',
+        'ChatDisabled',
+      )
+    }
+    return { credentials: { did } }
   }
 
   const otherMember = (viewer: string, members: readonly string[]) => {
@@ -221,12 +254,12 @@ export function createApp(opts: {
   server.add(convo.getMessages, {
     auth,
     handler: async ({ auth: { credentials }, params }) => {
-      const { messages, cursor } = await service.getMessages(
-        params.convoId,
-        credentials.did,
-        { limit: params.limit ?? 50, cursor: params.cursor },
+      return json(
+        await service.getMessages(params.convoId, credentials.did, {
+          limit: params.limit ?? 50,
+          cursor: params.cursor,
+        }),
       )
-      return json({ messages, cursor })
     },
   })
 
@@ -385,10 +418,12 @@ export function createApp(opts: {
 
   server.add(chat.bsky.actor.getStatus, {
     auth,
-    handler: async () => {
+    handler: async ({ auth: { credentials } }) => {
+      // A moderator may have cut the account off (updateActorAccess)
+      const chatDisabled = await isChatDisabled(service.db, credentials.did)
       return json({
-        chatDisabled: false,
-        canCreateGroups: true,
+        chatDisabled,
+        canCreateGroups: !chatDisabled,
         groupMemberLimit: GROUP_MEMBER_LIMIT,
       })
     },
@@ -443,10 +478,19 @@ export function createApp(opts: {
   })
 
   addGroupRoutes(server, service, auth)
+  addModerationMethods(server, service, {
+    idResolver,
+    serviceDid,
+    moderatorDids: opts.moderatorDids ?? [],
+  })
 
   const app = express()
   app.set('trust proxy', true)
   app.use(cors())
+  // Plain landing text so uptime checks on the bare host get a 200
+  app.get('/', (_req, res) => {
+    res.type('text/plain').send('Krao chat service. Health: /_health')
+  })
   app.get('/_health', (_req, res) => {
     res.json({ ok: true, did: serviceDid })
   })

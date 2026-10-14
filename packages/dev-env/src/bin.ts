@@ -50,8 +50,10 @@ const run = async () => {
       // Videos are stored as blobs, up to the video service's limit
       blobUploadLimit: 100 * 1024 * 1024,
       // Shown on the sign-up screen (describeServer)
+      homeUrl: 'https://krao.net/',
       termsOfServiceUrl: 'https://krao.net/terms',
       privacyPolicyUrl: 'https://krao.net/privacy',
+      supportUrl: 'https://krao.net/support',
     },
     bsky: {
       dbPostgresSchema: 'bsky',
@@ -60,12 +62,17 @@ const run = async () => {
       publicUrl: process.env.KRAO_DEV_APPVIEW_URL || 'http://localhost:2584',
       videoPlaylistUrlPattern: `${VIDEO_URL}/watch/%s/%s/playlist.m3u8`,
       videoThumbnailUrlPattern: `${VIDEO_URL}/watch/%s/%s/thumbnail.jpg`,
+      // Suggestions, suggested feeds and trending topics come from the indexer
+      suggestionsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      topicsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      irisUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
     },
     plc: { port: 2582 },
     ozone: {
       port: 2587,
       chatUrl: 'http://localhost:2590', // must run separate chat service
-      chatDid: 'did:example:chat',
+      // The Krao chat service's DID, fixed by its key (created below)
+      chatDid: 'did:plc:gpiadqebr3yazrys6dw4gvfi',
       dbMaterializedViewRefreshIntervalMs: 30_000,
     },
     introspect: { port: 2581 },
@@ -156,6 +163,8 @@ const run = async () => {
     plcUrl: network.plc.url,
     appviewUrl: network.bsky.url,
     insecureFetch: true,
+    // Ozone reviews reported messages through chat.bsky.moderation.*
+    moderatorDids: [network.ozone.ctx.cfg.service.did],
   })
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)

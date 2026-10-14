@@ -84,7 +84,19 @@ export interface GatedContentTable {
   text: string
   /** JSON array of app.bsky.richtext.facet */
   facets: string | null
+  /** JSON array of {id, mimeType, alt?, aspectRatio?}, see gate-media.ts */
+  media: string | null
   updatedAt: string
+}
+
+/** An image uploaded for gated content; never part of a public repo */
+export interface GatedMediaTable {
+  id: string
+  did: string
+  mimeType: string
+  data: Buffer
+  size: number
+  createdAt: string
 }
 
 export interface CursorTable {
@@ -96,6 +108,40 @@ export interface CursorTable {
 export interface FeedPostTable {
   uri: string
   cid: string
+  did: string
+  indexedAt: string
+  /** The record's own createdAt, if valid; null for rows from before it was kept */
+  createdAt: string | null
+}
+
+/** A like or repost of a post, counted by the "popular" feed */
+export interface FeedInteractionTable {
+  uri: string
+  did: string
+  subject: string
+  kind: 'like' | 'repost'
+  indexedAt: string
+}
+
+/** A follow by a Krao account, for account suggestions */
+export interface FeedFollowTable {
+  uri: string
+  did: string
+  subject: string
+  indexedAt: string
+}
+
+/** A hashtag used in a post by a Krao account, for trending topics */
+export interface FeedTagTable {
+  uri: string
+  did: string
+  tag: string
+  indexedAt: string
+}
+
+/** A starter pack made by a Krao account, for starter pack suggestions */
+export interface FeedStarterPackTable {
+  uri: string
   did: string
   indexedAt: string
 }
@@ -119,9 +165,14 @@ export interface DatabaseSchema {
   nft_avatar: NftAvatarTable
   gate_rule: GateRuleTable
   feed_post: FeedPostTable
+  feed_interaction: FeedInteractionTable
+  feed_follow: FeedFollowTable
+  feed_tag: FeedTagTable
+  feed_starter_pack: FeedStarterPackTable
   feed_generator: FeedGeneratorTable
   short_link: ShortLinkTable
   gated_content: GatedContentTable
+  gated_media: GatedMediaTable
   cursor: CursorTable
 }
 
@@ -224,6 +275,23 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('facets', 'varchar')
     .addColumn('updatedAt', 'varchar', (col) => col.notNull())
     .execute()
+  // Added after gated_content shipped, so older databases get it here too
+  await sql`alter table gated_content add column media varchar`
+    .execute(db)
+    .catch(() => {})
+  await db.schema
+    .createTable('gated_media')
+    .ifNotExists()
+    .addColumn('id', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('mimeType', 'varchar', (col) => col.notNull())
+    .addColumn('data', 'blob', (col) => col.notNull())
+    .addColumn('size', 'integer', (col) => col.notNull())
+    .addColumn('createdAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists gated_media_did_idx on gated_media (did)`.execute(
+    db,
+  )
   await db.schema
     .createTable('cursor')
     .ifNotExists()
@@ -238,12 +306,64 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('did', 'varchar', (col) => col.notNull())
     .addColumn('indexedAt', 'varchar', (col) => col.notNull())
     .execute()
+  // Added after feed_post shipped, so older databases get it here too
+  await sql`alter table feed_post add column createdAt varchar`
+    .execute(db)
+    .catch(() => {})
   await sql`create index if not exists feed_post_order_idx on feed_post (indexedAt, cid)`.execute(
     db,
   )
   await sql`create index if not exists feed_post_did_idx on feed_post (did)`.execute(
     db,
   )
+  await db.schema
+    .createTable('feed_interaction')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('subject', 'varchar', (col) => col.notNull())
+    .addColumn('kind', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists feed_interaction_subject_idx on feed_interaction (subject)`.execute(
+    db,
+  )
+  await sql`create index if not exists feed_interaction_did_idx on feed_interaction (did)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_follow')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('subject', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists feed_follow_did_idx on feed_follow (did)`.execute(
+    db,
+  )
+  await sql`create index if not exists feed_follow_subject_idx on feed_follow (subject)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_tag')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.notNull())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('tag', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .addPrimaryKeyConstraint('feed_tag_pkey', ['uri', 'tag'])
+    .execute()
+  await sql`create index if not exists feed_tag_time_idx on feed_tag (indexedAt)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_starter_pack')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('feed_generator')
     .ifNotExists()

@@ -1,6 +1,6 @@
-// M6: token-gated posts. The gated body lives in the gate service (inside
-// @krao/indexer), never in the public repo, and is served with service auth
-// only to viewers whose linked wallets meet the rule.
+// M6: token-gated posts. The gated body and images live in the gate service
+// (inside @krao/indexer), never in the public repo, and are served with
+// service auth only to viewers whose linked wallets meet the rule.
 import {
   ACCOUNTS,
   ANVIL_KEYS,
@@ -135,6 +135,128 @@ check(
   afterTopUp.data.error,
 )
 
+// Gated images: uploaded to the gate, referenced from the gated content and
+// served only through signed URLs handed to eligible viewers
+const png = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+)
+const upload = async (s, bytes, contentType) => {
+  const res = await fetch(new URL('/xrpc/net.krao.gate.uploadMedia', GATE), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${await serviceAuth(s, 'net.krao.gate.uploadMedia')}`,
+      'content-type': contentType,
+    },
+    body: bytes,
+  })
+  return { ok: res.ok, status: res.status, data: await res.json() }
+}
+const uploaded = await upload(author, png, 'image/png')
+check(
+  'the author can upload a gated image',
+  uploaded.ok && uploaded.data.media?.mimeType === 'image/png',
+  JSON.stringify(uploaded.data),
+)
+const notImage = await upload(author, Buffer.from('<script>'), 'image/png')
+check(
+  'uploads must really be images',
+  notImage.status === 400,
+  `${notImage.status} ${notImage.data.message}`,
+)
+const putMedia = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(author, 'net.krao.gate.putContent'),
+  body: {
+    uri: post.uri,
+    text: secret,
+    media: [
+      { url: uploaded.data.media.url, mimeType: 'image/png', alt: 'chart' },
+    ],
+  },
+})
+check('gated content can carry the image', putMedia.ok, putMedia.data.message)
+
+const withMedia = await getContent(holder, post.uri)
+const mediaUrl = withMedia.data.media?.[0]?.url
+const image = mediaUrl ? await fetch(mediaUrl) : null
+const imageBytes = image ? Buffer.from(await image.arrayBuffer()) : null
+check(
+  'an eligible viewer gets a working image URL',
+  image?.ok &&
+    image.headers.get('content-type') === 'image/png' &&
+    imageBytes.equals(png) &&
+    withMedia.data.media[0].alt === 'chart',
+  mediaUrl,
+)
+const tampered = mediaUrl
+  ? await fetch(mediaUrl.replace(/sig=[^&]+/, 'sig=forged'))
+  : null
+const unsigned = mediaUrl ? await fetch(mediaUrl.split('?')[0]) : null
+check(
+  'image URLs without a valid signature are refused',
+  tampered?.status === 403 && unsigned?.status === 403,
+  `${tampered?.status} ${unsigned?.status}`,
+)
+// A (tiny, fake) MP4: gated video is stored and served the same way, with
+// byte ranges so players can seek
+const mp4 = Buffer.concat([
+  Buffer.from([0, 0, 0, 0x18]),
+  Buffer.from('ftypmp42'),
+  Buffer.alloc(64, 7),
+])
+const video = await upload(author, mp4, 'video/mp4')
+check(
+  'the author can upload a gated video',
+  video.ok && video.data.media?.mimeType === 'video/mp4',
+  JSON.stringify(video.data),
+)
+const putVideo = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(author, 'net.krao.gate.putContent'),
+  body: {
+    uri: post.uri,
+    text: secret,
+    media: [
+      { url: uploaded.data.media.url, mimeType: 'image/png', alt: 'chart' },
+      { url: video.data.media.url, mimeType: 'video/mp4' },
+    ],
+  },
+})
+const withVideo = await getContent(holder, post.uri)
+const videoUrl = withVideo.data.media?.find(
+  (m) => m.mimeType === 'video/mp4',
+)?.url
+const part = videoUrl
+  ? await fetch(videoUrl, { headers: { range: 'bytes=4-11' } })
+  : null
+const partBytes = part ? Buffer.from(await part.arrayBuffer()) : null
+check(
+  'gated video is served in byte ranges',
+  putVideo.ok &&
+    part?.status === 206 &&
+    part.headers.get('content-range') === `bytes 4-11/${mp4.length}` &&
+    partBytes.toString() === 'ftypmp42',
+  `${part?.status} ${part?.headers.get('content-range')}`,
+)
+
+const holderPost = (
+  await createRecord(holder, 'app.bsky.feed.post', {
+    text: 'Bài của holder',
+    createdAt: new Date().toISOString(),
+  })
+).data
+const stolen = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(holder, 'net.krao.gate.putContent'),
+  body: {
+    uri: holderPost.uri,
+    media: [{ url: uploaded.data.media.url, mimeType: 'image/png' }],
+  },
+})
+check(
+  "nobody can reuse another account's gated image",
+  stolen.status === 400,
+  `${stolen.status} ${stolen.data.message}`,
+)
+
 // Service auth
 const noAuth = await xrpc(GATE, 'net.krao.gate.getContent', {
   query: { uri: post.uri },
@@ -175,6 +297,10 @@ check(
   'gated text is not in the public repo (CAR export)',
   car.length > 0 && !car.includes(secret) && !car.includes('airdrop snapshot'),
   `${car.length} bytes`,
+)
+check(
+  'the gated image and video are not in the public repo either',
+  !car.includes(png) && !car.includes(mp4),
 )
 
 // Leave a gated post for manual testing, with the poor wallet back at 1 USDC
