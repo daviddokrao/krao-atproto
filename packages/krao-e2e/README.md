@@ -17,11 +17,12 @@ exit non-zero on any failure.
 | `starter-packs.mjs` | —         | Short links and starter pack share cards                              |
 | `video.mjs`         | —         | Multipart video upload, processing, PDS blob, HLS playback (ffmpeg)   |
 | `handles.mjs`       | —         | Handles that clash with app pages (short profile URLs) are reserved   |
+| `chat.mjs`          | —         | Direct and group chat through the PDS proxy (requests, joins, locks)  |
 
 ## Prerequisites
 
 1. Dev-env running: `make run-dev-env` (PDS :2583, AppView :2584, Krao
-   indexer/gate :2589, Krao video :2591). The video service and `video.mjs`
+   indexer/gate :2589, Krao video :2591, Krao chat :2590). The video service and `video.mjs`
    need `ffmpeg` and `ffprobe` on the PATH.
 2. Seeded accounts: `node scripts/seed-local.mjs` from the Krao-Network root,
    after **every** dev-env start (it wipes data).
