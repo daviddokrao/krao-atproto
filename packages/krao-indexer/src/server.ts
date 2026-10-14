@@ -38,12 +38,13 @@ import {
 import {
   GATED_MEDIA_MAX_BYTES,
   MediaSigner,
+  maxBytesFor,
   addGatedMediaRoute,
   insertGatedMedia,
   mediaIdFromUrl,
   ownedGatedMedia,
   readBounded,
-  sniffImageType,
+  sniffMediaType,
 } from './gate-media.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
@@ -255,14 +256,19 @@ export function createApp(
         )
       } catch {
         throw new InvalidRequestError(
-          `Gated images can be at most ${GATED_MEDIA_MAX_BYTES / 1024 / 1024} MB`,
+          `Gated media can be at most ${GATED_MEDIA_MAX_BYTES / 1024 / 1024} MB`,
         )
       }
       // Trust the bytes, not the declared content type
-      const mimeType = sniffImageType(data)
+      const mimeType = sniffMediaType(data)
       if (!mimeType) {
         throw new InvalidRequestError(
-          'Gated media must be a JPEG, PNG, GIF or WebP image',
+          'Gated media must be a JPEG, PNG, GIF or WebP image, or an MP4 or WebM video',
+        )
+      }
+      if (data.length > maxBytesFor(mimeType)) {
+        throw new InvalidRequestError(
+          `Gated ${mimeType.split('/')[0]}s can be at most ${maxBytesFor(mimeType) / 1024 / 1024} MB`,
         )
       }
       const id = await insertGatedMedia(db, caller, mimeType, data)

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   MediaSigner,
+  maxBytesFor,
   mediaIdFromUrl,
+  parseRange,
   readBounded,
   sniffImageType,
+  sniffMediaType,
 } from './gate-media.js'
 
 const bytes = (...b: number[]) => Uint8Array.from(b)
@@ -24,6 +27,36 @@ describe('sniffImageType', () => {
     expect(sniffImageType(Buffer.from('<svg onload=alert(1)>'))).toBeNull()
     expect(sniffImageType(Buffer.from('RIFF\0\0\0\0WAVE'))).toBeNull()
     expect(sniffImageType(bytes())).toBeNull()
+  })
+})
+
+describe('sniffMediaType', () => {
+  it('accepts MP4 and WebM video as well as images', () => {
+    expect(sniffMediaType(Buffer.from('\0\0\0\x18ftypmp42'))).toBe('video/mp4')
+    expect(sniffMediaType(bytes(0x1a, 0x45, 0xdf, 0xa3, 0x01))).toBe(
+      'video/webm',
+    )
+    expect(sniffMediaType(Buffer.from('GIF89a'))).toBe('image/gif')
+    expect(sniffMediaType(Buffer.from('#!/bin/sh'))).toBeNull()
+  })
+
+  it('allows bigger videos than images', () => {
+    expect(maxBytesFor('video/mp4')).toBeGreaterThan(maxBytesFor('image/png'))
+  })
+})
+
+describe('parseRange', () => {
+  it('reads single byte ranges', () => {
+    expect(parseRange(undefined, 100)).toBeNull()
+    expect(parseRange('bytes=0-', 100)).toEqual({ start: 0, end: 99 })
+    expect(parseRange('bytes=10-19', 100)).toEqual({ start: 10, end: 19 })
+    expect(parseRange('bytes=90-200', 100)).toEqual({ start: 90, end: 99 })
+    expect(parseRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 })
+  })
+
+  it('refuses ranges outside the body', () => {
+    expect(parseRange('bytes=100-', 100)).toBe('invalid')
+    expect(parseRange('bytes=20-10', 100)).toBe('invalid')
   })
 })
 

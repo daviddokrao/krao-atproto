@@ -7,15 +7,40 @@ import type { Database } from './db.js'
  * repo blob, because repos and their blobs are public. Authors upload it with
  * net.krao.gate.uploadMedia and reference it from putContent; viewers get it
  * through getContent, which checks their wallets and then hands out URLs that
- * carry a short-lived signature (an <img> tag cannot send service auth).
+ * carry a short-lived signature (an <img> or <video> tag cannot send
+ * service auth).
  */
 
 /** Largest gated image accepted */
-export const GATED_MEDIA_MAX_BYTES = 5 * 1024 * 1024
+export const GATED_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+/** Largest gated video accepted (MP4 or WebM, played as is) */
+export const GATED_VIDEO_MAX_BYTES = 50 * 1024 * 1024
+/** Largest upload of any kind; the type decides the real limit */
+export const GATED_MEDIA_MAX_BYTES = GATED_VIDEO_MAX_BYTES
 /** How long a signed media URL from getContent stays valid */
 const MEDIA_URL_TTL_MS = 10 * 60 * 1000
 /** Path the media is served under, followed by the media id */
 export const GATED_MEDIA_PATH = '/gate/media/'
+
+/** The media type of `bytes` from its magic number, or null if we don't accept it */
+export function sniffMediaType(bytes: Uint8Array): string | null {
+  const image = sniffImageType(bytes)
+  if (image) return image
+  const at = (sig: number[], offset = 0) =>
+    sig.every((b, i) => bytes[offset + i] === b)
+  // ISO base media: a box size, then "ftyp"
+  if (at([0x66, 0x74, 0x79, 0x70], 4)) return 'video/mp4'
+  // EBML header (Matroska/WebM)
+  if (at([0x1a, 0x45, 0xdf, 0xa3])) return 'video/webm'
+  return null
+}
+
+/** Size limit for a sniffed media type */
+export function maxBytesFor(mimeType: string): number {
+  return mimeType.startsWith('video/')
+    ? GATED_VIDEO_MAX_BYTES
+    : GATED_IMAGE_MAX_BYTES
+}
 
 /** The image type of `bytes` from its magic number, or null if not an image we accept */
 export function sniffImageType(bytes: Uint8Array): string | null {
@@ -165,7 +190,52 @@ export function addGatedMediaRoute(
       // Viewers only; shared caches must not keep gated content
       'cache-control': 'private, max-age=600',
       'x-content-type-options': 'nosniff',
+      'accept-ranges': 'bytes',
     })
+    // Browsers fetch video in ranges to start playing and to seek
+    const range = parseRange(req.headers.range, row.data.length)
+    if (range === 'invalid') {
+      res.status(416).set('content-range', `bytes */${row.data.length}`).end()
+      return
+    }
+    if (range) {
+      res
+        .status(206)
+        .set(
+          'content-range',
+          `bytes ${range.start}-${range.end}/${row.data.length}`,
+        )
+      res.send(row.data.subarray(range.start, range.end + 1))
+      return
+    }
     res.send(row.data)
   })
+}
+
+/**
+ * A single `bytes=start-end` range (end inclusive) within `size`, null when
+ * there is no Range header, or 'invalid' when it cannot be satisfied.
+ * Multiple ranges are not supported and get the whole body.
+ */
+export function parseRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | null | 'invalid' {
+  if (!header) return null
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!match) return null
+  const [, from, to] = match
+  let start: number
+  let end: number
+  if (from === '') {
+    // Suffix range: the last N bytes
+    if (to === '') return 'invalid'
+    start = Math.max(size - Number(to), 0)
+    end = size - 1
+  } else {
+    start = Number(from)
+    end = to === '' ? size - 1 : Math.min(Number(to), size - 1)
+  }
+  if (start >= size || start > end) return 'invalid'
+  return { start, end }
 }

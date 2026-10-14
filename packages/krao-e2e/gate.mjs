@@ -197,6 +197,47 @@ check(
   tampered?.status === 403 && unsigned?.status === 403,
   `${tampered?.status} ${unsigned?.status}`,
 )
+// A (tiny, fake) MP4: gated video is stored and served the same way, with
+// byte ranges so players can seek
+const mp4 = Buffer.concat([
+  Buffer.from([0, 0, 0, 0x18]),
+  Buffer.from('ftypmp42'),
+  Buffer.alloc(64, 7),
+])
+const video = await upload(author, mp4, 'video/mp4')
+check(
+  'the author can upload a gated video',
+  video.ok && video.data.media?.mimeType === 'video/mp4',
+  JSON.stringify(video.data),
+)
+const putVideo = await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(author, 'net.krao.gate.putContent'),
+  body: {
+    uri: post.uri,
+    text: secret,
+    media: [
+      { url: uploaded.data.media.url, mimeType: 'image/png', alt: 'chart' },
+      { url: video.data.media.url, mimeType: 'video/mp4' },
+    ],
+  },
+})
+const withVideo = await getContent(holder, post.uri)
+const videoUrl = withVideo.data.media?.find(
+  (m) => m.mimeType === 'video/mp4',
+)?.url
+const part = videoUrl
+  ? await fetch(videoUrl, { headers: { range: 'bytes=4-11' } })
+  : null
+const partBytes = part ? Buffer.from(await part.arrayBuffer()) : null
+check(
+  'gated video is served in byte ranges',
+  putVideo.ok &&
+    part?.status === 206 &&
+    part.headers.get('content-range') === `bytes 4-11/${mp4.length}` &&
+    partBytes.toString() === 'ftypmp42',
+  `${part?.status} ${part?.headers.get('content-range')}`,
+)
+
 const holderPost = (
   await createRecord(holder, 'app.bsky.feed.post', {
     text: 'Bài của holder',
@@ -257,7 +298,10 @@ check(
   car.length > 0 && !car.includes(secret) && !car.includes('airdrop snapshot'),
   `${car.length} bytes`,
 )
-check('the gated image is not in the public repo either', !car.includes(png))
+check(
+  'the gated image and video are not in the public repo either',
+  !car.includes(png) && !car.includes(mp4),
+)
 
 // Leave a gated post for manual testing, with the poor wallet back at 1 USDC
 await dealErc20(poorWallet.address, USDC, 1_000_000n)
