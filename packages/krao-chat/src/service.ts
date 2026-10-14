@@ -1,6 +1,7 @@
 import { InvalidRequestError } from '@atproto/xrpc-server'
 import { countGraphemes } from 'unicode-segmenter/grapheme'
 import type { Appview, AppviewProfile } from './appview.js'
+import { isChatDisabled } from './moderation.js'
 import type {
   ConvoTable,
   Database,
@@ -245,6 +246,12 @@ export class ChatService {
   /** Stores a user message and logs it to every active member */
   async sendMessage(convoId: string, sender: string, input: MessageInput) {
     const { convo, member } = await this.getConvoForViewer(convoId, sender)
+    if (await isChatDisabled(this.db, sender)) {
+      throw new InvalidRequestError(
+        'A moderator has disabled chat for this account',
+        'ChatDisabled',
+      )
+    }
     if (convo.lockStatus !== 'unlocked') {
       throw new InvalidRequestError('This convo is locked', 'ConvoLocked')
     }

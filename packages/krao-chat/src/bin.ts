@@ -8,6 +8,10 @@ const chat = await KraoChat.create({
   plcUrl: process.env.KRAO_PLC_URL ?? 'https://plc.directory',
   appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://api.krao.net',
   publicUrl: process.env.KRAO_CHAT_PUBLIC_URL,
+  moderatorDids: (process.env.KRAO_CHAT_MODERATOR_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
 })
 await chat.start()
 console.log(`Krao chat service listening on ${chat.url}`)

@@ -163,6 +163,8 @@ const run = async () => {
     plcUrl: network.plc.url,
     appviewUrl: network.bsky.url,
     insecureFetch: true,
+    // Ozone reviews reported messages through chat.bsky.moderation.*
+    moderatorDids: [network.ozone.ctx.cfg.service.did],
   })
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)

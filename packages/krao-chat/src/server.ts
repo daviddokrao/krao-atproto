@@ -10,6 +10,7 @@ import {
 } from '@atproto/xrpc-server'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
+import { addModerationMethods } from './moderation.js'
 import {
   ChatService,
   GROUP_MEMBER_LIMIT,
@@ -39,6 +40,8 @@ export function createApp(opts: {
   idResolver: IdResolver
   serviceDid: string
   publicUrl?: string
+  /** Moderation services (eg Krao's Ozone) allowed to call chat.bsky.moderation.* */
+  moderatorDids?: string[]
 }): Express {
   const { service, idResolver, serviceDid } = opts
   const server = createServer([], {})
@@ -443,6 +446,11 @@ export function createApp(opts: {
   })
 
   addGroupRoutes(server, service, auth)
+  addModerationMethods(server, service, {
+    idResolver,
+    serviceDid,
+    moderatorDids: opts.moderatorDids ?? [],
+  })
 
   const app = express()
   app.set('trust proxy', true)

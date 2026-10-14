@@ -126,6 +126,33 @@ describe('ChatService', () => {
     })
   })
 
+  describe('moderation', () => {
+    it('refuses messages from an account a moderator cut off from chat', async () => {
+      const convoId = await service.createDirectConvo(ALICE, BOB)
+      await db
+        .insertInto('actor_access')
+        .values({
+          did: ALICE,
+          allowAccess: 0,
+          ref: 'report-1',
+          updatedAt: new Date().toISOString(),
+        })
+        .execute()
+      await expectError(
+        service.sendMessage(convoId, ALICE, { text: 'spam' }),
+        'ChatDisabled',
+      )
+      // The other member is unaffected, and access can be restored
+      await service.sendMessage(convoId, BOB, { text: 'hi' })
+      await db
+        .updateTable('actor_access')
+        .set({ allowAccess: 1 })
+        .where('did', '=', ALICE)
+        .execute()
+      await service.sendMessage(convoId, ALICE, { text: 'sorry' })
+    })
+  })
+
   describe('groups', () => {
     it('tells the remaining members who left, with the leaver profile', async () => {
       const convoId = await createGroup(ALICE, [BOB, CAROL])
