@@ -214,7 +214,7 @@ async function hasValidWalletRecord(
         continue
       }
       try {
-        if (normalizeAccountId(record.account) !== account) continue
+        if (!sameWallet(normalizeAccountId(record.account), account)) continue
       } catch {
         continue
       }
@@ -233,4 +233,18 @@ async function hasValidWalletRecord(
       records.length === 100 ? records.at(-1)?.uri.split('/').pop() : undefined
   } while (cursor)
   return false
+}
+
+/**
+ * Whether two normalized CAIP-10 ids are the same wallet. An EVM address is
+ * the same wallet on every eip155 chain (the indexer counts it that way), so
+ * a link made on one chain signs in on another.
+ */
+function sameWallet(a: string, b: string): boolean {
+  if (a === b) return true
+  const [nsA, , addressA] = a.split(':')
+  const [nsB, , addressB] = b.split(':')
+  return (
+    nsA === 'eip155' && nsB === 'eip155' && !!addressA && addressA === addressB
+  )
 }

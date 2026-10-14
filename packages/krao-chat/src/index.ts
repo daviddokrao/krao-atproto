@@ -63,7 +63,7 @@ export class KraoChat {
   async start(): Promise<http.Server> {
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
-    // The event log has one row per member per event: keep 30 days of it
+    // The event log has one row per member per event: keep 90 days of it
     this.pruneTimer = setInterval(
       () =>
         void this.service.pruneLog().catch((err: unknown) => {

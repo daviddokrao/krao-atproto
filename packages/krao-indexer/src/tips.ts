@@ -31,6 +31,7 @@ export function tipRowFromRecord(
     message: str(value.message),
     status: 'pending',
     nextCheckAt: null,
+    pendingSince: now,
     reason: null,
     createdAt: str(value.createdAt) ?? now,
     indexedAt: now,
@@ -74,7 +75,8 @@ export async function verifyTip(
   const result = await checkTip(db, rpcs, tip)
   const status =
     result.status === 'pending' &&
-    Date.now() - Date.parse(tip.indexedAt) > PENDING_TIMEOUT_MS
+    Date.now() - Date.parse(tip.pendingSince ?? tip.indexedAt) >
+      PENDING_TIMEOUT_MS
       ? 'invalid'
       : result.status
   const reason = 'reason' in result ? result.reason : null
@@ -84,7 +86,10 @@ export async function verifyTip(
       .set({
         status,
         reason,
-        nextCheckAt: status === 'pending' ? nextCheck(tip.indexedAt) : null,
+        nextCheckAt:
+          status === 'pending'
+            ? nextCheck(tip.pendingSince ?? tip.indexedAt)
+            : null,
       })
       .where('uri', '=', tip.uri)
       .execute()

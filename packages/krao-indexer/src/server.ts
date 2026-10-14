@@ -346,7 +346,7 @@ export function createApp(
               reason: taken
                 ? 'Another account linked this wallet first'
                 : row.status === 'invalid'
-                  ? (row.reason ?? undefined)
+                  ? row.reason?.slice(0, 300)
                   : undefined,
               createdAt: row.createdAt as WalletView['createdAt'],
             }

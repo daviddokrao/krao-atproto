@@ -142,7 +142,12 @@ export class KraoReferral {
       .execute()
   }
 
-  private async post(path: string, body: unknown) {
+  private async post(
+    path: string,
+    body: unknown,
+    /** More statuses that mean "never", eg 404 for a route an older build lacks */
+    rejected: number[] = [],
+  ) {
     const res = await fetch(new URL(path, this.cfg.url), {
       method: 'POST',
       headers: {
@@ -152,7 +157,7 @@ export class KraoReferral {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
-    if (REJECTED_STATUSES.has(res.status)) {
+    if (REJECTED_STATUSES.has(res.status) || rejected.includes(res.status)) {
       throw new RejectedError(`HTTP ${res.status}: ${await res.text()}`)
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -251,7 +256,7 @@ export class KraoReferral {
     for (const row of rows) {
       try {
         if (row.kind === 'deleted') {
-          await this.post('/internal/deletions', { did: row.did })
+          await this.post('/internal/deletions', { did: row.did }, [404])
         } else {
           await this.post('/internal/takedowns', {
             did: row.did,

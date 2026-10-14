@@ -70,6 +70,12 @@ import {
 
 const CURSOR_ID = 'firehose'
 
+/**
+ * Account states whose data is not served. Others a relay may report
+ * (desynchronized, throttled) say nothing about the account itself.
+ */
+const HIDDEN_STATUSES = new Set(['takendown', 'suspended', 'deactivated'])
+
 /** Delays before retrying an event whose handler failed */
 const EVENT_RETRY_DELAYS_MS = [200, 1_000, 5_000]
 
@@ -95,7 +101,7 @@ export class FirehoseIndexer {
     private db: Database,
     private rpcs: Map<string, EvmRpc>,
     private idResolver: IdResolver,
-    service: string,
+    private service: string,
     onError: (err: Error) => void,
     private nftRecheckMs = 10 * 60 * 1000,
     private feed: FeedIndexingOptions = {},
@@ -138,6 +144,9 @@ export class FirehoseIndexer {
 
   start() {
     void this.firehose.start()
+    void this.syncHiddenActors().catch((err: unknown) =>
+      console.error('Krao indexer: could not load inactive accounts', err),
+    )
     // Re-check tips whose transactions were not confirmed yet
     this.verifyTimer = setInterval(() => this.kickVerification(), 5_000)
     // Gated content without a rule, then uploads nobody attached to a post
@@ -158,6 +167,40 @@ export class FirehoseIndexer {
     clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
     await this.verificationIdle()
+  }
+
+  /**
+   * Accounts the PDS already reports as inactive: account events from
+   * before this indexer (or this table) existed are not replayed.
+   */
+  async syncHiddenActors() {
+    const base = this.service.replace(/^ws/, 'http')
+    let cursor: string | undefined
+    do {
+      const url = new URL('/xrpc/com.atproto.sync.listRepos', base)
+      url.searchParams.set('limit', '1000')
+      if (cursor) url.searchParams.set('cursor', cursor)
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+      if (!res.ok) throw new Error(`listRepos: HTTP ${res.status}`)
+      const page = (await res.json()) as {
+        cursor?: string
+        repos?: { did: string; active?: boolean; status?: string }[]
+      }
+      for (const repo of page.repos ?? []) {
+        if (repo.active === false && HIDDEN_STATUSES.has(repo.status ?? '')) {
+          await this.db
+            .insertInto('hidden_actor')
+            .values({
+              did: repo.did,
+              status: repo.status!,
+              since: new Date().toISOString(),
+            })
+            .onConflict((oc) => oc.column('did').doNothing())
+            .execute()
+        }
+      }
+      cursor = page.repos?.length ? page.cursor : undefined
+    } while (cursor)
   }
 
   /** Run on-chain verification of tips and NFT avatars in the background */
@@ -358,7 +401,7 @@ export class FirehoseIndexer {
           .deleteFrom('hidden_actor')
           .where('did', '=', evt.did)
           .execute()
-      } else if (evt.status !== 'deleted') {
+      } else if (HIDDEN_STATUSES.has(evt.status ?? '')) {
         // Taken down, suspended or deactivated: keep the data, stop serving it
         await this.db
           .insertInto('hidden_actor')

@@ -41,6 +41,8 @@ export interface TipTable {
   status: TipStatus
   /** When a pending tip is checked again (backs off as it ages) */
   nextCheckAt: string | null
+  /** When the record was last written: its pending timeout starts here */
+  pendingSince: string | null
   reason: string | null
   createdAt: string
   indexedAt: string
@@ -267,6 +269,7 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('indexedAt', 'varchar', (col) => col.notNull())
     .execute()
   await addColumnIfMissing(db, 'tip', 'nextCheckAt', 'varchar')
+  await addColumnIfMissing(db, 'tip', 'pendingSince', 'varchar')
   await sql`create index if not exists tip_subject_idx on tip (subject)`.execute(
     db,
   )

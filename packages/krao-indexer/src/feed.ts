@@ -189,6 +189,7 @@ export async function rankPopularPosts(
       'in',
       posts.map((p) => p.uri),
     )
+    .where(visibleDid('did'))
     .groupBy(['subject', 'kind'])
     .execute()
   const likes = new Map<string, number>()
