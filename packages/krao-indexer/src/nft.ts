@@ -1,7 +1,10 @@
 import type { EvmRpc } from './chain.js'
 import type { Database, NftAvatarTable } from './db.js'
+import { readLimited, safeFetch } from './safe-fetch.js'
 
 export const NFT_AVATAR_COLLECTION = 'net.krao.actor.nftAvatar'
+
+const MAX_METADATA_BYTES = 256 * 1024
 
 /** Gateway used to turn ipfs:// links in token metadata into https URLs */
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/'
@@ -110,9 +113,12 @@ async function fetchJson(
     }
     const url = toHttpUrl(uri)
     if (!url || url.startsWith('data:')) return undefined
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    // Token URIs are chosen by whoever deployed the contract: block internal
+    // hosts and cap the size
+    const { res } = await safeFetch(url)
     if (!res.ok) return undefined
-    return (await res.json()) as Record<string, unknown>
+    const body = await readLimited(res, MAX_METADATA_BYTES)
+    return JSON.parse(body.toString('utf8')) as Record<string, unknown>
   } catch {
     return undefined
   }

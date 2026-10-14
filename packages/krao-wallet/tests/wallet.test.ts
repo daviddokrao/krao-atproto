@@ -6,6 +6,7 @@ import {
   evmAddressFromPublicKey,
   formatSignInMessage,
   hashEvmMessage,
+  isPublicTestAddress,
   normalizeAccountId,
   parseAccountId,
   parseSignInMessage,
@@ -297,5 +298,25 @@ describe('verifyWalletProof', () => {
         proof: { type: 'siws', message, signature: wallet.sign(message) },
       }).ok,
     ).toBe(false)
+  })
+})
+
+describe('public test keys', () => {
+  it('flags the Hardhat/Anvil default accounts and nothing else', () => {
+    const keys = [
+      'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+      '5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+    ]
+    for (const key of keys) {
+      const address = evmAddressFromPublicKey(
+        secp256k1.getPublicKey(ui8.fromString(key, 'base16'), false),
+      )
+      expect(isPublicTestAddress(address)).toBe(true)
+      expect(
+        isPublicTestAddress(address.toUpperCase().replace('0X', '0x')),
+      ).toBe(true)
+    }
+    expect(isPublicTestAddress(evmWallet().address)).toBe(false)
   })
 })

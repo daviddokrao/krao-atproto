@@ -231,6 +231,10 @@ export async function migrateDb(db: Database): Promise<void> {
     db,
   )
   await sql`create index if not exists tip_tx_idx on tip (txHash)`.execute(db)
+  // A transaction can back only one verified tip
+  await sql`create unique index if not exists tip_tx_verified_idx on tip (txHash) where status = 'verified'`.execute(
+    db,
+  )
   await sql`create index if not exists tip_status_idx on tip (status)`.execute(
     db,
   )

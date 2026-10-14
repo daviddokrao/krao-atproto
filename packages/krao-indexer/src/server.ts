@@ -59,6 +59,8 @@ import {
   getNftMetadata,
   parseTokenId,
 } from './nft.js'
+import { rateLimit } from './rate-limit.js'
+import { SafeFetchError } from './safe-fetch.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import {
   listTips,
@@ -609,9 +611,20 @@ export function createApp(
   })
 
   const app = express()
-  // Behind a reverse proxy, req.protocol should follow X-Forwarded-Proto
-  app.set('trust proxy', true)
+  /*
+   * Behind a reverse proxy, req.protocol and req.ip should follow the
+   * X-Forwarded-* headers, but only when a proxy on a private network set them
+   */
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal')
   app.use(cors())
+  // Public routes that fetch from the internet or the chain on each call
+  app.use('/v1/extract', rateLimit(60))
+  app.use('/v1/image', rateLimit(120))
+  app.use('/nft-image', rateLimit(30))
+  app.use('/xrpc/net.krao.actor.resolveNft', rateLimit(30))
+  app.use('/gifs', rateLimit(240))
+  app.use('/klipy', rateLimit(120))
+  app.post('/s/link', rateLimit(20))
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao indexer. Health: /_health')
@@ -674,7 +687,7 @@ export function createApp(
       res.setHeader('cache-control', 'public, max-age=86400')
       res.send(jpeg)
     } catch (err) {
-      res.status(502).json({ error: (err as Error).message })
+      res.status(502).json({ error: publicFetchError(err) })
     }
   })
 
@@ -708,7 +721,7 @@ export function createApp(
     } catch (err) {
       res
         .status(502)
-        .json({ error: 'UpstreamFailure', message: (err as Error).message })
+        .json({ error: 'UpstreamFailure', message: publicFetchError(err) })
     }
   })
   app.use(server.router)
@@ -792,4 +805,11 @@ async function getProfilesBasic(
     }
   }
   return profiles
+}
+
+/** Our own fetch errors are safe to show; others may leak upstream detail */
+function publicFetchError(err: unknown): string {
+  return err instanceof SafeFetchError
+    ? err.message
+    : 'Could not fetch the image'
 }
