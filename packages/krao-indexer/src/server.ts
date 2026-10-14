@@ -1,7 +1,7 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
-import { AtUri, type AtUriString } from '@atproto/syntax'
+import { AtUri, type AtUriString, type DatetimeString } from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -24,6 +24,7 @@ import {
   putGatedContent,
   subjectsWithContent,
 } from './gate.js'
+import { suggestedAccounts, trendingTags } from './discovery.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -382,6 +383,106 @@ export function createApp(
       }
     })
   }
+
+  /*
+   * Discovery skeletons for the AppView (its suggestions, topics and iris
+   * services all point here). They list public data only; `viewer` just
+   * leaves out what that account already follows.
+   */
+  const usersSkeleton = async (params: {
+    viewer?: string
+    limit?: number
+  }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      dids: (await suggestedAccounts(db, {
+        viewer: params.viewer,
+        limit: params.limit ?? 25,
+      })) as `did:${string}:${string}`[],
+    },
+  })
+  const unspecced = bskyApp.bsky.unspecced
+  server.add(unspecced.getSuggestedUsersSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForExploreSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForDiscoverSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestedUsersForSeeMoreSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getOnboardingSuggestedUsersSkeleton, ({ params }) =>
+    usersSkeleton(params),
+  )
+  server.add(unspecced.getSuggestionsSkeleton, async ({ params }) => {
+    const dids = await suggestedAccounts(db, {
+      viewer: params.viewer,
+      relativeTo: params.relativeToDid,
+      limit: params.limit ?? 50,
+    })
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        actors: dids.map((did) => ({ did: did as `did:${string}:${string}` })),
+        ...(params.relativeToDid
+          ? { relativeToDid: params.relativeToDid }
+          : {}),
+      },
+    }
+  })
+  server.add(unspecced.getSuggestedFeedsSkeleton, async ({ params }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      feeds: (await listFeedGenerators(db)).slice(
+        0,
+        params.limit ?? 10,
+      ) as AtUriString[],
+    },
+  }))
+  // Krao has no starter pack ranking yet; an empty list hides the section
+  server.add(unspecced.getSuggestedStarterPacksSkeleton, async () => ({
+    encoding: 'application/json' as const,
+    body: { starterPacks: [] },
+  }))
+  server.add(
+    unspecced.getOnboardingSuggestedStarterPacksSkeleton,
+    async () => ({
+      encoding: 'application/json' as const,
+      body: { starterPacks: [] },
+    }),
+  )
+  server.add(unspecced.getTrendingTopics, async ({ params }) => {
+    const tags = await trendingTags(db, params.limit ?? 10)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        topics: tags.map((t) => ({
+          topic: `#${t.tag}`,
+          link: `/hashtag/${encodeURIComponent(t.tag)}`,
+        })),
+        suggested: [],
+      },
+    }
+  })
+  server.add(unspecced.getTrendsSkeleton, async ({ params }) => {
+    const tags = await trendingTags(db, params.limit ?? 10)
+    return {
+      encoding: 'application/json' as const,
+      body: {
+        trends: tags.map((t) => ({
+          topic: t.tag,
+          displayName: `#${t.tag}`,
+          link: `/hashtag/${encodeURIComponent(t.tag)}`,
+          startedAt: t.startedAt as DatetimeString,
+          postCount: t.postCount,
+          dids: t.dids as `did:${string}:${string}`[],
+        })),
+      },
+    }
+  })
 
   server.add(net.krao.feed.getTipTotals, async ({ params }) => {
     const subjects = await tipTotalsForSubjects(db, params.subjects)

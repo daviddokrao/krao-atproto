@@ -111,6 +111,22 @@ export interface FeedInteractionTable {
   indexedAt: string
 }
 
+/** A follow by a Krao account, for account suggestions */
+export interface FeedFollowTable {
+  uri: string
+  did: string
+  subject: string
+  indexedAt: string
+}
+
+/** A hashtag used in a post by a Krao account, for trending topics */
+export interface FeedTagTable {
+  uri: string
+  did: string
+  tag: string
+  indexedAt: string
+}
+
 /** A feed generator record that names this service */
 export interface FeedGeneratorTable {
   uri: string
@@ -131,6 +147,8 @@ export interface DatabaseSchema {
   gate_rule: GateRuleTable
   feed_post: FeedPostTable
   feed_interaction: FeedInteractionTable
+  feed_follow: FeedFollowTable
+  feed_tag: FeedTagTable
   feed_generator: FeedGeneratorTable
   short_link: ShortLinkTable
   gated_content: GatedContentTable
@@ -273,6 +291,32 @@ export async function migrateDb(db: Database): Promise<void> {
     db,
   )
   await sql`create index if not exists feed_interaction_did_idx on feed_interaction (did)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_follow')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.primaryKey())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('subject', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .execute()
+  await sql`create index if not exists feed_follow_did_idx on feed_follow (did)`.execute(
+    db,
+  )
+  await sql`create index if not exists feed_follow_subject_idx on feed_follow (subject)`.execute(
+    db,
+  )
+  await db.schema
+    .createTable('feed_tag')
+    .ifNotExists()
+    .addColumn('uri', 'varchar', (col) => col.notNull())
+    .addColumn('did', 'varchar', (col) => col.notNull())
+    .addColumn('tag', 'varchar', (col) => col.notNull())
+    .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+    .addPrimaryKeyConstraint('feed_tag_pkey', ['uri', 'tag'])
+    .execute()
+  await sql`create index if not exists feed_tag_time_idx on feed_tag (indexedAt)`.execute(
     db,
   )
   await db.schema

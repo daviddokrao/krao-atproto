@@ -62,6 +62,10 @@ const run = async () => {
       publicUrl: process.env.KRAO_DEV_APPVIEW_URL || 'http://localhost:2584',
       videoPlaylistUrlPattern: `${VIDEO_URL}/watch/%s/%s/playlist.m3u8`,
       videoThumbnailUrlPattern: `${VIDEO_URL}/watch/%s/%s/thumbnail.jpg`,
+      // Suggestions, suggested feeds and trending topics come from the indexer
+      suggestionsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      topicsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      irisUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
     },
     plc: { port: 2582 },
     ozone: {

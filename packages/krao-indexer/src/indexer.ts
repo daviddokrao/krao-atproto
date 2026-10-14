@@ -18,6 +18,16 @@ import {
   upsertFeedPost,
 } from './feed.js'
 import {
+  FOLLOW_COLLECTION,
+  deleteDiscoveryDataForDid,
+  deleteFeedFollow,
+  deletePostTags,
+  feedFollowRowFromRecord,
+  postTags,
+  setPostTags,
+  upsertFeedFollow,
+} from './discovery.js'
+import {
   GATE_RULE_COLLECTION,
   deleteGateDataForDid,
   deleteGateRule,
@@ -90,6 +100,7 @@ export class FirehoseIndexer {
               FEED_GENERATOR_COLLECTION,
               LIKE_COLLECTION,
               REPOST_COLLECTION,
+              FOLLOW_COLLECTION,
             ]
           : []),
       ],
@@ -171,6 +182,21 @@ export class FirehoseIndexer {
             evt.record,
           )
           if (row) await upsertFeedPost(this.db, row)
+          await setPostTags(
+            this.db,
+            evt.uri.toString(),
+            evt.did,
+            postTags(evt.record),
+          )
+        }
+      } else if (evt.collection === FOLLOW_COLLECTION) {
+        if (await this.isFeedAuthor(evt.did)) {
+          const row = feedFollowRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.record,
+          )
+          if (row) await upsertFeedFollow(this.db, row)
         }
       } else if (
         evt.collection === LIKE_COLLECTION ||
@@ -208,6 +234,9 @@ export class FirehoseIndexer {
         await deleteGateRule(this.db, evt.uri.toString())
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
+        await deletePostTags(this.db, evt.uri.toString())
+      } else if (evt.collection === FOLLOW_COLLECTION) {
+        await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (
         evt.collection === LIKE_COLLECTION ||
         evt.collection === REPOST_COLLECTION
@@ -223,6 +252,7 @@ export class FirehoseIndexer {
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)
         await deleteFeedDataForDid(this.db, evt.did)
+        await deleteDiscoveryDataForDid(this.db, evt.did)
       }
     }
     await this.setCursor(evt.seq)
