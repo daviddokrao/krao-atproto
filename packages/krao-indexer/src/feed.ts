@@ -25,14 +25,20 @@ export function feedPostRowFromRecord(
 ): FeedPostTable | null {
   const value = (record ?? {}) as Record<string, unknown>
   if (value.reply) return null
-  return { uri, cid, did, indexedAt: new Date().toISOString() }
+  const createdAt =
+    typeof value.createdAt === 'string' && !isNaN(Date.parse(value.createdAt))
+      ? new Date(value.createdAt).toISOString()
+      : null
+  return { uri, cid, did, indexedAt: new Date().toISOString(), createdAt }
 }
 
 export async function upsertFeedPost(db: Database, row: FeedPostTable) {
   await db
     .insertInto('feed_post')
     .values(row)
-    .onConflict((oc) => oc.column('uri').doUpdateSet({ cid: row.cid }))
+    .onConflict((oc) =>
+      oc.column('uri').doUpdateSet({ cid: row.cid, createdAt: row.createdAt }),
+    )
     .execute()
 }
 
@@ -172,7 +178,7 @@ export async function getPopularPosts(
   const since = new Date(now - POPULAR_WINDOW_MS).toISOString()
   const posts = await db
     .selectFrom('feed_post')
-    .select(['uri', 'indexedAt'])
+    .select(['uri', 'indexedAt', 'createdAt'])
     .where('indexedAt', '>=', since)
     .orderBy('indexedAt', 'desc')
     .limit(POPULAR_MAX_POSTS)
@@ -195,12 +201,15 @@ export async function getPopularPosts(
     map.set(row.subject, Number(row.count))
   }
   const ranked = posts
+    .map((p) => ({ ...p, postedAt: postedAt(p) }))
+    // Imported or backdated posts are as old as they claim
+    .filter((p) => p.postedAt >= now - POPULAR_WINDOW_MS)
     .map((p) => ({
       uri: p.uri,
       score: popularScore(
         likes.get(p.uri) ?? 0,
         reposts.get(p.uri) ?? 0,
-        now - Date.parse(p.indexedAt),
+        now - p.postedAt,
       ),
     }))
     .sort((a, b) => b.score - a.score)
@@ -209,4 +218,15 @@ export async function getPopularPosts(
     posts: page.map((p) => p.uri),
     cursor: offset + limit < ranked.length ? String(offset + limit) : undefined,
   }
+}
+
+/**
+ * When a post counts as posted: the earlier of its own createdAt and when it
+ * was indexed. A post can claim to be older than it is, which only hurts it,
+ * but not newer, which would let it stay on top.
+ */
+function postedAt(post: { indexedAt: string; createdAt: string | null }) {
+  const indexed = Date.parse(post.indexedAt)
+  const created = post.createdAt ? Date.parse(post.createdAt) : NaN
+  return isNaN(created) ? indexed : Math.min(created, indexed)
 }

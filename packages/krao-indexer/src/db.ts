@@ -98,6 +98,8 @@ export interface FeedPostTable {
   cid: string
   did: string
   indexedAt: string
+  /** The record's own createdAt, if valid; null for rows from before it was kept */
+  createdAt: string | null
 }
 
 /** A like or repost of a post, counted by the "popular" feed */
@@ -248,6 +250,10 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('did', 'varchar', (col) => col.notNull())
     .addColumn('indexedAt', 'varchar', (col) => col.notNull())
     .execute()
+  // Added after feed_post shipped, so older databases get it here too
+  await sql`alter table feed_post add column createdAt varchar`
+    .execute(db)
+    .catch(() => {})
   await sql`create index if not exists feed_post_order_idx on feed_post (indexedAt, cid)`.execute(
     db,
   )
