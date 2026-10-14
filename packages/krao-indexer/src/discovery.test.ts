@@ -26,6 +26,11 @@ describe('postTags', () => {
     ).toEqual(['base', 'defi', 'web3'])
   })
 
+  it('counts at most ten tags of a post', () => {
+    const tags = Array.from({ length: 50 }, (_, i) => `t${i}`)
+    expect(postTags({ tags })).toHaveLength(10)
+  })
+
   it('ignores records without tags', () => {
     expect(postTags({ text: 'hi' })).toEqual([])
     expect(postTags(null)).toEqual([])

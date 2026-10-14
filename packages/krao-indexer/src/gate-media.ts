@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Express } from 'express'
+import { sql } from 'kysely'
 import type { Database } from './db.js'
 
 /*
@@ -153,29 +154,44 @@ export async function deleteOrphanedMedia(
   now = Date.now(),
 ): Promise<number> {
   const cutoff = new Date(now - ORPHAN_MEDIA_TTL_MS).toISOString()
-  const old = await db
-    .selectFrom('gated_media')
-    .select(['id', 'did'])
+  // One statement: media ids live in each gated_content row's JSON array
+  const result = await db
+    .deleteFrom('gated_media')
     .where('createdAt', '<', cutoff)
-    .execute()
-  if (!old.length) return 0
-  const contents = await db
-    .selectFrom('gated_content')
-    .select('media')
-    .where('did', 'in', [...new Set(old.map((m) => m.did))])
-    .where('media', 'is not', null)
-    .execute()
-  const used = new Set<string>()
-  for (const { media } of contents) {
-    for (const item of JSON.parse(media ?? '[]') as { id: string }[]) {
-      used.add(item.id)
-    }
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('gated_content')
+            .select(sql`1`.as('one'))
+            .where(
+              sql<boolean>`exists (select 1 from json_each(gated_content.media) where json_extract(json_each.value, '$.id') = gated_media.id)`,
+            ),
+        ),
+      ),
+    )
+    .executeTakeFirst()
+  return Number(result.numDeletedRows)
+}
+
+/*
+ * Uploads are checked against the quota and stored one at a time per
+ * account; parallel requests would otherwise all pass the check before any
+ * of them is counted.
+ */
+const uploadLocks = new Map<string, Promise<unknown>>()
+
+export async function withUploadLock<T>(
+  did: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = uploadLocks.get(did) ?? Promise.resolve()
+  const run = previous.catch(() => {}).then(fn)
+  uploadLocks.set(did, run)
+  try {
+    return await run
+  } finally {
+    if (uploadLocks.get(did) === run) uploadLocks.delete(did)
   }
-  const orphans = old.filter((m) => !used.has(m.id)).map((m) => m.id)
-  if (orphans.length) {
-    await db.deleteFrom('gated_media').where('id', 'in', orphans).execute()
-  }
-  return orphans.length
 }
 
 export async function deleteGatedMediaForDid(db: Database, did: string) {
@@ -245,14 +261,23 @@ export function addGatedMediaRoute(
         .json({ error: 'Forbidden', message: 'Invalid or expired link' })
       return
     }
+    // Size first: a range request reads only its slice, not the whole file
     const row = await db
       .selectFrom('gated_media')
-      .select(['mimeType', 'data'])
+      .select(['mimeType', 'size'])
       .where('id', '=', id)
       .executeTakeFirst()
     if (!row) {
       res.status(404).json({ error: 'NotFound' })
       return
+    }
+    const slice = async (start: number, length: number) => {
+      const part = await db
+        .selectFrom('gated_media')
+        .select(sql<Buffer>`substr(data, ${start + 1}, ${length})`.as('bytes'))
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow()
+      return part.bytes
     }
     res.set({
       'content-type': row.mimeType,
@@ -262,22 +287,19 @@ export function addGatedMediaRoute(
       'accept-ranges': 'bytes',
     })
     // Browsers fetch video in ranges to start playing and to seek
-    const range = parseRange(req.headers.range, row.data.length)
+    const range = parseRange(req.headers.range, row.size)
     if (range === 'invalid') {
-      res.status(416).set('content-range', `bytes */${row.data.length}`).end()
+      res.status(416).set('content-range', `bytes */${row.size}`).end()
       return
     }
     if (range) {
       res
         .status(206)
-        .set(
-          'content-range',
-          `bytes ${range.start}-${range.end}/${row.data.length}`,
-        )
-      res.send(row.data.subarray(range.start, range.end + 1))
+        .set('content-range', `bytes ${range.start}-${range.end}/${row.size}`)
+      res.send(await slice(range.start, range.end - range.start + 1))
       return
     }
-    res.send(row.data)
+    res.send(await slice(0, row.size))
   })
 }
 

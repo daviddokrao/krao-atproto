@@ -129,7 +129,10 @@ export class FirehoseIndexer {
     }, 5_000)
     // Gated uploads nobody attached to a post
     this.cleanupTimer = setInterval(
-      () => void deleteOrphanedMedia(this.db).catch(() => {}),
+      () =>
+        void deleteOrphanedMedia(this.db).catch((err: unknown) =>
+          console.error('Krao indexer: gated media cleanup failed', err),
+        ),
       60 * 60 * 1000,
     )
   }

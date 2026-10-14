@@ -4,6 +4,9 @@ import type { Database, FeedFollowTable, FeedTagTable } from './db.js'
 export const FOLLOW_COLLECTION = 'app.bsky.graph.follow'
 export const STARTER_PACK_COLLECTION = 'app.bsky.graph.starterpack'
 
+/** Most hashtags of one post that count towards trending */
+const MAX_TAGS_PER_POST = 10
+
 /** How far back trending hashtags look */
 const TRENDING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -64,7 +67,8 @@ export function postTags(record: unknown): string[] {
   const normalized = [...tags]
     .map((tag) => tag.replace(/^#/, '').trim().toLowerCase())
     .filter((tag) => tag.length > 0 && tag.length <= 64)
-  return [...new Set(normalized)]
+  // A post can carry thousands of tag facets; trending only needs a few
+  return [...new Set(normalized)].slice(0, MAX_TAGS_PER_POST)
 }
 
 export async function setPostTags(

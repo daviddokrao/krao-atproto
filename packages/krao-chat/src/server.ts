@@ -31,6 +31,26 @@ const DEFAULT_PREFS = {
   chatRequest: { include: 'all', push: true },
 }
 
+/**
+ * Methods that reach other people. An account a moderator cut off from chat
+ * may still read, leave, mute and delete, but not use these.
+ */
+const BLOCKED_WHEN_DISABLED = new Set([
+  'chat.bsky.convo.getConvoForMembers',
+  'chat.bsky.convo.sendMessage',
+  'chat.bsky.convo.sendMessageBatch',
+  'chat.bsky.convo.addReaction',
+  'chat.bsky.convo.acceptConvo',
+  'chat.bsky.group.createGroup',
+  'chat.bsky.group.editGroup',
+  'chat.bsky.group.addMembers',
+  'chat.bsky.group.createJoinLink',
+  'chat.bsky.group.editJoinLink',
+  'chat.bsky.group.enableJoinLink',
+  'chat.bsky.group.requestJoin',
+  'chat.bsky.group.approveJoinRequest',
+])
+
 export type ChatAuth = ({ req }: MethodAuthContext) => Promise<{
   credentials: { did: string }
 }>
@@ -63,7 +83,17 @@ export function createApp(opts: {
       (iss, forceRefresh) =>
         idResolver.did.resolveAtprotoKey(iss.split('#')[0], forceRefresh),
     )
-    return { credentials: { did: payload.iss.split('#')[0] } }
+    const did = payload.iss.split('#')[0]
+    if (
+      BLOCKED_WHEN_DISABLED.has(nsid) &&
+      (await isChatDisabled(service.db, did))
+    ) {
+      throw new InvalidRequestError(
+        'A moderator has disabled chat for this account',
+        'ChatDisabled',
+      )
+    }
+    return { credentials: { did } }
   }
 
   const otherMember = (viewer: string, members: readonly string[]) => {
