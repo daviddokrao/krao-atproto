@@ -25,7 +25,11 @@ async function call(session, method, { query, body } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   })
-  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }
+  return {
+    ok: res.ok,
+    status: res.status,
+    data: await res.json().catch(() => ({})),
+  }
 }
 
 async function freshAccount(prefix) {
@@ -65,13 +69,17 @@ const again = await call(krao, 'chat.bsky.convo.getConvoForMembers', {
   query: { members: [minh.did, krao.did] },
 })
 check('the same members get the same convo', again.data.convo?.id === convoId)
+// Start from a read convo so the unread count below is the same on reruns
+await call(minh, 'chat.bsky.convo.updateRead', { body: { convoId } })
 
 const hello = await call(krao, 'chat.bsky.convo.sendMessage', {
   body: { convoId, message: { text: 'Chào Minh 👋' } },
 })
 check(
   'sendMessage returns the message',
-  hello.ok && hello.data.text === 'Chào Minh 👋' && hello.data.sender.did === krao.did,
+  hello.ok &&
+    hello.data.text === 'Chào Minh 👋' &&
+    hello.data.sender.did === krao.did,
   hello.data.message,
 )
 
@@ -79,7 +87,8 @@ const minhList = await call(minh, 'chat.bsky.convo.listConvos')
 const minhConvo = minhList.data.convos?.find((c) => c.id === convoId)
 check(
   'the recipient sees the convo with one unread message',
-  minhConvo?.unreadCount === 1 && minhConvo.lastMessage?.text === 'Chào Minh 👋',
+  minhConvo?.unreadCount === 1 &&
+    minhConvo.lastMessage?.text === 'Chào Minh 👋',
   JSON.stringify(minhConvo?.unreadCount),
 )
 const counts = await call(minh, 'chat.bsky.convo.getUnreadCounts')
@@ -129,6 +138,14 @@ check(
   'a reaction must be one emoji',
   badReact.data.error === 'ReactionInvalidValue',
   badReact.data.error,
+)
+const unreact = await call(minh, 'chat.bsky.convo.removeReaction', {
+  body: { convoId, messageId: hello.data.id, value: '🔥' },
+})
+check(
+  'removeReaction takes the emoji back',
+  unreact.ok && !unreact.data.message?.reactions?.some((r) => r.value === '🔥'),
+  unreact.data.message,
 )
 
 const read = await call(minh, 'chat.bsky.convo.updateRead', {
@@ -183,7 +200,9 @@ check(
   embedded?.embed?.record?.value?.text === 'Bài để chia sẻ qua chat',
 )
 
-const muted = await call(minh, 'chat.bsky.convo.muteConvo', { body: { convoId } })
+const muted = await call(minh, 'chat.bsky.convo.muteConvo', {
+  body: { convoId },
+})
 const unmuted = await call(minh, 'chat.bsky.convo.unmuteConvo', {
   body: { convoId },
 })
@@ -192,12 +211,20 @@ check(
   muted.data.convo?.muted === true && unmuted.data.convo?.muted === false,
 )
 
-const availability = await call(stranger, 'chat.bsky.convo.getConvoAvailability', {
-  query: { members: [krao.did] },
-})
-const blockedStart = await call(stranger, 'chat.bsky.convo.getConvoForMembers', {
-  query: { members: [krao.did] },
-})
+const availability = await call(
+  stranger,
+  'chat.bsky.convo.getConvoAvailability',
+  {
+    query: { members: [krao.did] },
+  },
+)
+const blockedStart = await call(
+  stranger,
+  'chat.bsky.convo.getConvoForMembers',
+  {
+    query: { members: [krao.did] },
+  },
+)
 check(
   'accounts that only accept people they follow cannot be messaged by strangers',
   availability.data.canChat === false &&
@@ -269,7 +296,10 @@ const link = await call(krao, 'chat.bsky.group.createJoinLink', {
   body: { convoId: groupId, joinRule: 'anyone' },
 })
 const code = link.data.joinLink?.code
-check('createJoinLink returns a code', link.ok && /^[a-z2-7]{8}$/.test(code ?? ''))
+check(
+  'createJoinLink returns a code',
+  link.ok && /^[a-z2-7]{8}$/.test(code ?? ''),
+)
 
 const preview = await fetch(
   `${CHAT}/xrpc/chat.bsky.group.getJoinLinkPreviews?codes=${code}`,
@@ -281,7 +311,9 @@ check(
   JSON.stringify(preview).slice(0, 120),
 )
 
-const joined = await call(lan, 'chat.bsky.group.requestJoin', { body: { code } })
+const joined = await call(lan, 'chat.bsky.group.requestJoin', {
+  body: { code },
+})
 check(
   'anyone can join through an open link',
   joined.data.status === 'joined' && joined.data.convo?.kind.memberCount === 4,
@@ -294,7 +326,9 @@ const removed = await call(krao, 'chat.bsky.group.removeMembers', {
 const lanView = await call(lan, 'chat.bsky.convo.getConvo', {
   query: { convoId: groupId },
 })
-const rejoin = await call(lan, 'chat.bsky.group.requestJoin', { body: { code } })
+const rejoin = await call(lan, 'chat.bsky.group.requestJoin', {
+  body: { code },
+})
 check(
   'removed members lose the group and cannot rejoin by link',
   removed.data.convo?.kind.memberCount === 3 &&
@@ -367,5 +401,25 @@ check(
       history.data.relatedProfiles?.some((p) => p.did === did && p.handle),
     ),
   JSON.stringify(history.data.relatedProfiles?.map((p) => p.handle)),
+)
+
+const readded = await call(krao, 'chat.bsky.group.addMembers', {
+  body: { convoId: groupId, members: [mai.did] },
+})
+const members = await call(krao, 'chat.bsky.convo.getConvoMembers', {
+  query: { convoId: groupId },
+})
+check(
+  'the owner can add a member who left back',
+  readded.ok && members.data.members?.some((m) => m.did === mai.did),
+  readded.data.message ?? readded.data.error,
+)
+const outsider = await call(lan, 'chat.bsky.convo.getConvoMembers', {
+  query: { convoId: groupId },
+})
+check(
+  'members are visible to members only',
+  outsider.ok === false || outsider.data.members === undefined,
+  `${outsider.status} ${outsider.data.error}`,
 )
 done()
