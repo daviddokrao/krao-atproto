@@ -40,7 +40,7 @@ export function tipRowFromRecord(
 
 export async function upsertTip(db: Database, row: TipTable) {
   // indexedAt stays the first time the tip was seen: it orders claims on one
-  // transaction and starts the pending timeout, which an edit must not reset
+  // transaction. The pending timeout runs from pendingSince, the last write
   const { indexedAt: _first, ...update } = row
   await db
     .insertInto('tip')

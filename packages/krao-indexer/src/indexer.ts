@@ -144,9 +144,7 @@ export class FirehoseIndexer {
 
   start() {
     void this.firehose.start()
-    void this.syncHiddenActors().catch((err: unknown) =>
-      console.error('Krao indexer: could not load inactive accounts', err),
-    )
+    void this.syncHiddenActorsWithRetry()
     // Re-check tips whose transactions were not confirmed yet
     this.verifyTimer = setInterval(() => this.kickVerification(), 5_000)
     // Gated content without a rule, then uploads nobody attached to a post
@@ -162,7 +160,10 @@ export class FirehoseIndexer {
     )
   }
 
+  private destroyed = false
+
   async destroy() {
+    this.destroyed = true
     clearInterval(this.verifyTimer)
     clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
@@ -187,7 +188,13 @@ export class FirehoseIndexer {
         repos?: { did: string; active?: boolean; status?: string }[]
       }
       for (const repo of page.repos ?? []) {
-        if (repo.active === false && HIDDEN_STATUSES.has(repo.status ?? '')) {
+        if (repo.active !== false) {
+          // Reactivated while the indexer was not following
+          await this.db
+            .deleteFrom('hidden_actor')
+            .where('did', '=', repo.did)
+            .execute()
+        } else if (HIDDEN_STATUSES.has(repo.status ?? '')) {
           await this.db
             .insertInto('hidden_actor')
             .values({
@@ -201,6 +208,23 @@ export class FirehoseIndexer {
       }
       cursor = page.repos?.length ? page.cursor : undefined
     } while (cursor)
+  }
+
+  /** syncHiddenActors, retried with backoff (the PDS may start later) */
+  private async syncHiddenActorsWithRetry() {
+    for (
+      let delay = 5_000;
+      !this.destroyed;
+      delay = Math.min(delay * 2, 300_000)
+    ) {
+      try {
+        await this.syncHiddenActors()
+        return
+      } catch (err) {
+        console.error('Krao indexer: could not load inactive accounts', err)
+        await new Promise((resolve) => setTimeout(resolve, delay).unref())
+      }
+    }
   }
 
   /** Run on-chain verification of tips and NFT avatars in the background */

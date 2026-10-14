@@ -346,7 +346,9 @@ export function createApp(
               reason: taken
                 ? 'Another account linked this wallet first'
                 : row.status === 'invalid'
-                  ? row.reason?.slice(0, 300)
+                  ? row.reason
+                    ? utf8Prefix(row.reason, 300)
+                    : undefined
                   : undefined,
               createdAt: row.createdAt as WalletView['createdAt'],
             }
@@ -897,4 +899,18 @@ function publicFetchError(err: unknown): string {
   return err instanceof SafeFetchError
     ? err.message
     : 'Could not fetch the image'
+}
+
+/** The longest prefix of `text` that fits in `maxBytes` of UTF-8 */
+function utf8Prefix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  let out = ''
+  let bytes = 0
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8')
+    if (bytes + size > maxBytes) break
+    out += char
+    bytes += size
+  }
+  return out
 }

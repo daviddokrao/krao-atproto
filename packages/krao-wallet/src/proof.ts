@@ -39,9 +39,8 @@ export function verifyWalletProof(params: {
   try {
     const account = parseAccountId(params.account)
     if (proof.type !== PROOF_TYPE[account.namespace]) {
-      return fail(
-        `Proof type ${proof.type} does not match ${account.namespace}`,
-      )
+      // Not echoing proof.type: reasons are shown, and it is record data
+      return fail(`Proof type does not match ${account.namespace}`)
     }
     const msg = parseSignInMessage(proof.message)
     if (msg.chain !== MESSAGE_CHAIN[account.namespace]) {

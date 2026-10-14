@@ -997,23 +997,36 @@ export class ChatService {
     for (const m of allMembers) {
       membersOf.set(m.convoId, [...(membersOf.get(m.convoId) ?? []), m])
     }
+    // The latest row per convo: max(rev) is one seek on the (convoId, rev)
+    // indexes, where a window function would rank every row
     const lastMessages = new Map(
       (
-        await sql<MessageTable>`select * from (select *, row_number() over (partition by "convoId" order by rev desc) as rn from message where "convoId" in (${sql.join(
+        await sql<MessageTable>`select * from message m where m."convoId" in (${sql.join(
           ids,
-        )})) where rn = 1`.execute(this.db)
+        )}) and m.rev = (select max(rev) from message where "convoId" = m."convoId")`.execute(
+          this.db,
+        )
       ).rows.map((r) => [r.convoId, r]),
     )
     const lastReactions = new Map(
       (
-        await sql<ReactionTable>`select * from (select *, row_number() over (partition by "convoId" order by rev desc) as rn from reaction where "convoId" in (${sql.join(
+        await sql<ReactionTable>`select * from reaction r where r."convoId" in (${sql.join(
           ids,
-        )})) where rn = 1`.execute(this.db)
+        )}) and r.rev = (select max(rev) from reaction where "convoId" = r."convoId")`.execute(
+          this.db,
+        )
       ).rows.map((r) => [r.convoId, r]),
     )
-    const unread = new Map(
-      (await this.unreadConvos(viewer)).map((u) => [u.convoId, u.unread]),
-    )
+    // One convo (most routes): count just that one
+    const unread = new Map<string, number>()
+    if (convos.length === 1) {
+      const me = membersOf.get(ids[0])?.find((m) => m.did === viewer)
+      if (me) unread.set(ids[0], await this.unreadCount(ids[0], me))
+    } else {
+      for (const u of await this.unreadConvos(viewer)) {
+        unread.set(u.convoId, u.unread)
+      }
+    }
 
     // Each convo's visible last message, and the messages last reacted to
     const lastRows = new Map<string, MessageTable>()
@@ -1022,19 +1035,24 @@ export class ChatService {
       const last = lastMessages.get(convo.id)
       if (me && last && last.rev >= me.joinedRev) lastRows.set(convo.id, last)
     }
+    const joinedRevOf = (convoId: string) =>
+      membersOf.get(convoId)?.find((m) => m.did === viewer)?.joinedRev ?? ''
     const targetIds = [...lastReactions.values()]
       .filter((r) => {
         const last = lastRows.get(r.convoId)
-        return !last || r.rev > last.rev
+        return (!last || r.rev > last.rev) && r.rev >= joinedRevOf(r.convoId)
       })
       .map((r) => r.messageId)
-    const targets = targetIds.length
-      ? await this.db
-          .selectFrom('message')
-          .selectAll()
-          .where('id', 'in', targetIds)
-          .execute()
-      : []
+    // Not messages from before the viewer joined (a group's history)
+    const targets = (
+      targetIds.length
+        ? await this.db
+            .selectFrom('message')
+            .selectAll()
+            .where('id', 'in', targetIds)
+            .execute()
+        : []
+    ).filter((m) => m.rev >= joinedRevOf(m.convoId))
     const rowsToView = [...lastRows.values(), ...targets]
     const views = new Map(
       (await this.messageViews(rowsToView, viewer)).map((v, i) => [
