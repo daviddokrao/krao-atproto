@@ -16,10 +16,18 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
   }) => {
     const { term, limit, cursor } = req
     const { ref } = db.db.dynamic
+    // Krao: no separate search service, so match display names too, ignoring case
+    const pattern = `%${cleanQuery(term)}%`
     let builder = db.db
       .selectFrom('actor')
-      .where('actor.handle', 'like', `%${cleanQuery(term)}%`)
-      .selectAll()
+      .leftJoin('profile', 'profile.creator', 'actor.did')
+      .where((eb) =>
+        eb.or([
+          eb('actor.handle', 'ilike', pattern),
+          eb('profile.displayName', 'ilike', pattern),
+        ]),
+      )
+      .selectAll('actor')
 
     const keyset = new IndexedAtDidKeyset(
       ref('actor.indexedAt'),
@@ -61,7 +69,8 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
     const { ref } = db.db.dynamic
     let builder = db.db
       .selectFrom('post')
-      .where('post.text', 'like', `%${q}%`)
+      // Krao: case-insensitive, since this is Krao's only post search
+      .where('post.text', 'ilike', `%${q}%`)
       .selectAll()
 
     if (authorDid) {
