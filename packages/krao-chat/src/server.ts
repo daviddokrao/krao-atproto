@@ -221,12 +221,12 @@ export function createApp(opts: {
   server.add(convo.getMessages, {
     auth,
     handler: async ({ auth: { credentials }, params }) => {
-      const { messages, cursor } = await service.getMessages(
-        params.convoId,
-        credentials.did,
-        { limit: params.limit ?? 50, cursor: params.cursor },
+      return json(
+        await service.getMessages(params.convoId, credentials.did, {
+          limit: params.limit ?? 50,
+          cursor: params.cursor,
+        }),
       )
-      return json({ messages, cursor })
     },
   })
 

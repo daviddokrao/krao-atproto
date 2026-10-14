@@ -353,4 +353,19 @@ check(
   ownerLeave.data.error === 'OwnerCannotLeave' && maiLeave.ok,
   ownerLeave.data.error,
 )
+
+const history = await call(krao, 'chat.bsky.convo.getMessages', {
+  query: { convoId: groupId },
+})
+const leaveMsg = history.data.messages?.find(
+  (m) => m.data?.$type === 'chat.bsky.convo.defs#systemMessageDataMemberLeave',
+)
+check(
+  'history names members who left, removed members and senders',
+  leaveMsg?.data.member.did === mai.did &&
+    [mai.did, lan.did, krao.did].every((did) =>
+      history.data.relatedProfiles?.some((p) => p.did === did && p.handle),
+    ),
+  JSON.stringify(history.data.relatedProfiles?.map((p) => p.handle)),
+)
 done()

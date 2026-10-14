@@ -657,11 +657,7 @@ export class ChatService {
 
   /** Profiles of the users a system message refers to */
   async referredProfiles(data: Json) {
-    const dids = new Set<string>()
-    for (const value of Object.values(data)) {
-      const did = (value as { did?: unknown })?.did
-      if (typeof did === 'string') dids.add(did)
-    }
+    const dids = new Set(referredDids(data))
     if (!dids.size) return undefined
     const profiles = await this.appview.getProfiles([...dids])
     return [...dids].map((did) => this.profileView(did, profiles.get(did)))
@@ -978,8 +974,45 @@ export class ChatService {
     const messages = await this.messageViews(rows, viewer)
     return {
       messages,
+      relatedProfiles: await this.relatedProfiles(rows, messages),
       cursor:
         rows.length === opts.limit ? rows[rows.length - 1].rev : undefined,
     }
   }
+
+  /**
+   * Everyone who authored or reacted to `messages`, plus the users system
+   * messages refer to. Former members are included so a "left the group"
+   * message in the history can still show their name.
+   */
+  async relatedProfiles(rows: MessageTable[], messages: Json[]) {
+    const dids = new Set<string>()
+    for (const row of rows) {
+      if (row.senderDid) dids.add(row.senderDid)
+      if (row.system) {
+        for (const did of referredDids(JSON.parse(row.system))) dids.add(did)
+      }
+    }
+    for (const message of messages) {
+      const reactions = (message as { reactions?: unknown }).reactions
+      if (!Array.isArray(reactions)) continue
+      for (const reaction of reactions) {
+        const did = (reaction as { sender?: { did?: unknown } })?.sender?.did
+        if (typeof did === 'string') dids.add(did)
+      }
+    }
+    if (!dids.size) return []
+    const profiles = await this.appview.getProfiles([...dids])
+    return [...dids].map((did) => this.profileView(did, profiles.get(did)))
+  }
+}
+
+/** DIDs of the users a system message's data refers to, e.g. `{member: {did}}` */
+function referredDids(data: Json): string[] {
+  const dids: string[] = []
+  for (const value of Object.values(data)) {
+    const did = (value as { did?: unknown })?.did
+    if (typeof did === 'string') dids.push(did)
+  }
+  return dids
 }
