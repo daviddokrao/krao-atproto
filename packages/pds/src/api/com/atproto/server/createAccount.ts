@@ -19,7 +19,7 @@ import type { AppContext } from '../../../../context.js'
 import { events } from '../../../../events.js'
 import { baseNormalizeAndValidate } from '../../../../handle/index.js'
 import { com } from '../../../../lexicons/index.js'
-import { safeResolveDidDoc } from './util.js'
+import { didDocForSession } from './util.js'
 
 export default function (server: Server, ctx: AppContext) {
   server.add(com.atproto.server.createAccount, {
@@ -69,7 +69,7 @@ export default function (server: Server, ctx: AppContext) {
         }
 
         try {
-          const didDoc = await safeResolveDidDoc(ctx, did, true)
+          const didDoc = await didDocForSession(ctx, did, true)
 
           const creds = await ctx.accountManager.createAccountAndSession({
             did,
