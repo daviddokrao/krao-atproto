@@ -10,7 +10,7 @@ import {
 } from '@atproto/xrpc-server'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
-import { addModerationMethods } from './moderation.js'
+import { addModerationMethods, isChatDisabled } from './moderation.js'
 import {
   ChatService,
   GROUP_MEMBER_LIMIT,
@@ -388,10 +388,12 @@ export function createApp(opts: {
 
   server.add(chat.bsky.actor.getStatus, {
     auth,
-    handler: async () => {
+    handler: async ({ auth: { credentials } }) => {
+      // A moderator may have cut the account off (updateActorAccess)
+      const chatDisabled = await isChatDisabled(service.db, credentials.did)
       return json({
-        chatDisabled: false,
-        canCreateGroups: true,
+        chatDisabled,
+        canCreateGroups: !chatDisabled,
         groupMemberLimit: GROUP_MEMBER_LIMIT,
       })
     },

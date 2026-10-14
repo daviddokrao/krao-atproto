@@ -51,6 +51,15 @@ const stranger = await freshAccount('chat')
  * Direct messages
  */
 
+const status = await call(minh, 'chat.bsky.actor.getStatus')
+check(
+  'getStatus reports chat enabled for an ordinary account',
+  status.ok &&
+    status.data.chatDisabled === false &&
+    status.data.canCreateGroups === true,
+  JSON.stringify(status.data),
+)
+
 const minhCursor = (await call(minh, 'chat.bsky.convo.getLog')).data.cursor
 check('getLog without a cursor returns one', typeof minhCursor === 'string')
 
