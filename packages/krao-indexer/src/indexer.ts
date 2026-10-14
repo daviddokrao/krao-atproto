@@ -11,6 +11,7 @@ import {
   deleteFeedGenerator,
   deleteFeedInteraction,
   deleteFeedPost,
+  pruneOldDiscoveryData,
   feedInteractionRowFromRecord,
   feedPostRowFromRecord,
   upsertFeedGenerator,
@@ -69,6 +70,12 @@ import {
 
 const CURSOR_ID = 'firehose'
 
+/**
+ * Account states whose data is not served. Others a relay may report
+ * (desynchronized, throttled) say nothing about the account itself.
+ */
+const HIDDEN_STATUSES = new Set(['takendown', 'suspended', 'deactivated'])
+
 /** Delays before retrying an event whose handler failed */
 const EVENT_RETRY_DELAYS_MS = [200, 1_000, 5_000]
 
@@ -94,7 +101,7 @@ export class FirehoseIndexer {
     private db: Database,
     private rpcs: Map<string, EvmRpc>,
     private idResolver: IdResolver,
-    service: string,
+    private service: string,
     onError: (err: Error) => void,
     private nftRecheckMs = 10 * 60 * 1000,
     private feed: FeedIndexingOptions = {},
@@ -129,13 +136,15 @@ export class FirehoseIndexer {
 
   private verifyTimer?: NodeJS.Timeout
   private cleanupTimer?: NodeJS.Timeout
-  private verifying?: Promise<void>
-  private verifyAgain = false
   /** Tips indexed since the last round, checked before the backlog */
   private freshTips = new Set<string>()
+  // Separate rounds: slow NFT metadata must not hold up tips, and back
+  private tipRound = new Round('tip', () => this.verifyPendingTips())
+  private nftRound = new Round('NFT avatar', () => this.recheckNftAvatars())
 
   start() {
     void this.firehose.start()
+    void this.syncHiddenActorsWithRetry()
     // Re-check tips whose transactions were not confirmed yet
     this.verifyTimer = setInterval(() => this.kickVerification(), 5_000)
     // Gated content without a rule, then uploads nobody attached to a post
@@ -143,6 +152,7 @@ export class FirehoseIndexer {
       () =>
         void deleteContentWithoutRule(this.db)
           .then(() => deleteOrphanedMedia(this.db))
+          .then(() => pruneOldDiscoveryData(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
           ),
@@ -150,7 +160,10 @@ export class FirehoseIndexer {
     )
   }
 
+  private destroyed = false
+
   async destroy() {
+    this.destroyed = true
     clearInterval(this.verifyTimer)
     clearInterval(this.cleanupTimer)
     await this.firehose.destroy()
@@ -158,33 +171,71 @@ export class FirehoseIndexer {
   }
 
   /**
-   * Run on-chain verification in the background, never more than one round
-   * at a time. A kick during a round queues one more round, so records that
-   * arrived meanwhile are not left for the next tick.
+   * Accounts the PDS already reports as inactive: account events from
+   * before this indexer (or this table) existed are not replayed.
    */
-  kickVerification() {
-    if (this.verifying) {
-      this.verifyAgain = true
-      return
-    }
-    this.verifying = (async () => {
-      do {
-        this.verifyAgain = false
-        try {
-          await this.verifyPendingTips()
-          await this.recheckNftAvatars()
-        } catch (err) {
-          console.error('Krao indexer: verification round failed', err)
+  async syncHiddenActors() {
+    const base = this.service.replace(/^ws/, 'http')
+    let cursor: string | undefined
+    do {
+      const url = new URL('/xrpc/com.atproto.sync.listRepos', base)
+      url.searchParams.set('limit', '1000')
+      if (cursor) url.searchParams.set('cursor', cursor)
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+      if (!res.ok) throw new Error(`listRepos: HTTP ${res.status}`)
+      const page = (await res.json()) as {
+        cursor?: string
+        repos?: { did: string; active?: boolean; status?: string }[]
+      }
+      for (const repo of page.repos ?? []) {
+        if (repo.active !== false) {
+          // Reactivated while the indexer was not following
+          await this.db
+            .deleteFrom('hidden_actor')
+            .where('did', '=', repo.did)
+            .execute()
+        } else if (HIDDEN_STATUSES.has(repo.status ?? '')) {
+          await this.db
+            .insertInto('hidden_actor')
+            .values({
+              did: repo.did,
+              status: repo.status!,
+              since: new Date().toISOString(),
+            })
+            .onConflict((oc) => oc.column('did').doNothing())
+            .execute()
         }
-      } while (this.verifyAgain)
-      // Cleared in the same tick the loop ends, so no kick falls in between
-      this.verifying = undefined
-    })()
+      }
+      cursor = page.repos?.length ? page.cursor : undefined
+    } while (cursor)
   }
 
-  /** Resolves once the current verification round, if any, is done */
+  /** syncHiddenActors, retried with backoff (the PDS may start later) */
+  private async syncHiddenActorsWithRetry() {
+    for (
+      let delay = 5_000;
+      !this.destroyed;
+      delay = Math.min(delay * 2, 300_000)
+    ) {
+      try {
+        await this.syncHiddenActors()
+        return
+      } catch (err) {
+        console.error('Krao indexer: could not load inactive accounts', err)
+        await new Promise((resolve) => setTimeout(resolve, delay).unref())
+      }
+    }
+  }
+
+  /** Run on-chain verification of tips and NFT avatars in the background */
+  kickVerification() {
+    this.tipRound.kick()
+    this.nftRound.kick()
+  }
+
+  /** Resolves once the current verification rounds, if any, are done */
   async verificationIdle() {
-    while (this.verifying) await this.verifying
+    await Promise.all([this.tipRound.idle(), this.nftRound.idle()])
   }
 
   /**
@@ -272,7 +323,7 @@ export class FirehoseIndexer {
         await upsertTip(this.db, row)
         // Verified by the background worker: a slow RPC must not stall indexing
         this.freshTips.add(row.uri)
-        this.kickVerification()
+        this.tipRound.kick()
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         const row = gateRuleRowFromRecord(
           evt.uri.toString(),
@@ -288,7 +339,7 @@ export class FirehoseIndexer {
           evt.record,
         )
         await upsertNftAvatar(this.db, row)
-        this.kickVerification()
+        this.nftRound.kick()
       } else if (evt.collection === POST_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
           const row = feedPostRowFromRecord(
@@ -369,7 +420,30 @@ export class FirehoseIndexer {
         await deleteFeedGenerator(this.db, evt.uri.toString())
       }
     } else if (evt.event === 'account') {
+      if (evt.active) {
+        await this.db
+          .deleteFrom('hidden_actor')
+          .where('did', '=', evt.did)
+          .execute()
+      } else if (HIDDEN_STATUSES.has(evt.status ?? '')) {
+        // Taken down, suspended or deactivated: keep the data, stop serving it
+        await this.db
+          .insertInto('hidden_actor')
+          .values({
+            did: evt.did,
+            status: evt.status ?? 'inactive',
+            since: new Date().toISOString(),
+          })
+          .onConflict((oc) =>
+            oc.column('did').doUpdateSet({ status: evt.status ?? 'inactive' }),
+          )
+          .execute()
+      }
       if (evt.status === 'deleted') {
+        await this.db
+          .deleteFrom('hidden_actor')
+          .where('did', '=', evt.did)
+          .execute()
         await deleteWalletsForDid(this.db, evt.did)
         await deleteTipsForDid(this.db, evt.did)
         await deleteNftAvatar(this.db, evt.did)
@@ -406,10 +480,49 @@ export class FirehoseIndexer {
   }
 
   private async setCursor(seq: number) {
+    const at = new Date().toISOString()
     await this.db
       .insertInto('cursor')
-      .values({ id: CURSOR_ID, seq })
-      .onConflict((oc) => oc.column('id').doUpdateSet({ seq }))
+      .values({ id: CURSOR_ID, seq, at })
+      .onConflict((oc) => oc.column('id').doUpdateSet({ seq, at }))
       .execute()
+  }
+}
+
+/**
+ * Background work run one round at a time. A kick during a round queues
+ * one more round, so records that arrived meanwhile are not left for the
+ * next tick.
+ */
+class Round {
+  private running?: Promise<void>
+  private again = false
+
+  constructor(
+    private name: string,
+    private work: () => Promise<void>,
+  ) {}
+
+  kick() {
+    if (this.running) {
+      this.again = true
+      return
+    }
+    this.running = (async () => {
+      do {
+        this.again = false
+        try {
+          await this.work()
+        } catch (err) {
+          console.error(`Krao indexer: ${this.name} round failed`, err)
+        }
+      } while (this.again)
+      // Cleared in the same tick the loop ends, so no kick falls in between
+      this.running = undefined
+    })()
+  }
+
+  async idle() {
+    while (this.running) await this.running
   }
 }

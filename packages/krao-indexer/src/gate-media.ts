@@ -292,16 +292,39 @@ export function addGatedMediaRoute(
       res.status(416).set('content-range', `bytes */${row.size}`).end()
       return
     }
+    const { start, end } = range ?? { start: 0, end: row.size - 1 }
     if (range) {
-      res
-        .status(206)
-        .set('content-range', `bytes ${range.start}-${range.end}/${row.size}`)
-      res.send(await slice(range.start, range.end - range.start + 1))
+      res.status(206).set('content-range', `bytes ${start}-${end}/${row.size}`)
+    }
+    res.set('content-length', String(end - start + 1))
+    if (req.method === 'HEAD') {
+      res.end()
       return
     }
-    res.send(await slice(0, row.size))
+    // In slices, so a request holds at most SEND_SLICE_BYTES in memory however
+    // large the video or the range is
+    for (let at = start; at <= end; at += SEND_SLICE_BYTES) {
+      if (res.destroyed) return
+      const chunk = await slice(at, Math.min(SEND_SLICE_BYTES, end - at + 1))
+      if (!res.write(chunk)) {
+        if (res.destroyed) return
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            res.off('drain', done)
+            res.off('close', done)
+            resolve()
+          }
+          res.on('drain', done)
+          res.on('close', done)
+        })
+      }
+    }
+    res.end()
   })
 }
+
+/** Bytes read from the database and written per step when serving media */
+const SEND_SLICE_BYTES = 1024 * 1024
 
 /**
  * A single `bytes=start-end` range (end inclusive) within `size`, null when

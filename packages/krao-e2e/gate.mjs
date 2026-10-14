@@ -368,6 +368,23 @@ check(
   `${regated.status} ${regated.data.error}`,
 )
 
+// One wallet opens gates for one account only: the first to link it
+const borrower = await login(ACCOUNTS.alice)
+await linkWallet(borrower, holderWallet)
+await sleep(1500)
+const asBorrower = await getContent(borrower, post.uri)
+check(
+  'linking a wallet another account linked first does not open the gate',
+  !asBorrower.ok && asBorrower.data.error === 'NotEligible',
+  `${asBorrower.status} ${asBorrower.data.error}`,
+)
+const stillHolder = await getContent(holder, post.uri)
+check(
+  'the first account to link the wallet keeps access',
+  stillHolder.ok && stillHolder.data.text === secret,
+  stillHolder.data.error,
+)
+
 // Leave a gated post for manual testing, with the poor wallet back at 1 USDC
 await dealErc20(poorWallet.address, USDC, 1_000_000n)
 console.log('      gated post:', post.uri)

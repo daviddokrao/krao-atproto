@@ -4,8 +4,9 @@ import type { Generated } from 'kysely'
 export interface KraoTakedownOutbox {
   id: Generated<number>
   did: string
-  /** 1: taken down, 0: lifted */
+  /** 1: taken down, 0: lifted (kind "takedown" only) */
   applied: 0 | 1
+  kind: Generated<'takedown' | 'deleted'>
   createdAt: string
   attempts: number
   lastError: string | null

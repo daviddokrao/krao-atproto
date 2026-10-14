@@ -115,8 +115,8 @@ check(
 )
 check('tip to an unlinked wallet is not listed', byTx(strangerTx).length === 0)
 check(
-  'tip with an unknown tx stays pending',
-  byTx(unknownTx).some((t) => t.status === 'pending'),
+  'a tip whose transaction is not confirmed is not shown publicly',
+  byTx(unknownTx).length === 0,
 )
 const eth = res.data.totals?.find((t) => t.asset === ETH_ASSET)
 const usdc = res.data.totals?.find((t) => t.asset === USDC_ASSET)
@@ -160,7 +160,8 @@ check(
 // 4. Someone else claims a transfer they did not send. They post first, so
 // the earliest-claim rule alone would not stop them.
 const thief = await login(ACCOUNTS.lan)
-const tw = wallet(ANVIL_KEYS[2])
+// A wallet of their own (fresh: test keys belong to other accounts)
+const tw = wallet()
 await linkWallet(thief, tw)
 const post2 = (
   await createRecord(recipient, 'app.bsky.feed.post', {

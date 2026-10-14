@@ -14,6 +14,28 @@ import type { Database } from './db.js'
 const CODE_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MAX_PATH_LENGTH = 512
 
+/**
+ * Where a short link may lead: a path on Krao's web app only. URL parsing
+ * treats `\` like `/` and drops tabs and newlines, so `/\evil.com` would
+ * otherwise resolve to another site (an open redirect on Krao's domain).
+ */
+export function shortLinkTarget(path: unknown, webUrl: string): string | null {
+  if (
+    typeof path !== 'string' ||
+    !path.startsWith('/') ||
+    path.length > MAX_PATH_LENGTH ||
+    /[\\\x00-\x1f\x7f]/.test(path)
+  ) {
+    return null
+  }
+  const base = new URL(webUrl)
+  const url = new URL(path, base)
+  // `/..//x` resolves to `//x` on the same origin: harmless here, but a
+  // protocol-relative path if anything later uses it as a relative link
+  if (url.origin !== base.origin || url.pathname.startsWith('//')) return null
+  return url.toString()
+}
+
 function newCode(length = 8) {
   return Array.from(
     randomBytes(length),
@@ -34,12 +56,7 @@ export function addStarterPackRoutes(
 ) {
   app.post('/s/link', express.json({ limit: '4kb' }), async (req, res) => {
     const path = (req.body as { path?: unknown } | undefined)?.path
-    if (
-      typeof path !== 'string' ||
-      !path.startsWith('/') ||
-      path.startsWith('//') ||
-      path.length > MAX_PATH_LENGTH
-    ) {
+    if (typeof path !== 'string' || !shortLinkTarget(path, opts.webUrl)) {
       res.status(400).json({ error: 'InvalidPath' })
       return
     }
@@ -70,7 +87,12 @@ export function addStarterPackRoutes(
       res.status(404).json({ error: 'NotFound' })
       return
     }
-    const url = new URL(row.path, opts.webUrl).toString()
+    // Checked again: links stored before this check existed
+    const url = shortLinkTarget(row.path, opts.webUrl)
+    if (!url) {
+      res.status(404).json({ error: 'NotFound' })
+      return
+    }
     if (req.accepts(['html', 'json']) === 'json') {
       res.json({ url })
     } else {

@@ -11,12 +11,21 @@ export type WalletProof = {
 
 export type ProofResult = { ok: true } | { ok: false; reason: string }
 
+/**
+ * Every link proof is a message Krao's app wrote: this domain and statement.
+ * Wallets warn when a site asks to sign a message for another domain, so a
+ * phishing site cannot quietly get a link proof naming its own account.
+ */
+export const LINK_DOMAIN = 'krao.net'
+export const LINK_STATEMENT = 'Link this wallet to my Krao account.'
+
 const PROOF_TYPE = { eip155: 'siwe', solana: 'siws' } as const
 const MESSAGE_CHAIN = { eip155: 'Ethereum', solana: 'Solana' } as const
 
 /**
- * Check a `net.krao.actor.wallet` link: the proof must be a sign-in message
- * from the same wallet and chain as `account`, it must name `did` (as the URI
+ * Check a `net.krao.actor.wallet` link: the proof must be Krao's link
+ * message (LINK_DOMAIN, LINK_STATEMENT) from the same wallet and chain as
+ * `account`, it must name `did` (as the URI
  * or one of the resources) so it cannot be replayed for another account, and
  * the signature must be valid. Link proofs are permanent attestations, so the
  * message's expiration time is not enforced here.
@@ -30,9 +39,8 @@ export function verifyWalletProof(params: {
   try {
     const account = parseAccountId(params.account)
     if (proof.type !== PROOF_TYPE[account.namespace]) {
-      return fail(
-        `Proof type ${proof.type} does not match ${account.namespace}`,
-      )
+      // Not echoing proof.type: reasons are shown, and it is record data
+      return fail(`Proof type does not match ${account.namespace}`)
     }
     const msg = parseSignInMessage(proof.message)
     if (msg.chain !== MESSAGE_CHAIN[account.namespace]) {
@@ -43,6 +51,9 @@ export function verifyWalletProof(params: {
     }
     if (msg.chainId && msg.chainId !== account.reference) {
       return fail('Message chain ID does not match the account')
+    }
+    if (msg.domain !== LINK_DOMAIN || msg.statement !== LINK_STATEMENT) {
+      return fail('Message was not written by Krao for linking a wallet')
     }
     if (msg.uri !== did && !msg.resources.includes(did)) {
       return fail('Message does not name the DID')

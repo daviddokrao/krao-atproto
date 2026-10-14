@@ -1,6 +1,7 @@
 import { parseAccountId } from '@krao/wallet'
 import { type EvmRpc, parseAssetId } from './chain.js'
-import type { Database, TipTable } from './db.js'
+import { type Database, type TipTable, visibleDid } from './db.js'
+import { ownedEvmAddresses } from './wallets.js'
 
 export const TIP_COLLECTION = 'net.krao.feed.tip'
 
@@ -29,6 +30,8 @@ export function tipRowFromRecord(
     toAccount: str(value.to),
     message: str(value.message),
     status: 'pending',
+    nextCheckAt: null,
+    pendingSince: now,
     reason: null,
     createdAt: str(value.createdAt) ?? now,
     indexedAt: now,
@@ -36,11 +39,21 @@ export function tipRowFromRecord(
 }
 
 export async function upsertTip(db: Database, row: TipTable) {
+  // indexedAt stays the first time the tip was seen: it orders claims on one
+  // transaction. The pending timeout runs from pendingSince, the last write
+  const { indexedAt: _first, ...update } = row
   await db
     .insertInto('tip')
     .values(row)
-    .onConflict((oc) => oc.column('uri').doUpdateSet(row))
+    .onConflict((oc) => oc.column('uri').doUpdateSet(update))
     .execute()
+}
+
+/** Checks of a pending tip slow down as it ages: 5s, then up to 5 min */
+function nextCheck(indexedAt: string, now = Date.now()) {
+  const age = Math.max(0, now - Date.parse(indexedAt))
+  const delay = Math.min(5 * 60_000, Math.max(5_000, age / 10))
+  return new Date(now + delay).toISOString()
 }
 
 export async function deleteTip(db: Database, uri: string) {
@@ -62,14 +75,22 @@ export async function verifyTip(
   const result = await checkTip(db, rpcs, tip)
   const status =
     result.status === 'pending' &&
-    Date.now() - Date.parse(tip.indexedAt) > PENDING_TIMEOUT_MS
+    Date.now() - Date.parse(tip.pendingSince ?? tip.indexedAt) >
+      PENDING_TIMEOUT_MS
       ? 'invalid'
       : result.status
   const reason = 'reason' in result ? result.reason : null
   try {
     await db
       .updateTable('tip')
-      .set({ status, reason })
+      .set({
+        status,
+        reason,
+        nextCheckAt:
+          status === 'pending'
+            ? nextCheck(tip.pendingSince ?? tip.indexedAt)
+            : null,
+      })
       .where('uri', '=', tip.uri)
       .execute()
   } catch (err) {
@@ -202,17 +223,7 @@ function sameSender(
 }
 
 async function hasLinkedEvmWallet(db: Database, did: string, address: string) {
-  const wallets = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', did)
-    .where('status', '=', 'verified')
-    .execute()
-  return wallets.some(
-    (w) =>
-      w.account.startsWith('eip155:') &&
-      w.account.split(':')[2] === address.toLowerCase(),
-  )
+  return (await ownedEvmAddresses(db, did)).has(address.toLowerCase())
 }
 
 /** Pending tips among `uris` */
@@ -226,12 +237,19 @@ export async function getTipsByUri(db: Database, uris: string[]) {
     .execute()
 }
 
-export async function getPendingTips(db: Database) {
+/** Pending tips due for another check, the most overdue first */
+export async function getPendingTips(db: Database, now = Date.now()) {
   return db
     .selectFrom('tip')
     .selectAll()
     .where('status', '=', 'pending')
-    .orderBy('indexedAt', 'asc')
+    .where((eb) =>
+      eb.or([
+        eb('nextCheckAt', 'is', null),
+        eb('nextCheckAt', '<=', new Date(now).toISOString()),
+      ]),
+    )
+    .orderBy('nextCheckAt', 'asc')
     .limit(100)
     .execute()
 }
@@ -244,8 +262,12 @@ export async function listTips(
 ) {
   let qb = db
     .selectFrom('tip')
+    .where(visibleDid('did'))
+    .where(visibleDid('recipient'))
     .selectAll()
-    .where('status', '!=', 'invalid')
+    // Only verified tips are public: a pending one may never confirm, and its
+    // message would be free spam
+    .where('status', '=', 'verified')
     .orderBy('createdAt', 'desc')
     .orderBy('uri', 'desc')
     .limit(limit)
@@ -264,6 +286,8 @@ export async function tipTotals(
 ) {
   let qb = db
     .selectFrom('tip')
+    .where(visibleDid('did'))
+    .where(visibleDid('recipient'))
     .select(['asset', 'amount'])
     .where('status', '=', 'verified')
   qb =
@@ -290,6 +314,8 @@ export async function tipTotalsForSubjects(db: Database, subjects: string[]) {
   if (!subjects.length) return []
   const rows = await db
     .selectFrom('tip')
+    .where(visibleDid('did'))
+    .where(visibleDid('recipient'))
     .select(['subject', 'asset', 'amount'])
     .where('subject', 'in', subjects)
     .where('status', '=', 'verified')
@@ -321,6 +347,8 @@ export async function verifiedTipCounts(db: Database, dids: string[]) {
   if (!dids.length) return new Map<string, number>()
   const rows = await db
     .selectFrom('tip')
+    .where(visibleDid('did'))
+    .where(visibleDid('recipient'))
     .select(['recipient'])
     .select((eb) => eb.fn.countAll<number>().as('count'))
     .where('recipient', 'in', dids)
@@ -334,6 +362,8 @@ export async function verifiedTipsSentCounts(db: Database, dids: string[]) {
   if (!dids.length) return new Map<string, number>()
   const rows = await db
     .selectFrom('tip')
+    .where(visibleDid('did'))
+    .where(visibleDid('recipient'))
     .select(['did'])
     .select((eb) => eb.fn.countAll<number>().as('count'))
     .where('did', 'in', dids)

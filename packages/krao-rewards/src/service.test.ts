@@ -261,6 +261,42 @@ describe('RewardsService', () => {
     expect(await service.balance(ALICE)).toEqual({ pending: 100, approved: 0 })
   })
 
+  it('runs a KYC approval that came during a takedown once it is lifted', async () => {
+    await service.upsertRule(ADMIN, {
+      ...DEFAULT_RULES[0],
+      id: 'kyc-bonus',
+      event: 'kyc.approved',
+      beneficiary: 'actor',
+      amount: 10,
+      vesting: [],
+    })
+    await service.takeDown(ALICE)
+    await approveKyc(ALICE)
+    expect((await service.balance(ALICE)).approved).toBe(0)
+    await service.liftTakedown(ALICE)
+    expect((await service.balance(ALICE)).approved).toBe(10)
+  })
+
+  it('stops a deleted account and voids the points that waited for it', async () => {
+    const bobCode = await service.personalCode(BOB)
+    await signUp(BOB, ALICE)
+    expect((await service.balance(ALICE)).pending).toBe(100)
+    await service.accountDeleted(BOB)
+    // Alice's points needed Bob's KYC, which can no longer happen
+    expect(await service.balance(ALICE)).toEqual({ pending: 0, approved: 0 })
+    expect((await service.checkCode(bobCode)).valid).toBe(false)
+  })
+
+  it('keeps approved points when an invitee deletes their account later', async () => {
+    await signUp(BOB, ALICE)
+    await approveKyc(ALICE)
+    await approveKyc(BOB)
+    const before = await service.balance(ALICE)
+    expect(before.approved).toBeGreaterThan(0)
+    await service.accountDeleted(BOB)
+    expect(await service.balance(ALICE)).toEqual(before)
+  })
+
   it('keeps the bonus of someone a taken down account invited', async () => {
     await service.upsertRule(ADMIN, {
       ...DEFAULT_RULES[1],

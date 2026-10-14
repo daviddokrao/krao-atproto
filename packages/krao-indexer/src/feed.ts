@@ -1,8 +1,9 @@
-import type {
-  Database,
-  FeedGeneratorTable,
-  FeedInteractionTable,
-  FeedPostTable,
+import {
+  type Database,
+  type FeedGeneratorTable,
+  type FeedInteractionTable,
+  type FeedPostTable,
+  visibleDid,
 } from './db.js'
 
 export const POST_COLLECTION = 'app.bsky.feed.post'
@@ -118,6 +119,7 @@ export async function getLatestPosts(
   let qb = db
     .selectFrom('feed_post')
     .select(['uri', 'cid', 'indexedAt'])
+    .where(visibleDid('did'))
     .orderBy('indexedAt', 'desc')
     .orderBy('cid', 'desc')
     .limit(limit)
@@ -174,6 +176,7 @@ export async function rankPopularPosts(
     .selectFrom('feed_post')
     .select(['uri', 'indexedAt', 'createdAt'])
     .where('indexedAt', '>=', since)
+    .where(visibleDid('did'))
     .orderBy('indexedAt', 'desc')
     .limit(POPULAR_MAX_POSTS)
     .execute()
@@ -186,6 +189,7 @@ export async function rankPopularPosts(
       'in',
       posts.map((p) => p.uri),
     )
+    .where(visibleDid('did'))
     .groupBy(['subject', 'kind'])
     .execute()
   const likes = new Map<string, number>()
@@ -240,4 +244,23 @@ function postedAt(post: { indexedAt: string; createdAt: string | null }) {
   const indexed = Date.parse(post.indexedAt)
   const created = post.createdAt ? Date.parse(post.createdAt) : NaN
   return isNaN(created) ? indexed : Math.min(created, indexed)
+}
+
+/** Discovery data older than this is no longer used and is pruned */
+const DISCOVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Drop posts, likes/reposts and hashtags older than the discovery windows
+ * (the "latest" feed keeps 30 days), and failed events older than that.
+ * Follows and starter packs are kept: suggestions use all of them.
+ */
+export async function pruneOldDiscoveryData(db: Database, now = Date.now()) {
+  const before = new Date(now - DISCOVERY_RETENTION_MS).toISOString()
+  await db
+    .deleteFrom('feed_interaction')
+    .where('indexedAt', '<', before)
+    .execute()
+  await db.deleteFrom('feed_tag').where('indexedAt', '<', before).execute()
+  await db.deleteFrom('feed_post').where('indexedAt', '<', before).execute()
+  await db.deleteFrom('failed_event').where('failedAt', '<', before).execute()
 }

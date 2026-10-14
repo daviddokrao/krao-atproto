@@ -63,7 +63,7 @@ import {
   parseTokenId,
 } from './nft.js'
 import { cachedValue } from './cache.js'
-import { rateLimit } from './rate-limit.js'
+import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import {
@@ -73,7 +73,12 @@ import {
   verifiedTipCounts,
   verifiedTipsSentCounts,
 } from './tips.js'
-import { getWalletOwners, getWalletsForDids, uniqueWallets } from './wallets.js'
+import {
+  getWalletOwners,
+  getWalletsForDids,
+  ownedEvmAddresses,
+  uniqueWallets,
+} from './wallets.js'
 
 type ChainProfileView = net.krao.actor.defs.ChainProfileView
 type WalletView = net.krao.actor.defs.WalletView
@@ -119,6 +124,8 @@ export function createApp(
   const cacheMs = opts.discoveryCacheMs ?? 30_000
   const popularRanking = cachedValue(cacheMs, () => rankPopularPosts(db))
   const globalAccountScores = cachedValue(cacheMs, () => accountScores(db))
+  const trending = cachedValue(cacheMs, () => trendingTags(db, 50))
+  const topTags = async (limit = 10) => (await trending()).slice(0, limit)
   const baseUrl = (req: {
     protocol: string
     get(name: string): string | undefined
@@ -167,10 +174,13 @@ export function createApp(
     }
   })
 
+  // Each check that fails costs on-chain calls and is never cached
+  const gateContentLimit = keyedLimit(60, 60_000)
   server.add(net.krao.gate.getContent, {
     auth: serviceAuth(net.krao.gate.getContent.$lxm),
     handler: async ({ params, auth, req }) => {
       const viewer = (auth.credentials as { did: string }).did
+      gateContentLimit(viewer)
       const [rule] = await getRulesForSubjects(db, [params.uri])
       const content = await getGatedContent(db, params.uri)
       if (!rule || !content) {
@@ -311,23 +321,38 @@ export function createApp(
       params.actors,
       handleResolverUrl,
     )
-    const [rows, tipCounts, sentCounts, nftAvatars] = await Promise.all([
+    const [rows, tipCounts, sentCounts, nftAvatars, owned] = await Promise.all([
       getWalletsForDids(db, dids).then(uniqueWallets),
       verifiedTipCounts(db, dids),
       verifiedTipsSentCounts(db, dids),
       getNftAvatarsForDids(db, dids),
+      Promise.all(dids.map((did) => ownedEvmAddresses(db, did))),
     ])
     const profiles = dids
-      .map((did) => {
+      .map((did, i) => {
         const wallets = rows
           .filter((row) => row.did === did)
-          .map((row): WalletView => ({
-            uri: row.uri as WalletView['uri'],
-            account: row.accountRaw,
-            label: row.label ?? undefined,
-            status: row.status,
-            createdAt: row.createdAt as WalletView['createdAt'],
-          }))
+          .map((row): WalletView => {
+            // A wallet another account linked first counts for that one only
+            const taken =
+              row.status === 'verified' &&
+              !!row.evmAddress &&
+              !owned[i].has(row.evmAddress)
+            return {
+              uri: row.uri as WalletView['uri'],
+              account: row.accountRaw,
+              label: row.label ?? undefined,
+              status: taken ? 'invalid' : row.status,
+              reason: taken
+                ? 'Another account linked this wallet first'
+                : row.status === 'invalid'
+                  ? row.reason
+                    ? utf8Prefix(row.reason, 300)
+                    : undefined
+                  : undefined,
+              createdAt: row.createdAt as WalletView['createdAt'],
+            }
+          })
         const nft = nftAvatars.find((n) => n.did === did)
         const nftAvatar: NftAvatarView | undefined = nft && {
           nft: {
@@ -588,7 +613,7 @@ export function createApp(
     ({ params }) => starterPacksSkeleton(params),
   )
   server.add(unspecced.getTrendingTopics, async ({ params }) => {
-    const tags = await trendingTags(db, params.limit ?? 10)
+    const tags = await topTags(params.limit)
     return {
       encoding: 'application/json' as const,
       body: {
@@ -601,7 +626,7 @@ export function createApp(
     }
   })
   server.add(unspecced.getTrendsSkeleton, async ({ params }) => {
-    const tags = await trendingTags(db, params.limit ?? 10)
+    const tags = await topTags(params.limit)
     return {
       encoding: 'application/json' as const,
       body: {
@@ -651,17 +676,43 @@ export function createApp(
     try {
       const cursor = await db
         .selectFrom('cursor')
-        .select('seq')
+        .select(['seq', 'at'])
         .where('id', '=', 'firehose')
         .executeTakeFirst()
-      const failed = await db
-        .selectFrom('failed_event')
-        .select((eb) => eb.fn.countAll<number>().as('count'))
-        .executeTakeFirst()
+      const count = async (
+        q: () => Promise<{ count: number | string } | undefined>,
+      ) => Number((await q())?.count ?? 0)
+      const failedEvents = await count(() =>
+        db
+          .selectFrom('failed_event')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .executeTakeFirst(),
+      )
+      const pendingTips = await count(() =>
+        db
+          .selectFrom('tip')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .where('status', '=', 'pending')
+          .executeTakeFirst(),
+      )
+      const nftChecksDue = await count(() =>
+        db
+          .selectFrom('nft_avatar')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .where('checkedAt', 'is', null)
+          .executeTakeFirst(),
+      )
+      // A quiet network also has no events: alert on this with care
+      const lastEventAgoSec = cursor?.at
+        ? Math.round((Date.now() - Date.parse(cursor.at)) / 1000)
+        : null
       res.json({
         ok: true,
         firehoseSeq: cursor?.seq ?? null,
-        failedEvents: Number(failed?.count ?? 0),
+        lastEventAgoSec,
+        failedEvents,
+        pendingTips,
+        nftChecksDue,
       })
     } catch {
       res.status(503).json({ ok: false, error: 'Database' })
@@ -848,4 +899,18 @@ function publicFetchError(err: unknown): string {
   return err instanceof SafeFetchError
     ? err.message
     : 'Could not fetch the image'
+}
+
+/** The longest prefix of `text` that fits in `maxBytes` of UTF-8 */
+function utf8Prefix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  let out = ''
+  let bytes = 0
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8')
+    if (bytes + size > maxBytes) break
+    out += char
+    bytes += size
+  }
+  return out
 }

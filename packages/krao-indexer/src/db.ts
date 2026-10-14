@@ -10,6 +10,8 @@ export interface WalletTable {
   account: string
   /** CAIP-10 id exactly as written in the record. */
   accountRaw: string
+  /** Lowercase address for eip155 accounts (the same on every EVM chain) */
+  evmAddress: string | null
   label: string | null
   status: WalletStatus
   /** Why verification failed, for debugging. */
@@ -37,6 +39,10 @@ export interface TipTable {
   toAccount: string | null
   message: string | null
   status: TipStatus
+  /** When a pending tip is checked again (backs off as it ages) */
+  nextCheckAt: string | null
+  /** When the record was last written: its pending timeout starts here */
+  pendingSince: string | null
   reason: string | null
   createdAt: string
   indexedAt: string
@@ -102,6 +108,8 @@ export interface GatedMediaTable {
 export interface CursorTable {
   id: string
   seq: number
+  /** When the event at `seq` was indexed, for health checks */
+  at: string | null
 }
 
 /** A firehose event whose handler kept failing, kept for a manual replay */
@@ -171,6 +179,16 @@ export interface ShortLinkTable {
   createdAt: string
 }
 
+/**
+ * An account its PDS reports as inactive (taken down, suspended,
+ * deactivated): its Krao data is kept but not served until it is active.
+ */
+export interface HiddenActorTable {
+  did: string
+  status: string
+  since: string
+}
+
 export interface DatabaseSchema {
   wallet: WalletTable
   tip: TipTable
@@ -187,7 +205,12 @@ export interface DatabaseSchema {
   gated_media: GatedMediaTable
   cursor: CursorTable
   failed_event: FailedEventTable
+  hidden_actor: HiddenActorTable
 }
+
+/** SQL condition: `column` (a DID) is not a hidden (inactive) account */
+export const visibleDid = (column: string) =>
+  sql<boolean>`${sql.ref(column)} not in (select did from hidden_actor)`
 
 export type Database = Kysely<DatabaseSchema>
 
@@ -219,6 +242,14 @@ export async function migrateDb(db: Database): Promise<void> {
   await sql`create index if not exists wallet_account_idx on wallet (account)`.execute(
     db,
   )
+  await addColumnIfMissing(db, 'wallet', 'evmAddress', 'varchar')
+  // Rows from before the column: eip155:<chain>:<address>
+  await sql`update wallet set evmAddress = lower(substr(substr(account, 8), instr(substr(account, 8), ':') + 1)) where evmAddress is null and account like 'eip155:%'`.execute(
+    db,
+  )
+  await sql`create index if not exists wallet_evm_address_idx on wallet (evmAddress, status)`.execute(
+    db,
+  )
   await db.schema
     .createTable('tip')
     .ifNotExists()
@@ -237,6 +268,8 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('createdAt', 'varchar', (col) => col.notNull())
     .addColumn('indexedAt', 'varchar', (col) => col.notNull())
     .execute()
+  await addColumnIfMissing(db, 'tip', 'nextCheckAt', 'varchar')
+  await addColumnIfMissing(db, 'tip', 'pendingSince', 'varchar')
   await sql`create index if not exists tip_subject_idx on tip (subject)`.execute(
     db,
   )
@@ -330,6 +363,14 @@ export async function migrateDb(db: Database): Promise<void> {
   ) {
     await db.schema.dropTable('failed_event').execute()
   }
+  await addColumnIfMissing(db, 'cursor', 'at', 'varchar')
+  await db.schema
+    .createTable('hidden_actor')
+    .ifNotExists()
+    .addColumn('did', 'varchar', (col) => col.primaryKey())
+    .addColumn('status', 'varchar', (col) => col.notNull())
+    .addColumn('since', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('failed_event')
     .ifNotExists()
@@ -423,4 +464,22 @@ export async function migrateDb(db: Database): Promise<void> {
     .addColumn('path', 'varchar', (col) => col.notNull().unique())
     .addColumn('createdAt', 'varchar', (col) => col.notNull())
     .execute()
+}
+
+/**
+ * Add a column to a table made by an older version. createTable's
+ * ifNotExists leaves existing tables alone, so new columns need this.
+ */
+async function addColumnIfMissing(
+  db: Database,
+  table: string,
+  column: string,
+  type: 'varchar' | 'integer',
+) {
+  const cols = await sql<{ name: string }>`pragma table_info(${sql.raw(
+    table,
+  )})`.execute(db)
+  if (!cols.rows.some((c) => c.name === column)) {
+    await db.schema.alterTable(table).addColumn(column, type).execute()
+  }
 }
