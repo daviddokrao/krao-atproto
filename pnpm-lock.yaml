@@ -1039,6 +1039,9 @@ importers:
       '@atproto/xrpc-server':
         specifier: workspace:^
         version: link:../xrpc-server
+      '@krao/wallet':
+        specifier: workspace:^
+        version: link:../krao-wallet
       better-sqlite3:
         specifier: ^12.0.0
         version: 12.9.0

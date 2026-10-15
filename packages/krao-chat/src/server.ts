@@ -20,6 +20,7 @@ import {
   ChatService,
   GROUP_MEMBER_LIMIT,
   type MessageInput,
+  assertNoWalletSecret,
 } from './service.js'
 
 /**
@@ -291,6 +292,10 @@ export function createApp(opts: {
   server.add(convo.sendMessageBatch, {
     auth,
     handler: async ({ auth: { credentials }, input }) => {
+      // Checked up front, so a batch is refused whole rather than half sent
+      for (const item of input.body.items) {
+        assertNoWalletSecret(item.message.text)
+      }
       const items = []
       for (const item of input.body.items) {
         items.push(

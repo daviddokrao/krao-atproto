@@ -23,6 +23,7 @@
     "@atproto/sync": "workspace:^",
     "@atproto/syntax": "workspace:^",
     "@atproto/xrpc-server": "workspace:^",
+    "@krao/wallet": "workspace:^",
     "better-sqlite3": "^12.0.0",
     "cors": "^2.8.5",
     "express": "^4.17.2",

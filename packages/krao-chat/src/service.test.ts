@@ -119,6 +119,30 @@ describe('ChatService', () => {
       expect(await unreadCount(convoId, BOB)).toBe(1)
     })
 
+    it('refuses seed phrases and private keys', async () => {
+      const convoId = await service.createDirectConvo(ALICE, BOB)
+      await expectError(
+        service.sendMessage(convoId, ALICE, {
+          text: 'Admin here, send your phrase to verify: abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+        }),
+        'SensitiveSecret',
+      )
+      await expectError(
+        service.sendMessage(convoId, ALICE, {
+          text: 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+        }),
+        'SensitiveSecret',
+      )
+      // Transaction hashes are fine
+      await service.sendMessage(convoId, ALICE, {
+        text: 'Sent: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      })
+      const { messages } = await service.getMessages(convoId, BOB, {
+        limit: 10,
+      })
+      expect(messages).toHaveLength(1)
+    })
+
     it('reuses one convo per pair', async () => {
       const convoId = await service.createDirectConvo(ALICE, BOB)
       const found = await service.findDirectConvo(BOB, ALICE)
