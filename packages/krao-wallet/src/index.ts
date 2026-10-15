@@ -1,5 +1,7 @@
 export * from './account.js'
 export * from './message.js'
 export * from './proof.js'
+export * from './bip39-english.js'
+export * from './secrets.js'
 export * from './signature.js'
 export * from './test-keys.js'
