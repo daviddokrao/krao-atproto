@@ -1,0 +1,94 @@
+# Production stack rehearsal on one machine: services/krao/rehearsal/run.sh.
+# The real compose file, plus what a laptop lacks: a local PLC (no DIDs on
+# plc.directory), an S3 store, Caddy's own CA for TLS, and hostnames that
+# resolve to Caddy inside the network. S3 is SeaweedFS (MinIO no longer
+# publishes images). Never deploy this file.
+
+# Caddy's root certificate, copied out by run.sh (Caddy's own copy is
+# readable by root only)
+x-trust: &trust
+  NODE_EXTRA_CA_CERTS: /caddy-root.crt
+  # krao.test is not a public domain: let the Krao services look it up
+  KRAO_INSECURE_FETCH: 'true'
+
+x-trust-volume: &trust-volume ./rehearsal/caddy-root.crt:/caddy-root.crt:ro
+
+services:
+  plc:
+    image: krao-backend-tools:${KRAO_IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: services/krao/Dockerfile
+      target: tools
+    networks: [internal]
+    command: [node, services/krao/rehearsal/plc.mjs]
+
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    networks: [internal]
+    # Without an identity config it accepts any key: fine for a rehearsal
+    command: [server, -dir=/data, -s3, -s3.port=9000]
+
+  caddy:
+    ports: !override ['127.0.0.1:18443:443']
+    environment:
+      KRAO_CADDY_GLOBAL: local_certs
+    volumes:
+      - ./rehearsal/extra.caddy:/etc/caddy/extra/rehearsal.caddy:ro
+    networks:
+      internal:
+        aliases:
+          - plc.${KRAO_DOMAIN}
+          - pds.${KRAO_DOMAIN}
+          - api.${KRAO_DOMAIN}
+          - mod.${KRAO_DOMAIN}
+          - idx.${KRAO_DOMAIN}
+          - chat.${KRAO_DOMAIN}
+          - video.${KRAO_DOMAIN}
+          - rewards.${KRAO_DOMAIN}
+
+  pds:
+    volumes: [pds:/data, *trust-volume]
+    environment:
+      <<: *trust
+      # Service hostnames resolve to Caddy's private address here
+      PDS_DISABLE_SSRF_PROTECTION: 'true'
+  appview:
+    volumes: [*trust-volume]
+    environment:
+      <<: *trust
+      BSKY_DISABLE_SSRF_PROTECTION: 'true'
+  bsync:
+    volumes: [*trust-volume]
+    environment: *trust
+  ozone:
+    volumes: [*trust-volume]
+    environment: *trust
+  ozone-daemon:
+    volumes: [*trust-volume]
+    environment: *trust
+  indexer:
+    volumes: [indexer:/data, *trust-volume]
+    environment: *trust
+  chat:
+    volumes: [chat:/data, *trust-volume]
+    environment: *trust
+  video:
+    volumes: [video:/data, *trust-volume]
+    environment: *trust
+  rewards:
+    volumes: [rewards:/data, *trust-volume]
+    environment: *trust
+  push:
+    volumes: [push:/data, ./secrets:/secrets:ro, *trust-volume]
+    environment: *trust
+  backup:
+    volumes: [*trust-volume]
+    environment:
+      <<: *trust
+      # For smoke.mjs, which runs in this container
+      KRAO_DOMAIN: ${KRAO_DOMAIN}
+      KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      KRAO_REWARDS_BOOTSTRAP_CODE: ${KRAO_REWARDS_BOOTSTRAP_CODE}
+      KRAO_GATE_MEDIA_S3_BUCKET: ${KRAO_GATE_MEDIA_S3_BUCKET}
+      KRAO_GATE_MEDIA_S3_ENDPOINT: ${KRAO_GATE_MEDIA_S3_ENDPOINT}

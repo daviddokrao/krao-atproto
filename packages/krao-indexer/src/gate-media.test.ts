@@ -1,8 +1,12 @@
+import { once } from 'node:events'
+import type { AddressInfo } from 'node:net'
+import express from 'express'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Database, createDb, migrateDb } from './db.js'
 import {
   GATED_MEDIA_DAILY_FILES,
   MediaSigner,
+  addGatedMediaRoute,
   deleteOrphanedMedia,
   insertGatedMedia,
   maxBytesFor,
@@ -13,7 +17,8 @@ import {
   sniffMediaType,
   withinUploadQuota,
 } from './gate-media.js'
-import { putGatedContent } from './gate.js'
+import { deleteGateDataForDid, putGatedContent } from './gate.js'
+import { MemoryMediaStore, purgeMediaTrash } from './media-store.js'
 
 const bytes = (...b: number[]) => Uint8Array.from(b)
 
@@ -167,5 +172,90 @@ describe('with a database', () => {
     const left = await db.selectFrom('gated_media').select('id').execute()
     expect(left.map((r) => r.id)).toEqual([used])
     expect(left.map((r) => r.id)).not.toContain(orphan)
+  })
+
+  describe('with a blob store', () => {
+    it('keeps the bytes in the store and serves ranges from it', async () => {
+      const blobs = new MemoryMediaStore()
+      const data = Buffer.from('0123456789')
+      const id = await insertGatedMedia(db, 'did:a', 'video/mp4', data, blobs)
+      const row = await db
+        .selectFrom('gated_media')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow()
+      expect(row.store).toBe('s3')
+      expect(row.data.length).toBe(0)
+      expect(row.size).toBe(10)
+      expect(blobs.objects.get(id)).toEqual(data)
+
+      const app = express()
+      const signer = new MediaSigner('secret')
+      addGatedMediaRoute(app, db, signer, blobs)
+      const server = app.listen(0)
+      await once(server, 'listening')
+      try {
+        const { port } = server.address() as AddressInfo
+        const url = signer.url(`http://localhost:${port}`, id)
+        const res = await fetch(url, { headers: { range: 'bytes=2-5' } })
+        expect(res.status).toBe(206)
+        expect(await res.text()).toBe('2345')
+        // Without a store, s3 media cannot be served
+        const bare = express()
+        addGatedMediaRoute(bare, db, signer)
+        const other = bare.listen(0)
+        await once(other, 'listening')
+        const otherPort = (other.address() as AddressInfo).port
+        const res2 = await fetch(
+          signer.url(`http://localhost:${otherPort}`, id),
+        )
+        expect(res2.status).toBe(404)
+        other.close()
+      } finally {
+        server.close()
+      }
+    })
+
+    it('removes the bytes of every deleted row', async () => {
+      const blobs = new MemoryMediaStore()
+      const orphan = await insertGatedMedia(
+        db,
+        'did:a',
+        'image/png',
+        Buffer.alloc(1),
+        blobs,
+      )
+      const owned = await insertGatedMedia(
+        db,
+        'did:b',
+        'image/png',
+        Buffer.alloc(1),
+        blobs,
+      )
+      const kept = await insertGatedMedia(
+        db,
+        'did:c',
+        'image/png',
+        Buffer.alloc(1),
+      )
+      expect(await deleteOrphanedMedia(db, Date.now() + 25 * 3_600_000)).toBe(3)
+      // Rows in the database itself need no purge
+      expect(kept).toBeTruthy()
+      expect(blobs.objects.size).toBe(2)
+      expect(await purgeMediaTrash(db, blobs)).toBe(1 + 1)
+      expect(blobs.objects.size).toBe(0)
+
+      const again = await insertGatedMedia(
+        db,
+        'did:b',
+        'image/png',
+        Buffer.alloc(1),
+        blobs,
+      )
+      await deleteGateDataForDid(db, 'did:b')
+      expect(await purgeMediaTrash(db, blobs)).toBe(1)
+      expect(blobs.objects.has(again)).toBe(false)
+      expect([orphan, owned]).not.toContain(again)
+    })
   })
 })

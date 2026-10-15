@@ -8,6 +8,8 @@ if ((process.env.KRAO_GATE_MEDIA_SECRET ?? '').length < 32) {
 }
 
 const indexer = await KraoIndexer.create({
+  // Rehearsals and dev only: identity lookups to private hosts over http
+  insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: Number(process.env.KRAO_INDEXER_PORT ?? 2589),
   dbLocation: process.env.KRAO_INDEXER_DB ?? 'krao-indexer.sqlite',
   // Krao is its own network: index Krao's PDS, not the whole Bluesky relay
@@ -22,10 +24,25 @@ const indexer = await KraoIndexer.create({
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
   gateMediaSecret: process.env.KRAO_GATE_MEDIA_SECRET,
+  // A private bucket; credentials from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+  gateMediaS3: process.env.KRAO_GATE_MEDIA_S3_BUCKET
+    ? {
+        bucket: process.env.KRAO_GATE_MEDIA_S3_BUCKET,
+        region: process.env.KRAO_GATE_MEDIA_S3_REGION,
+        endpoint: process.env.KRAO_GATE_MEDIA_S3_ENDPOINT,
+        forcePathStyle: process.env.KRAO_GATE_MEDIA_S3_PATH_STYLE === 'true',
+      }
+    : undefined,
   klipyApiKey: process.env.KRAO_KLIPY_API_KEY,
   webUrl: process.env.KRAO_WEB_URL,
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://pds.krao.net',
+  push: process.env.KRAO_PUSH_URL
+    ? {
+        url: process.env.KRAO_PUSH_URL,
+        token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)
