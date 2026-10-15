@@ -1,0 +1,28 @@
+# Krao sandbox demo: builds the atproto dev-env (and everything it runs) from
+# this monorepo. Based on services/pds/Dockerfile, but keeps dev deps since
+# the dev-env runs test tooling.
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    python3 make g++ git ca-certificates postgresql-client redis-tools dumb-init \
+    fonts-dejavu-core ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+RUN npm install -g pnpm@11.11.0
+
+WORKDIR /app
+COPY . .
+
+RUN PUPPETEER_SKIP_DOWNLOAD=true pnpm install --frozen-lockfile
+# One package at a time: `tsc --build --force` rewrites shared dependencies,
+# which breaks packages building in parallel (as in services/pds/Dockerfile)
+RUN pnpm run --recursive --stream --workspace-concurrency 1 \
+  --filter '@atproto/dev-env...' --filter '@krao/e2e...' build -- --force
+
+ENV NODE_ENV=development
+ENV UV_USE_IO_URING=0
+EXPOSE 2583 2584 2589 2590 2591 2592
+# deploy/ (demo-start.sh, demo-setup.mjs, seed-local.mjs) is mounted here
+# by docker-compose.yml, see Dockerfile.devenv.dockerignore
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["bash", "deploy/demo-start.sh"]
