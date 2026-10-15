@@ -1,4 +1,5 @@
-import { type Kysely, type Migration, Migrator } from 'kysely'
+import { type Kysely } from 'kysely'
+import { type Migration, Migrator } from 'kysely/migration'
 
 /**
  * Apply versioned schema changes. Each migration runs once, in name order,
