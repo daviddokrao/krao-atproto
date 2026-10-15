@@ -17,23 +17,30 @@
 	header -Server
 }
 
-# A service's own certificate. The tls line gives these sites their own
-# policy, so they are not swept into the handles' on-demand one below (which
-# would ask the PDS about api.<domain> and get no)
 (service) {
 	import common
-	tls {$KRAO_ACME_EMAIL}
 }
 
-pds.{$KRAO_DOMAIN}, *.{$KRAO_DOMAIN} {
-	tls {
-		on_demand
-	}
+(pds) {
 	import common
 	request_body {
 		max_size 100MB
 	}
 	reverse_proxy pds:3000
+}
+
+pds.{$KRAO_DOMAIN} {
+	import pds
+}
+
+# User handles (alice.<domain>): any other name, with a certificate made on
+# first use once the PDS confirms the handle. Not a *.<domain> site: Caddy
+# would then leave the service sites below without their own certificates.
+https:// {
+	tls {
+		on_demand
+	}
+	import pds
 }
 
 api.{$KRAO_DOMAIN} {

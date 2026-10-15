@@ -51,10 +51,18 @@ echo "$OZONE_DID"
 
 step "Everything else"
 "${DC[@]}" up -d
-for url in pds:3000/xrpc/_health appview:2584/xrpc/_health indexer:2589/_health chat:2590/_health rewards:2592/_health push:2593/_health; do
-  until "${DC[@]}" exec -T push node -e "fetch('http://$url').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"; do sleep 2; done
-  echo "up: $url"
-done
+wait_up() {
+  for url in "$@"; do
+    for i in $(seq 90); do
+      "${DC[@]}" exec -T push node -e "fetch('http://$url').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break
+      [ "$i" = 90 ] && { echo "not up: $url"; "${DC[@]}" ps -a; exit 1; }
+      sleep 2
+    done
+    echo "up: $url"
+  done
+}
+wait_up pds:3000/xrpc/_health appview:2584/xrpc/_health bsync:2585/_health ozone:3000/xrpc/_health \
+  indexer:2589/_health chat:2590/_health rewards:2592/_health push:2593/_health
 
 step "Smoke test"
 "${DC[@]}" run --rm --no-deps -T backup node services/krao/rehearsal/smoke.mjs create
@@ -73,9 +81,7 @@ step "Restore"
 until "${DC[@]}" exec -T postgres pg_isready -U krao >/dev/null; do sleep 1; done
 "${DC[@]}" run --rm --no-deps -T backup node services/krao/restore.mjs "/backups/$(basename "$ARCHIVE")"
 "${DC[@]}" up -d
-for url in pds:3000/xrpc/_health appview:2584/xrpc/_health indexer:2589/_health chat:2590/_health; do
-  until "${DC[@]}" exec -T push node -e "fetch('http://$url').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"; do sleep 2; done
-done
+wait_up pds:3000/xrpc/_health appview:2584/xrpc/_health indexer:2589/_health chat:2590/_health
 
 step "Everything is back"
 "${DC[@]}" run --rm --no-deps -T backup node services/krao/rehearsal/smoke.mjs verify

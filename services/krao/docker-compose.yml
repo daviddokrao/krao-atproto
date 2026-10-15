@@ -138,6 +138,8 @@ services:
       BSYNC_DB_MIGRATE: '1'
       BSYNC_API_KEYS: ${BSYNC_API_KEY}
       BSYNC_DATAPLANE_URLS: http://appview:2585
+      # Required with a data plane; Krao's in-process one does not check it
+      BSYNC_DATAPLANE_AUTH_TOKEN: ${BSYNC_API_KEY}
 
   ozone:
     <<: *backend
@@ -147,6 +149,7 @@ services:
       postgres: { condition: service_healthy }
     environment: &ozone-env
       OZONE_PORT: 3000
+      OZONE_DB_MIGRATE: '1'
       OZONE_PUBLIC_URL: https://mod.${KRAO_DOMAIN}
       OZONE_SERVER_DID: ${OZONE_SERVER_DID}
       OZONE_SIGNING_KEY_HEX: ${OZONE_SIGNING_KEY_HEX:?set OZONE_SIGNING_KEY_HEX}
