@@ -27,14 +27,20 @@ docker run --rm krao-backend:latest node services/krao/rehearsal/gen-env.mjs > r
 mkdir -p rehearsal/backups secrets
 "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 
-step "Postgres, PLC, MinIO, Caddy"
+step "Postgres, PLC, S3, Caddy"
 # Ozone's DID is made below; a placeholder lets compose parse the file
 echo "OZONE_SERVER_DID=did:plc:placeholder" >> rehearsal/.env
-"${DC[@]}" up -d postgres plc minio caddy
+"${DC[@]}" up -d postgres plc s3 caddy
 until "${DC[@]}" exec -T caddy test -f /data/caddy/pki/authorities/local/root.crt; do sleep 1; done
-docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env \
-  --entrypoint sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c \
-  'mc alias set m http://minio:9000 "$KRAO_S3_ACCESS_KEY_ID" "$KRAO_S3_SECRET_ACCESS_KEY" && mc mb -p m/$KRAO_GATE_MEDIA_S3_BUCKET'
+# The gated media bucket
+until docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env \
+  -e AWS_ACCESS_KEY_ID=rehearsal -e AWS_SECRET_ACCESS_KEY=rehearsal \
+  krao-backend:latest node -e "
+    const {S3Client, CreateBucketCommand} = require('@aws-sdk/client-s3')
+    new S3Client({region: 'us-east-1', endpoint: process.env.KRAO_GATE_MEDIA_S3_ENDPOINT, forcePathStyle: true})
+      .send(new CreateBucketCommand({Bucket: process.env.KRAO_GATE_MEDIA_S3_BUCKET}))
+      .catch(e => { if (e.name !== 'BucketAlreadyOwnedByYou') { console.error(e.message); process.exit(1) } })
+  "; do sleep 2; done
 
 step "Ozone DID on the local PLC"
 OZONE_DID=$(docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env   krao-backend:latest node services/krao/create-ozone-did.mjs | tail -1)
@@ -61,7 +67,7 @@ step "Wipe the data"
 for v in "${DATA_VOLUMES[@]}"; do docker volume rm "krao-rehearsal_$v"; done
 
 step "Restore"
-"${DC[@]}" up -d postgres plc minio caddy
+"${DC[@]}" up -d postgres plc s3 caddy
 until "${DC[@]}" exec -T postgres pg_isready -U krao >/dev/null; do sleep 1; done
 "${DC[@]}" run --rm --no-deps -T backup node services/krao/restore.mjs "/backups/$(basename "$ARCHIVE")"
 "${DC[@]}" up -d

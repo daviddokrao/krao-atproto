@@ -1,7 +1,8 @@
 # Production stack rehearsal on one machine: services/krao/rehearsal/run.sh.
 # The real compose file, plus what a laptop lacks: a local PLC (no DIDs on
-# plc.directory), MinIO for S3, Caddy's own CA for TLS, and hostnames that
-# resolve to Caddy inside the network. Never deploy this file.
+# plc.directory), an S3 store, Caddy's own CA for TLS, and hostnames that
+# resolve to Caddy inside the network. S3 is SeaweedFS (MinIO no longer
+# publishes images). Never deploy this file.
 
 x-trust: &trust
   NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
@@ -18,13 +19,11 @@ services:
     networks: [internal]
     command: [node, services/krao/rehearsal/plc.mjs]
 
-  minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  s3:
+    image: chrislusf/seaweedfs:4.48
     networks: [internal]
-    command: [server, /data]
-    environment:
-      MINIO_ROOT_USER: ${KRAO_S3_ACCESS_KEY_ID}
-      MINIO_ROOT_PASSWORD: ${KRAO_S3_SECRET_ACCESS_KEY}
+    # Without an identity config it accepts any key: fine for a rehearsal
+    command: [server, -dir=/data, -s3, -s3.port=9000]
 
   caddy:
     ports: !override ['127.0.0.1:18443:443']

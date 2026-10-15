@@ -128,7 +128,7 @@ docker compose up -d
 
 `bash services/krao/rehearsal/run.sh` runs this whole stack on one machine
 (Linux or WSL with Docker) under `krao.test`: a local PLC instead of
-plc.directory, MinIO for S3, Caddy's own CA for TLS. It signs people up,
+plc.directory, SeaweedFS for S3, Caddy's own CA for TLS. It signs people up,
 posts, follows, likes, chats, uploads gated media and checks the pushes,
 then backs up, wipes every volume, restores, and checks it is all back.
 `run.sh down` removes it. Run it before changing this directory.

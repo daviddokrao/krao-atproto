@@ -1,5 +1,5 @@
 // Prints a fresh .env for a rehearsal: random secrets and keys, the
-// krao.test domain, the local PLC and MinIO. Never use it for production.
+// krao.test domain, the local PLC and S3 (SeaweedFS). Never use it for production.
 import { randomBytes } from 'node:crypto'
 
 const secret = () => randomBytes(24).toString('base64url')
@@ -28,7 +28,7 @@ const env = {
   KRAO_REWARDS_BOOTSTRAP_CODE: 'KRAO-REHEARSAL',
   KRAO_GATE_MEDIA_S3_BUCKET: 'krao-gate-media',
   KRAO_GATE_MEDIA_S3_REGION: 'us-east-1',
-  KRAO_GATE_MEDIA_S3_ENDPOINT: 'http://minio:9000',
+  KRAO_GATE_MEDIA_S3_ENDPOINT: 'http://s3:9000',
   KRAO_GATE_MEDIA_S3_PATH_STYLE: 'true',
   KRAO_S3_ACCESS_KEY_ID: 'rehearsal',
   KRAO_S3_SECRET_ACCESS_KEY: secret(),
