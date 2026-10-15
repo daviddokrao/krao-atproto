@@ -74,7 +74,8 @@ ARCHIVE=$(ls -1 rehearsal/backups/krao-backup-*.tar | tail -1)
 echo "$ARCHIVE"
 
 step "Wipe the data"
-"${DC[@]}" stop
+# Everything but the PLC (in memory: it holds the DIDs), S3 and Caddy
+"${DC[@]}" rm -sf pds appview bsync ozone ozone-daemon indexer chat video rewards push backup postgres
 for v in "${DATA_VOLUMES[@]}"; do docker volume rm "krao-rehearsal_$v"; done
 
 step "Restore"
