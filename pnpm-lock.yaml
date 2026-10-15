@@ -750,6 +750,9 @@ importers:
       '@krao/indexer':
         specifier: workspace:^
         version: link:../krao-indexer
+      '@krao/push':
+        specifier: workspace:^
+        version: link:../krao-push
       '@krao/rewards':
         specifier: workspace:^
         version: link:../krao-rewards
