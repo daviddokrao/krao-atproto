@@ -20,7 +20,10 @@ const INTERNAL = 'internal-token-internal-token-internal'
 const appview = {
   profiles: async (dids: string[]) =>
     new Map(
-      dids.map((did) => [did, { did, handle: 'alice.krao.test', displayName: 'Alice' }]),
+      dids.map((did) => [
+        did,
+        { did, handle: 'alice.krao.test', displayName: 'Alice' },
+      ]),
     ),
   postTexts: async () => new Map(),
 } as unknown as AppviewClient
