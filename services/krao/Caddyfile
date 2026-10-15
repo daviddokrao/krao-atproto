@@ -1,0 +1,63 @@
+{
+	email {$KRAO_ACME_EMAIL}
+	# Certificates for user handles (alice.krao.net) are issued when first
+	# requested, only for handles the PDS knows
+	on_demand_tls {
+		ask http://pds:3000/tls-check
+	}
+}
+
+(common) {
+	encode zstd gzip
+	# Service-to-service routes, never public
+	@internal path /internal/*
+	respond @internal 404
+	header -Server
+}
+
+pds.{$KRAO_DOMAIN}, *.{$KRAO_DOMAIN} {
+	tls {
+		on_demand
+	}
+	import common
+	request_body {
+		max_size 100MB
+	}
+	reverse_proxy pds:3000
+}
+
+api.{$KRAO_DOMAIN} {
+	import common
+	reverse_proxy appview:2584
+}
+
+mod.{$KRAO_DOMAIN} {
+	import common
+	reverse_proxy ozone:3000
+}
+
+idx.{$KRAO_DOMAIN} {
+	import common
+	request_body {
+		max_size 60MB
+	}
+	reverse_proxy indexer:2589
+}
+
+chat.{$KRAO_DOMAIN} {
+	import common
+	reverse_proxy chat:2590
+}
+
+video.{$KRAO_DOMAIN} {
+	import common
+	request_body {
+		max_size 10MB
+	}
+	reverse_proxy video:2591
+}
+
+rewards.{$KRAO_DOMAIN} {
+	import common
+	reverse_proxy rewards:2592
+}

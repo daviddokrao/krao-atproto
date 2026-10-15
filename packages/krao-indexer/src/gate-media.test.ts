@@ -206,7 +206,9 @@ describe('with a database', () => {
         const other = bare.listen(0)
         await once(other, 'listening')
         const otherPort = (other.address() as AddressInfo).port
-        const res2 = await fetch(signer.url(`http://localhost:${otherPort}`, id))
+        const res2 = await fetch(
+          signer.url(`http://localhost:${otherPort}`, id),
+        )
         expect(res2.status).toBe(404)
         other.close()
       } finally {
