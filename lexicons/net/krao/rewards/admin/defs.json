@@ -120,8 +120,8 @@
         },
         "beneficiary": {
           "type": "string",
-          "knownValues": ["actor", "referrer", "referrer2"],
-          "description": "Who gets the points: the account of the event, its referrer, or its referrer's referrer."
+          "knownValues": ["actor", "referrer"],
+          "description": "Who gets the points: the account of the event or its referrer. Referral rewards are one level only: other values are rejected."
         },
         "amount": {
           "type": "integer"
@@ -163,7 +163,7 @@
         "capPerDay": {
           "type": "integer",
           "minimum": 1,
-          "description": "Most entries one account may get from this rule per day (UTC)."
+          "description": "Most entries one account may get from this rule per day (UTC). The default inviter rule allows 20 (2,000 points a day)."
         },
         "updatedAt": {
           "type": "string",
