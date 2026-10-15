@@ -78,3 +78,6 @@ rewards.{$KRAO_DOMAIN} {
 	import service
 	reverse_proxy rewards:2592
 }
+
+# Extra sites of a rehearsal (rehearsal/extra.caddy); none in production
+import /etc/caddy/extra/*.caddy

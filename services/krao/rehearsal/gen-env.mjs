@@ -8,7 +8,7 @@ const key = () => randomBytes(32).toString('hex')
 const env = {
   KRAO_DOMAIN: 'krao.test',
   KRAO_ACME_EMAIL: 'ops@krao.test',
-  KRAO_PLC_URL: 'http://plc:2582',
+  KRAO_PLC_URL: 'https://plc.krao.test',
   POSTGRES_PASSWORD: secret(),
   PDS_JWT_SECRET: secret(),
   PDS_ADMIN_PASSWORD: secret(),

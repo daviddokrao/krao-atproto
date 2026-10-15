@@ -45,7 +45,7 @@ until docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.en
   "; do sleep 2; done
 
 step "Ozone DID on the local PLC"
-OZONE_DID=$(docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env   krao-backend:latest node services/krao/create-ozone-did.mjs | tail -1)
+OZONE_DID=$(docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env \n  -v "$PWD/rehearsal/caddy-root.crt:/caddy-root.crt:ro" -e NODE_EXTRA_CA_CERTS=/caddy-root.crt krao-backend:latest node services/krao/create-ozone-did.mjs | tail -1)
 sed -i "s#^OZONE_SERVER_DID=.*#OZONE_SERVER_DID=$OZONE_DID#" rehearsal/.env
 echo "$OZONE_DID"
 

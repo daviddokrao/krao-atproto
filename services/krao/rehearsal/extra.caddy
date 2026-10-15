@@ -1,0 +1,5 @@
+# The rehearsal's PLC, over TLS like plc.directory (services only resolve
+# DIDs over https)
+plc.{$KRAO_DOMAIN} {
+	reverse_proxy plc:2582
+}

@@ -31,9 +31,12 @@ services:
     ports: !override ['127.0.0.1:18443:443']
     environment:
       KRAO_CADDY_GLOBAL: local_certs
+    volumes:
+      - ./rehearsal/extra.caddy:/etc/caddy/extra/rehearsal.caddy:ro
     networks:
       internal:
         aliases:
+          - plc.${KRAO_DOMAIN}
           - pds.${KRAO_DOMAIN}
           - api.${KRAO_DOMAIN}
           - mod.${KRAO_DOMAIN}
