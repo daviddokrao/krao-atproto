@@ -7,6 +7,7 @@ import { FirehoseIndexer } from './indexer.js'
 import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
 import { createPushClient } from './push-client.js'
+import { SafetyList } from './safety.js'
 
 export * from './db.js'
 export * from './wallets.js'
@@ -15,6 +16,8 @@ export * from './chain.js'
 export * from './nft.js'
 export * from './gate.js'
 export * from './feed.js'
+export * from './safety.js'
+export * from './address-check.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -66,6 +69,13 @@ export type KraoIndexerConfig = {
   gateModeratorDids?: string[]
   /** Whether moderators may read gated content (default true) */
   gateModerationAccess?: boolean
+  /**
+   * Open phishing list to sync every 6 hours, in the shape of MetaMask's
+   * eth-phishing-detect config.json. Unset: only built-in and admin entries.
+   */
+  phishingListUrl?: string
+  /** Accounts that may change the unsafe domain list */
+  safetyAdminDids?: string[]
 }
 
 export class KraoIndexer {
@@ -77,11 +87,18 @@ export class KraoIndexer {
     public indexer: FirehoseIndexer,
     private app: ReturnType<typeof createApp>,
     private gateModerators: Set<string>,
+    public safety: SafetyList,
+    private safetyAdmins: Set<string>,
   ) {}
 
   /** Lets an account read gated content as a moderator (eg one made at startup) */
   addGateModerator(did: string) {
     this.gateModerators.add(did)
+  }
+
+  /** Lets an account change the unsafe domain list (eg one made at startup) */
+  addSafetyAdmin(did: string) {
+    this.safetyAdmins.add(did)
   }
 
   static async create(cfg: KraoIndexerConfig): Promise<KraoIndexer> {
@@ -111,7 +128,14 @@ export class KraoIndexer {
       : undefined
     indexer.mediaBlobs = mediaBlobs
     indexer.push = createPushClient(cfg.push?.url, cfg.push?.token)
+    const safety = new SafetyList(db, {
+      listUrl: cfg.phishingListUrl,
+      allowHttp: cfg.insecureFetch,
+    })
+    await safety.init()
+    indexer.safety = safety
     const gateModerators = new Set(cfg.gateModeratorDids ?? [])
+    const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
     return new KraoIndexer(
       cfg,
       db,
@@ -129,8 +153,12 @@ export class KraoIndexer {
         discoveryCacheMs: cfg.discoveryCacheMs,
         gateModerators,
         gateModerationAccess: cfg.gateModerationAccess,
+        safety,
+        safetyAdmins,
       }),
       gateModerators,
+      safety,
+      safetyAdmins,
     )
   }
 
@@ -140,6 +168,7 @@ export class KraoIndexer {
 
   async start(): Promise<http.Server> {
     this.indexer.start()
+    this.safety.start()
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
     return this.server
@@ -147,6 +176,7 @@ export class KraoIndexer {
 
   async destroy(): Promise<void> {
     await this.indexer.destroy()
+    await this.safety.destroy()
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

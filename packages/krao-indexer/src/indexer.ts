@@ -35,6 +35,12 @@ import { deleteOrphanedMedia } from './gate-media.js'
 import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
 import type { PushClient } from './push-client.js'
 import {
+  type SafetyList,
+  deletePostLinks,
+  postLinkHosts,
+  setPostLinks,
+} from './safety.js'
+import {
   GATE_RULE_COLLECTION,
   deleteContentWithoutRule,
   deleteGateDataForDid,
@@ -167,6 +173,8 @@ export class FirehoseIndexer {
   mediaBlobs?: MediaBlobStore
   /** Tells tip recipients when set */
   push?: PushClient
+  /** Flags posts that link to unsafe domains when set */
+  safety?: SafetyList
 
   private destroyed = false
 
@@ -381,6 +389,13 @@ export class FirehoseIndexer {
             evt.did,
             postTags(evt.record),
           )
+          await setPostLinks(
+            this.db,
+            evt.uri.toString(),
+            evt.did,
+            postLinkHosts(evt.record),
+            this.safety?.matcher,
+          )
         }
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
@@ -432,6 +447,7 @@ export class FirehoseIndexer {
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
         await deletePostTags(this.db, evt.uri.toString())
+        await deletePostLinks(this.db, evt.uri.toString())
         await deleteGateDataForSubject(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
         await deleteFeedFollow(this.db, evt.uri.toString())

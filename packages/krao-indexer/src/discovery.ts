@@ -273,6 +273,8 @@ export async function trendingTags(
     ])
     .where('indexedAt', '>=', since)
     .where(visibleDid('did'))
+    // Krao safety: posts linking to phishing or drainer sites do not count
+    .where('uri', 'not in', (eb) => eb.selectFrom('unsafe_post').select('uri'))
     .groupBy('tag')
     .orderBy('postCount', 'desc')
     .orderBy('lastAt', 'desc')

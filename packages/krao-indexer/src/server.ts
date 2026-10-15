@@ -11,9 +11,11 @@ import {
   AuthRequiredError,
   ForbiddenError,
   InvalidRequestError,
+  type Server,
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { InvalidAddressError, checkAddresses } from './address-check.js'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
@@ -52,7 +54,7 @@ import {
   sniffMediaType,
 } from './gate-media.js'
 import { exportIndexerData } from './export.js'
-import { addGateModerationRoutes } from './gate-moderation.js'
+import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -67,6 +69,7 @@ import {
 import { cachedValue } from './cache.js'
 import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
+import { InvalidDomainError, type SafetyList } from './safety.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import {
   listTips,
@@ -117,6 +120,10 @@ export function createApp(
     gateModerators?: Set<string>
     /** Whether they may (KRAO_GATE_MODERATION_ACCESS, default true) */
     gateModerationAccess?: boolean
+    /** The unsafe domain list (checkLinks, its admin methods) */
+    safety?: SafetyList
+    /** Who may change the unsafe domain list (a live set) */
+    safetyAdmins?: Set<string>
   },
 ): Express {
   const {
@@ -330,6 +337,13 @@ export function createApp(
     moderators: opts.gateModerators ?? new Set(),
     enabled: opts.gateModerationAccess ?? true,
     mediaUrl: (req, id) => mediaSigner.url(baseUrl(req), id),
+  })
+
+  addSafetyRoutes(server, db, {
+    idResolver,
+    gateDid,
+    safety: opts.safety,
+    admins: opts.safetyAdmins ?? new Set(),
   })
 
   // Krao: a copy of what the indexer holds about the account (Decree 13)
@@ -701,6 +715,9 @@ export function createApp(
   app.use('/v1/image', rateLimit(120))
   app.use('/nft-image', rateLimit(30))
   app.use('/xrpc/net.krao.actor.resolveNft', rateLimit(30))
+  // Cheap, but each call takes 20 items: enough for a client checking a feed
+  app.use('/xrpc/net.krao.safety.checkLinks', rateLimit(120))
+  app.use('/xrpc/net.krao.safety.checkAddresses', rateLimit(60))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))
@@ -866,6 +883,142 @@ export function createApp(
   app.use(server.router)
   app.use(errorHandler)
   return app
+}
+
+/*
+ * Krao safety: link checks against the unsafe domain list, its admin
+ * methods (safety admins, with an audit log), and address poisoning checks.
+ */
+function addSafetyRoutes(
+  server: Server,
+  db: Database,
+  opts: {
+    idResolver: IdResolver
+    gateDid: string
+    safety?: SafetyList
+    admins: Set<string>
+  },
+) {
+  const safety = net.krao.safety
+  const list = () => {
+    if (!opts.safety) throw new InvalidRequestError('Link checks are off')
+    return opts.safety
+  }
+  const adminAuth = (lxm: string) =>
+    moderatorAuth(
+      {
+        idResolver: opts.idResolver,
+        gateDid: opts.gateDid,
+        moderators: opts.admins,
+      },
+      lxm,
+    )
+  const did = (auth: { credentials: unknown }) =>
+    (auth.credentials as { did: string }).did
+
+  server.add(safety.checkLinks, async ({ input }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      results: input.body.urls.map((url) => {
+        const verdict = list().check(url)
+        return {
+          url,
+          unsafe: verdict.unsafe,
+          ...(verdict.domain ? { domain: verdict.domain } : {}),
+          ...(verdict.reason ? { reason: verdict.reason } : {}),
+        }
+      }),
+    },
+  }))
+
+  server.add(safety.checkAddresses, async ({ input }) => {
+    try {
+      const results = await checkAddresses(
+        db,
+        input.body.addresses,
+        input.body.expectedDid,
+      )
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          results: results.map((r) => ({
+            ...r,
+            owner: r.owner as `did:${string}:${string}` | undefined,
+            lookalikes: r.lookalikes.map((l) => ({
+              address: l.address,
+              did: l.did as `did:${string}:${string}`,
+            })),
+          })),
+        },
+      }
+    } catch (err) {
+      if (err instanceof InvalidAddressError) {
+        throw new InvalidRequestError(err.message, 'InvalidAddress')
+      }
+      throw err
+    }
+  })
+
+  const domainView = (row: {
+    domain: string
+    source: string
+    reason: string | null
+    addedAt: string
+  }) => ({
+    domain: row.domain,
+    source: row.source,
+    ...(row.reason ? { reason: row.reason } : {}),
+    addedAt: row.addedAt as DatetimeString,
+  })
+
+  server.add(safety.admin.addDomain, {
+    auth: adminAuth(safety.admin.addDomain.$lxm),
+    handler: async ({ auth, input }) => {
+      try {
+        const row = await list().addDomain(
+          did(auth),
+          input.body.domain,
+          input.body.reason,
+        )
+        return { encoding: 'application/json' as const, body: domainView(row) }
+      } catch (err) {
+        if (err instanceof InvalidDomainError) {
+          throw new InvalidRequestError(err.message, 'InvalidDomain')
+        }
+        throw err
+      }
+    },
+  })
+
+  server.add(safety.admin.removeDomain, {
+    auth: adminAuth(safety.admin.removeDomain.$lxm),
+    handler: async ({ auth, input }) => ({
+      encoding: 'application/json' as const,
+      body: {
+        removed: await list().removeDomain(did(auth), input.body.domain),
+      },
+    }),
+  })
+
+  server.add(safety.admin.listDomains, {
+    auth: adminAuth(safety.admin.listDomains.$lxm),
+    handler: async ({ params }) => {
+      const page = await list()
+        .listDomains({
+          source: params.source,
+          query: params.query,
+          limit: params.limit ?? 50,
+          cursor: params.cursor,
+        })
+        .catch(() => {
+          throw new InvalidRequestError('Malformed cursor')
+        })
+      return {
+        encoding: 'application/json' as const,
+        body: { domains: page.domains.map(domainView), cursor: page.cursor },
+      }
+    },
+  })
 }
 
 async function resolveActors(

@@ -84,6 +84,8 @@ export async function deleteFeedDataForDid(db: Database, did: string) {
   await db.deleteFrom('feed_post').where('did', '=', did).execute()
   await db.deleteFrom('feed_interaction').where('did', '=', did).execute()
   await db.deleteFrom('feed_generator').where('did', '=', did).execute()
+  await db.deleteFrom('post_link').where('did', '=', did).execute()
+  await db.deleteFrom('unsafe_post').where('did', '=', did).execute()
 }
 
 /**
@@ -177,6 +179,8 @@ export async function rankPopularPosts(
     .select(['uri', 'indexedAt', 'createdAt'])
     .where('indexedAt', '>=', since)
     .where(visibleDid('did'))
+    // Krao safety: posts linking to phishing or drainer sites
+    .where('uri', 'not in', (eb) => eb.selectFrom('unsafe_post').select('uri'))
     .orderBy('indexedAt', 'desc')
     .limit(POPULAR_MAX_POSTS)
     .execute()
@@ -250,7 +254,7 @@ function postedAt(post: { indexedAt: string; createdAt: string | null }) {
 const DISCOVERY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
- * Drop posts, likes/reposts and hashtags older than the discovery windows
+ * Drop posts, likes/reposts, hashtags and link hosts older than the discovery windows
  * (the "latest" feed keeps 30 days), and failed events older than that.
  * Follows and starter packs are kept: suggestions use all of them.
  */
@@ -262,5 +266,10 @@ export async function pruneOldDiscoveryData(db: Database, now = Date.now()) {
     .execute()
   await db.deleteFrom('feed_tag').where('indexedAt', '<', before).execute()
   await db.deleteFrom('feed_post').where('indexedAt', '<', before).execute()
+  await db.deleteFrom('post_link').where('indexedAt', '<', before).execute()
+  await db
+    .deleteFrom('unsafe_post')
+    .where('uri', 'not in', (eb) => eb.selectFrom('post_link').select('uri'))
+    .execute()
   await db.deleteFrom('failed_event').where('failedAt', '<', before).execute()
 }

@@ -208,8 +208,56 @@ export interface GateAccessLogTable {
   accessedAt: string
 }
 
+export type UnsafeDomainSource = 'list' | 'admin' | 'seed'
+
+/** A phishing or wallet-draining domain (see safety.ts); covers subdomains */
+export interface UnsafeDomainTable {
+  /** Lowercase, punycode */
+  domain: string
+  source: UnsafeDomainSource
+  reason: string | null
+  addedAt: string
+}
+
+/** Small settings of the safety list: its whitelist, fuzzy list, sync state */
+export interface SafetyStateTable {
+  key: string
+  value: string
+}
+
+/** A change an admin made to the unsafe domain list */
+export interface SafetyAuditLogTable {
+  id: Generated<number>
+  adminDid: string
+  action: string
+  domain: string
+  reason: string | null
+  at: string
+}
+
+/** A host a post by a Krao account links to (facets, external embeds) */
+export interface PostLinkTable {
+  uri: string
+  did: string
+  host: string
+  indexedAt: string
+}
+
+/** A post linking to an unsafe domain: kept out of Popular and trending */
+export interface UnsafePostTable {
+  uri: string
+  did: string
+  domain: string
+  flaggedAt: string
+}
+
 export interface DatabaseSchema {
   gate_access_log: GateAccessLogTable
+  unsafe_domain: UnsafeDomainTable
+  safety_state: SafetyStateTable
+  safety_audit_log: SafetyAuditLogTable
+  post_link: PostLinkTable
+  unsafe_post: UnsafePostTable
   wallet: WalletTable
   tip: TipTable
   nft_avatar: NftAvatarTable
@@ -278,6 +326,60 @@ const migrations = {
         .addColumn('accessedAt', 'varchar', (col) => col.notNull())
         .execute()
       await sql`create index gate_access_log_uri_idx on gate_access_log (uri, id)`.execute(
+        db,
+      )
+    },
+  },
+  '004-safety': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('unsafe_domain')
+        .addColumn('domain', 'varchar', (col) => col.notNull())
+        .addColumn('source', 'varchar', (col) => col.notNull())
+        .addColumn('reason', 'varchar')
+        .addColumn('addedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('unsafe_domain_pkey', ['domain', 'source'])
+        .execute()
+      await sql`create index unsafe_domain_source_idx on unsafe_domain (source)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('safety_state')
+        .addColumn('key', 'varchar', (col) => col.primaryKey())
+        .addColumn('value', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('safety_audit_log')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('adminDid', 'varchar', (col) => col.notNull())
+        .addColumn('action', 'varchar', (col) => col.notNull())
+        .addColumn('domain', 'varchar', (col) => col.notNull())
+        .addColumn('reason', 'varchar')
+        .addColumn('at', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('post_link')
+        .addColumn('uri', 'varchar', (col) => col.notNull())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('host', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('post_link_pkey', ['uri', 'host'])
+        .execute()
+      await sql`create index post_link_host_idx on post_link (host)`.execute(db)
+      await sql`create index post_link_did_idx on post_link (did)`.execute(db)
+      await sql`create index post_link_time_idx on post_link (indexedAt)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('unsafe_post')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('domain', 'varchar', (col) => col.notNull())
+        .addColumn('flaggedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      // Address poisoning checks look up wallets by their first and last
+      // characters (see address-check.ts, which must use these expressions)
+      await sql`create index wallet_evm_ends_idx on wallet (substr(evmAddress, 1, 6), substr(evmAddress, -4))`.execute(
         db,
       )
     },

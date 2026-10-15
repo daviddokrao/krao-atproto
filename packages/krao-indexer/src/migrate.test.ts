@@ -18,6 +18,7 @@ describe('migrateDb', () => {
       '001-initial',
       '002-gated-media-store',
       '003-gate-access-log',
+      '004-safety',
     ])
     await db.destroy()
   })
@@ -41,6 +42,7 @@ describe('migrateDb', () => {
       '001-initial',
       '002-gated-media-store',
       '003-gate-access-log',
+      '004-safety',
     ])
     await db.destroy()
   })
