@@ -1091,6 +1091,9 @@ importers:
       '@atproto/xrpc-server':
         specifier: workspace:^
         version: link:../xrpc-server
+      '@aws-sdk/client-s3':
+        specifier: ^3.879.0
+        version: 3.879.0
       '@krao/wallet':
         specifier: workspace:^
         version: link:../krao-wallet
