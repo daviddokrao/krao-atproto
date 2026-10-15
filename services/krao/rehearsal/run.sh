@@ -12,6 +12,7 @@ DC=(docker compose -p krao-rehearsal -f docker-compose.yml -f rehearsal/docker-c
 DATA_VOLUMES=(pds indexer chat video rewards push postgres)
 
 if [ "${1:-}" = down ]; then
+  grep -q ^OZONE_SERVER_DID rehearsal/.env || echo "OZONE_SERVER_DID=did:plc:placeholder" >> rehearsal/.env
   "${DC[@]}" down -v --remove-orphans
   exit 0
 fi
@@ -24,12 +25,12 @@ docker build -f Dockerfile --target tools -t krao-backend-tools:latest ../..
 
 step "Environment"
 docker run --rm krao-backend:latest node services/krao/rehearsal/gen-env.mjs > rehearsal/.env
-mkdir -p rehearsal/backups secrets
-"${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-
-step "Postgres, PLC, S3, Caddy"
 # Ozone's DID is made below; a placeholder lets compose parse the file
 echo "OZONE_SERVER_DID=did:plc:placeholder" >> rehearsal/.env
+mkdir -p rehearsal/backups secrets
+"${DC[@]}" down -v --remove-orphans
+
+step "Postgres, PLC, S3, Caddy"
 "${DC[@]}" up -d postgres plc s3 caddy
 until "${DC[@]}" exec -T caddy test -f /data/caddy/pki/authorities/local/root.crt; do sleep 1; done
 "${DC[@]}" exec -T caddy cat /data/caddy/pki/authorities/local/root.crt > rehearsal/caddy-root.crt
