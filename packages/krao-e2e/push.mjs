@@ -15,6 +15,7 @@ import {
   login,
   serviceAuth,
   sleep,
+  verifyPhone,
   xrpc,
 } from './lib.mjs'
 
@@ -46,6 +47,8 @@ async function signUp(name) {
     },
   })
   if (!res.ok) throw new Error(`createAccount: ${res.data.message}`)
+  // Posting and chat need a verified phone in the dev-env
+  await verifyPhone(res.data)
   // A display name, for the push titles
   await create(
     res.data,

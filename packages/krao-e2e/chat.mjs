@@ -10,6 +10,7 @@ import {
   checker,
   createRecord,
   login,
+  verifyPhone,
   xrpc,
 } from './lib.mjs'
 
@@ -51,6 +52,8 @@ async function freshAccount(prefix) {
     },
   })
   if (!res.ok) throw new Error(`createAccount: ${res.data.message}`)
+  // Chat needs a verified phone in the dev-env
+  await verifyPhone(res.data)
   return res.data
 }
 

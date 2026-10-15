@@ -4,23 +4,29 @@ End-to-end checks of the Krao features against a running local stack. They
 are plain Node scripts (no test runner) that print `PASS`/`FAIL` per check and
 exit non-zero on any failure.
 
-| Script                | Milestone | Covers                                                                           |
-| --------------------- | --------- | -------------------------------------------------------------------------------- |
-| `records.mjs`         | M2        | PDS validates `net.krao.*` records against their lexicons                        |
-| `wallet.mjs`          | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay                    |
-| `tip.mjs`             | M4        | ETH/USDC tips verified on-chain, cheating tips rejected                          |
-| `nft.mjs`             | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale                      |
-| `gate.mjs`            | M6        | Token gating, service auth, gated text absent from the CAR                       |
-| `feed.mjs`            | —         | Krao "latest" feed: generator, skeleton, AppView `getFeed`                       |
-| `link-preview.mjs`    | —         | Link previews and image proxy, SSRF guards (needs internet)                      |
-| `gifs.mjs`            | —         | GIF media relay and search (needs internet; search needs a Klipy key)            |
-| `starter-packs.mjs`   | —         | Short links and starter pack share cards                                         |
-| `video.mjs`           | —         | Multipart video upload, processing, PDS blob, HLS playback (ffmpeg)              |
-| `handles.mjs`         | —         | Handles that clash with app pages (short profile URLs) are reserved              |
-| `chat.mjs`            | —         | Direct and group chat through the PDS proxy (requests, joins, locks)             |
-| `discovery.mjs`       | —         | Popular feed, suggested accounts/feeds/starter packs, trending topics            |
-| `chat-moderation.mjs` | —         | `chat.bsky.moderation.*` for Ozone, chat lock                                    |
-| `referral.mjs`        | —         | Mandatory referral codes, pending/approved points, manual KYC, codes, revocation |
+| Script                | Milestone | Covers                                                                                                            |
+| --------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `records.mjs`         | M2        | PDS validates `net.krao.*` records against their lexicons                                                         |
+| `wallet.mjs`          | M3        | SIWE wallet links, copied proofs, sign in with wallet, replay                                                     |
+| `tip.mjs`             | M4        | ETH/USDC tips verified on-chain, cheating tips rejected                                                           |
+| `nft.mjs`             | M5        | `resolveNft`, verified NFT avatar, badges, re-check on sale                                                       |
+| `gate.mjs`            | M6        | Token gating, service auth, gated text absent from the CAR                                                        |
+| `feed.mjs`            | —         | Krao "latest" feed: generator, skeleton, AppView `getFeed`                                                        |
+| `link-preview.mjs`    | —         | Link previews and image proxy, SSRF guards (needs internet)                                                       |
+| `gifs.mjs`            | —         | GIF media relay and search (needs internet; search needs a Klipy key)                                             |
+| `starter-packs.mjs`   | —         | Short links and starter pack share cards                                                                          |
+| `video.mjs`           | —         | Multipart video upload, processing, PDS blob, HLS playback (ffmpeg)                                               |
+| `handles.mjs`         | —         | Handles that clash with app pages (short profile URLs) are reserved                                               |
+| `chat.mjs`            | —         | Direct and group chat through the PDS proxy (requests, joins, locks)                                              |
+| `discovery.mjs`       | —         | Popular feed, suggested accounts/feeds/starter packs, trending topics                                             |
+| `chat-moderation.mjs` | —         | `chat.bsky.moderation.*` for Ozone, chat lock                                                                     |
+| `referral.mjs`        | —         | Mandatory referral codes, pending/approved points, manual KYC, codes, revocation                                  |
+| `push.mjs`            | M25       | Device tokens through the AppView, pushes for likes, replies, chat, KYC                                           |
+| `compliance.mjs`      | M26       | Phone before posts/chat, one number per account, consent, exports, one-level referrals, gate moderation, deletion |
+
+Posting and chat need a verified phone in the dev-env: `login()` (and the
+groups' sign-up helpers) verify one through the real flow, reading the code
+from the rewards service's `/internal/dev/last-otp`.
 
 ## Prerequisites
 
