@@ -1,5 +1,6 @@
 import SqliteDB from 'better-sqlite3'
 import { type Generated, Kysely, SqliteDialect, sql } from 'kysely'
+import { runMigrations } from './migrate.js'
 
 export type WalletStatus = 'verified' | 'invalid'
 
@@ -222,7 +223,20 @@ export function createDb(location: string): Database {
   })
 }
 
+/**
+ * Versioned schema changes, applied in name order. 001 is the schema as it
+ * stood before versioning; it is idempotent, so databases made by older
+ * versions adopt it safely.
+ */
+const migrations = {
+  '001-initial': { up: (db: Kysely<any>) => initialSchema(db as Database) },
+}
+
 export async function migrateDb(db: Database): Promise<void> {
+  await runMigrations(db, migrations)
+}
+
+async function initialSchema(db: Database): Promise<void> {
   await db.schema
     .createTable('wallet')
     .ifNotExists()
