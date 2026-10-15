@@ -22,6 +22,15 @@ const indexer = await KraoIndexer.create({
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
   gateMediaSecret: process.env.KRAO_GATE_MEDIA_SECRET,
+  // A private bucket; credentials from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+  gateMediaS3: process.env.KRAO_GATE_MEDIA_S3_BUCKET
+    ? {
+        bucket: process.env.KRAO_GATE_MEDIA_S3_BUCKET,
+        region: process.env.KRAO_GATE_MEDIA_S3_REGION,
+        endpoint: process.env.KRAO_GATE_MEDIA_S3_ENDPOINT,
+        forcePathStyle: process.env.KRAO_GATE_MEDIA_S3_PATH_STYLE === 'true',
+      }
+    : undefined,
   klipyApiKey: process.env.KRAO_KLIPY_API_KEY,
   webUrl: process.env.KRAO_WEB_URL,
   handleResolverUrl:

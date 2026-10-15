@@ -79,6 +79,7 @@ import {
   ownedEvmAddresses,
   uniqueWallets,
 } from './wallets.js'
+import type { MediaBlobStore } from './media-store.js'
 
 type ChainProfileView = net.krao.actor.defs.ChainProfileView
 type WalletView = net.krao.actor.defs.WalletView
@@ -106,6 +107,8 @@ export function createApp(
     publicUrl?: string
     /** Secret for signed gated media URLs (default: random per process) */
     gateMediaSecret?: string
+    /** Where gated media bytes go; in the database when unset */
+    mediaBlobs?: MediaBlobStore
     /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
     discoveryCacheMs?: number
   },
@@ -301,7 +304,7 @@ export function createApp(
             'UploadLimitExceeded',
           )
         }
-        return insertGatedMedia(db, caller, mimeType, data)
+        return insertGatedMedia(db, caller, mimeType, data, opts.mediaBlobs)
       })
       return {
         encoding: 'application/json' as const,
@@ -743,7 +746,7 @@ export function createApp(
    * The NFT's image as a 512px PNG, for use as a profile avatar. Only the
    * image named by the token's own on-chain metadata is fetched.
    */
-  addGatedMediaRoute(app, db, mediaSigner)
+  addGatedMediaRoute(app, db, mediaSigner, opts.mediaBlobs)
   addGifRoutes(app, klipyApiKey)
   addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 

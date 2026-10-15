@@ -101,9 +101,18 @@ export interface GatedMediaTable {
   id: string
   did: string
   mimeType: string
+  /** The bytes when `store` is 'db'; empty when they live elsewhere */
   data: Buffer
   size: number
   createdAt: string
+  /** Where the bytes are: 'db' (this row) or 's3' */
+  store: Generated<string>
+}
+
+/** S3 objects of deleted gated_media rows, waiting to be removed */
+export interface GatedMediaTrashTable {
+  id: string
+  deletedAt: string
 }
 
 export interface CursorTable {
@@ -204,6 +213,7 @@ export interface DatabaseSchema {
   short_link: ShortLinkTable
   gated_content: GatedContentTable
   gated_media: GatedMediaTable
+  gated_media_trash: GatedMediaTrashTable
   cursor: CursorTable
   failed_event: FailedEventTable
   hidden_actor: HiddenActorTable
@@ -230,6 +240,23 @@ export function createDb(location: string): Database {
  */
 const migrations = {
   '001-initial': { up: (db: Kysely<any>) => initialSchema(db as Database) },
+  '002-gated-media-store': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .alterTable('gated_media')
+        .addColumn('store', 'varchar', (col) => col.notNull().defaultTo('db'))
+        .execute()
+      await db.schema
+        .createTable('gated_media_trash')
+        .addColumn('id', 'varchar', (col) => col.primaryKey())
+        .addColumn('deletedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      // Every way a row goes away queues its object, see purgeMediaTrash
+      await sql`create trigger gated_media_trash_on_delete after delete on gated_media when old.store = 's3' begin insert or ignore into gated_media_trash (id, deletedAt) values (old.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')); end`.execute(
+        db,
+      )
+    },
+  },
 }
 
 export async function migrateDb(db: Database): Promise<void> {

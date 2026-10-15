@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Express } from 'express'
 import { sql } from 'kysely'
 import type { Database } from './db.js'
+import type { MediaBlobStore } from './media-store.js'
 
 /*
  * Media for token-gated posts. It lives only in the gate service, never as a
@@ -84,17 +85,21 @@ export async function insertGatedMedia(
   did: string,
   mimeType: string,
   data: Buffer,
+  blobs?: MediaBlobStore,
 ): Promise<string> {
   const id = randomBytes(16).toString('hex')
+  // Bytes first: a row must never point at an object that is not there
+  if (blobs) await blobs.put(id, data, mimeType)
   await db
     .insertInto('gated_media')
     .values({
       id,
       did,
       mimeType,
-      data,
+      data: blobs ? Buffer.alloc(0) : data,
       size: data.length,
       createdAt: new Date().toISOString(),
+      store: blobs ? 's3' : 'db',
     })
     .execute()
   return id
@@ -247,6 +252,7 @@ export function addGatedMediaRoute(
   app: Express,
   db: Database,
   signer: MediaSigner,
+  blobs?: MediaBlobStore,
 ) {
   app.get(`${GATED_MEDIA_PATH}:id`, async (req, res) => {
     const { id } = req.params
@@ -264,14 +270,16 @@ export function addGatedMediaRoute(
     // Size first: a range request reads only its slice, not the whole file
     const row = await db
       .selectFrom('gated_media')
-      .select(['mimeType', 'size'])
+      .select(['mimeType', 'size', 'store'])
       .where('id', '=', id)
       .executeTakeFirst()
-    if (!row) {
+    if (!row || (row.store !== 'db' && !blobs)) {
+      if (row) console.error(`Krao gate: no store configured for ${row.store} media`)
       res.status(404).json({ error: 'NotFound' })
       return
     }
     const slice = async (start: number, length: number) => {
+      if (row.store !== 'db' && blobs) return blobs.read(id, start, length)
       const part = await db
         .selectFrom('gated_media')
         .select(sql<Buffer>`substr(data, ${start + 1}, ${length})`.as('bytes'))

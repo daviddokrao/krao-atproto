@@ -32,6 +32,7 @@ import {
   upsertFeedFollow,
 } from './discovery.js'
 import { deleteOrphanedMedia } from './gate-media.js'
+import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
 import {
   GATE_RULE_COLLECTION,
   deleteContentWithoutRule,
@@ -152,6 +153,7 @@ export class FirehoseIndexer {
       () =>
         void deleteContentWithoutRule(this.db)
           .then(() => deleteOrphanedMedia(this.db))
+          .then(() => purgeMediaTrash(this.db, this.mediaBlobs))
           .then(() => pruneOldDiscoveryData(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
@@ -159,6 +161,9 @@ export class FirehoseIndexer {
       60 * 60 * 1000,
     )
   }
+
+  /** Where gated media bytes live when not in the database */
+  mediaBlobs?: MediaBlobStore
 
   private destroyed = false
 
