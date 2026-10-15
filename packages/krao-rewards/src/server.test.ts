@@ -3,6 +3,7 @@ import type http from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IdResolver } from '@atproto/identity'
 import { type Database, createDb, migrateDb } from './db.js'
+import { PhoneCrypto, PhoneService, type SmsProvider } from './phone.js'
 import { createApp } from './server.js'
 import { RewardsService } from './service.js'
 
@@ -10,6 +11,7 @@ const TOKEN = 'internal-token-for-tests-0123456789'
 
 let db: Database
 let service: RewardsService
+let phone: PhoneService
 let server: http.Server
 let base: string
 
@@ -18,6 +20,13 @@ beforeEach(async () => {
   await migrateDb(db)
   service = new RewardsService(db)
   await service.seedRules()
+  const sms: SmsProvider = { name: 'log', send: async () => {} }
+  phone = new PhoneService(
+    db,
+    new PhoneCrypto({ hmacSecret: 'h'.repeat(32), encKey: 'ab'.repeat(32) }),
+    sms,
+  )
+  phone.devCodes = new Map()
   const app = createApp({
     service,
     // Only user-authenticated XRPC methods resolve DIDs; not used here
@@ -28,6 +37,7 @@ beforeEach(async () => {
     kycReviewerDids: new Set(),
     kycProvider: null,
     manualReview: { dailyLimit: 10, requireSecondApprover: false },
+    phone,
   })
   server = app.listen(0)
   base = `http://localhost:${(server.address() as AddressInfo).port}`
@@ -97,6 +107,25 @@ describe('rewards HTTP routes', () => {
       body: JSON.stringify({ did: 'bob', code }),
     })
     expect(bad.status).toBe(400)
+  })
+
+  it('tells the PDS whether an account verified its phone', async () => {
+    const did = 'did:plc:alice'
+    const before = await internal(`/internal/phone-status?did=${did}`)
+    expect(await before.json()).toEqual({ verified: false })
+    await phone.requestCode(did, '0912345678')
+    // The dev route gives the code the log driver sent
+    const last = await internal(`/internal/dev/last-otp?did=${did}`)
+    const { code } = (await last.json()) as { code: string }
+    await phone.verifyCode(did, '+84912345678', code)
+    const after = await internal(`/internal/phone-status?did=${did}`)
+    expect(await after.json()).toEqual({ verified: true })
+    const guarded = await internal(
+      `/internal/phone-status?did=${did}`,
+      {},
+      'wrong',
+    )
+    expect(guarded.status).toBe(401)
   })
 
   it('answers malformed JSON with a 400, not a 500', async () => {

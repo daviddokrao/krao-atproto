@@ -28,6 +28,26 @@ export class PushClient {
         console.error(`Krao push: ${event.kind} failed`, err)
       })
   }
+
+  /**
+   * The account's devices as the push service knows them, by platform only
+   * (for data exports: the push service is not public)
+   */
+  async devices(
+    did: string,
+  ): Promise<{ count: number; platforms: Record<string, number> }> {
+    const url = new URL('/internal/devices', this.url)
+    url.searchParams.set('did', did)
+    const res = await this.fetchFn(url, {
+      headers: { authorization: `Bearer ${this.token}` },
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!res.ok) throw new Error(`Krao push: devices got ${res.status}`)
+    return (await res.json()) as {
+      count: number
+      platforms: Record<string, number>
+    }
+  }
 }
 
 /** A client when both settings are there, else none (pushes are off) */

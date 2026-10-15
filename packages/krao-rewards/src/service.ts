@@ -13,6 +13,7 @@ import type {
   RewardRuleTable,
   Vesting,
 } from './db.js'
+import { DEFAULT_INVITER_CAP_PER_DAY } from './db.js'
 
 type Db = Database | Transaction<DatabaseSchema>
 
@@ -92,7 +93,7 @@ export const DEFAULT_RULES: RuleInput[] = [
     validFrom: null,
     validUntil: null,
     capPerBeneficiary: null,
-    capPerDay: null,
+    capPerDay: DEFAULT_INVITER_CAP_PER_DAY,
   },
   {
     id: 'referral.invitee',
@@ -110,6 +111,9 @@ export const DEFAULT_RULES: RuleInput[] = [
     capPerDay: null,
   },
 ]
+
+/** Who a rule may reward: referral rewards are one level only (no MLM) */
+const ONE_LEVEL = new Set<string>(['actor', 'referrer'])
 
 export type CodeCheck =
   | { valid: true; code: ReferralCodeTable }
@@ -312,22 +316,14 @@ export class RewardsService {
           ? 'over_limit'
           : 'invalid_code'
       const referrerDid = row?.ownerDid ?? null
-      const referrer2Did = referrerDid
-        ? ((
-            await tx
-              .selectFrom('referral')
-              .select('referrerDid')
-              .where('did', '=', referrerDid)
-              .executeTakeFirst()
-          )?.referrerDid ?? null)
-        : null
       await tx
         .insertInto('referral')
         .values({
           did,
           code,
           referrerDid,
-          referrer2Did,
+          // Referral rewards are one level only: the chain is not kept
+          referrer2Did: null,
           codeKind: row?.kind ?? null,
           campaignId: row?.campaignId ?? null,
           flag,
@@ -343,7 +339,6 @@ export class RewardsService {
           type: 'account.created',
           actorDid: did,
           referrerDid,
-          referrer2Did,
           codeKind: row?.kind ?? null,
           campaignId: row?.campaignId ?? null,
           createdAt,
@@ -396,6 +391,12 @@ export class RewardsService {
   }
 
   async upsertRule(admin: string, input: RuleInput) {
+    if (!ONE_LEVEL.has(input.beneficiary)) {
+      throw new RewardsError(
+        'MultiLevelReferral',
+        'Referral rewards are one level only: the beneficiary must be the actor or its referrer',
+      )
+    }
     return this.db.transaction().execute(async (tx) => {
       const old = await tx
         .selectFrom('reward_rule')
@@ -447,7 +448,6 @@ export class RewardsService {
       type: RewardEvent
       actorDid: string
       referrerDid: string | null
-      referrer2Did: string | null
       codeKind: CodeKind | null
       campaignId: string | null
       createdAt: string
@@ -483,7 +483,6 @@ export class RewardsService {
     const beneficiaries: Record<Beneficiary, string | null> = {
       actor: event.actorDid,
       referrer: event.referrerDid,
-      referrer2: event.referrer2Did,
     }
     const touched = new Set<string>([event.actorDid])
     for (const rule of rules) {
@@ -496,7 +495,10 @@ export class RewardsService {
         continue
       }
       if (rule.campaignId && rule.campaignId !== event.campaignId) continue
-      const did = beneficiaries[rule.beneficiary]
+      // Rules from before referrals became one level may name others
+      const did = ONE_LEVEL.has(rule.beneficiary)
+        ? beneficiaries[rule.beneficiary]
+        : null
       if (!did || (await this.isTakenDown(tx, did))) continue
       // The other side of a referral, for kyc:related
       const relatedDid =
@@ -818,6 +820,10 @@ export class RewardsService {
           ]),
         )
         .execute()
+      // Its phone number is free again (a takedown keeps it reserved)
+      await tx.deleteFrom('phone_verification').where('did', '=', did).execute()
+      await tx.deleteFrom('phone_otp').where('did', '=', did).execute()
+      await tx.deleteFrom('phone_send_log').where('did', '=', did).execute()
       await this.audit(tx, 'system', 'account.deleted', did)
     })
   }
@@ -834,7 +840,6 @@ export class RewardsService {
       type: 'kyc.approved',
       actorDid: did,
       referrerDid: referral?.referrerDid ?? null,
-      referrer2Did: referral?.referrer2Did ?? null,
       codeKind: referral?.codeKind ?? null,
       campaignId: referral?.campaignId ?? null,
       createdAt: now(),

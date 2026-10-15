@@ -22,7 +22,14 @@ import {
   pendingSecondApproval,
   reviewKyc,
 } from './kyc.js'
+import {
+  type PushDevices,
+  exportRewardsData,
+  listConsents,
+  recordConsent,
+} from './account.js'
 import { net } from './lexicons/index.js'
+import type { PhoneService } from './phone.js'
 import {
   type EntryView,
   RewardsError,
@@ -41,10 +48,16 @@ const json = (body: unknown) => ({
   body: body as never,
 })
 
-const asXrpcError = (err: unknown) =>
-  err instanceof RewardsError
-    ? new InvalidRequestError(err.message, err.error)
-    : err
+const asXrpcError = (err: unknown) => {
+  if (!(err instanceof RewardsError)) return err
+  if (err.error === 'RateLimitExceeded') {
+    return new XRPCError(ResponseType.RateLimitExceeded, err.message)
+  }
+  if (err.error === 'SmsFailed') {
+    return new XRPCError(ResponseType.UpstreamFailure, err.message, err.error)
+  }
+  return new InvalidRequestError(err.message, err.error)
+}
 
 /** Runs a handler, turning RewardsErrors into XRPC errors */
 const wrap = async <T>(fn: () => Promise<T>) => {
@@ -108,6 +121,10 @@ export type AppOptions = {
   kycReviewerDids: Set<string>
   kycProvider: KycProvider | null
   manualReview: ManualReviewConfig
+  /** Phone verification; none without an SMS provider */
+  phone: PhoneService | null
+  /** The push service's device counts, for data exports */
+  pushDevices?: (did: string) => Promise<PushDevices>
 }
 
 export function createApp(opts: AppOptions): Express {
@@ -338,6 +355,96 @@ export function createApp(opts: AppOptions): Express {
     },
   })
 
+  // Phone
+  // -----
+
+  const phoneService = () => {
+    if (!opts.phone) {
+      throw new InvalidRequestError(
+        'Phone verification is not available yet',
+        'PhoneUnavailable',
+      )
+    }
+    return opts.phone
+  }
+
+  server.add(net.krao.phone.getStatus, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json(
+        clean({
+          ...(opts.phone
+            ? await opts.phone.status(did(auth))
+            : { verified: false }),
+          available: !!opts.phone,
+        }),
+      ),
+  })
+
+  server.add(net.krao.phone.requestCode, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      wrap(async () =>
+        json(await phoneService().requestCode(did(auth), input.body.phone)),
+      ),
+  })
+
+  server.add(net.krao.phone.verifyCode, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      wrap(async () => {
+        const status = await phoneService().verifyCode(
+          did(auth),
+          input.body.phone,
+          input.body.code,
+        )
+        return json(clean({ ...status, available: true }))
+      }),
+  })
+
+  // Consent and data export
+  // -----------------------
+
+  server.add(net.krao.account.recordConsent, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      wrap(async () =>
+        json(
+          await recordConsent(
+            service.db,
+            did(auth),
+            input.body.version,
+            input.body.items,
+          ),
+        ),
+      ),
+  })
+
+  server.add(net.krao.account.getConsent, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json({ consents: await listConsents(service.db, did(auth)) }),
+  })
+
+  server.add(net.krao.account.exportData, {
+    auth: userAuth,
+    handler: async ({ auth }) => {
+      const viewer = did(auth)
+      const pushDevices = opts.pushDevices
+      return json({
+        service: 'rewards',
+        did: viewer,
+        exportedAt: new Date().toISOString(),
+        data: await exportRewardsData(
+          service,
+          opts.phone,
+          viewer,
+          pushDevices ? () => pushDevices(viewer) : undefined,
+        ),
+      })
+    },
+  })
+
   // Admin
   // -----
 
@@ -507,25 +614,26 @@ export function createApp(opts: AppOptions): Express {
 
   server.add(admin.upsertRule, {
     auth: adminAuth,
-    handler: async ({ auth, input }) => {
-      const body = input.body
-      const rule = await service.upsertRule(did(auth), {
-        id: body.id,
-        enabled: body.enabled,
-        description: body.description ?? null,
-        event: body.event as Rule['event'],
-        beneficiary: body.beneficiary as Rule['beneficiary'],
-        amount: body.amount,
-        vesting: body.vesting as Rule['vesting'],
-        codeKinds: (body.codeKinds ?? []) as Rule['codeKinds'],
-        campaignId: body.campaignId ?? null,
-        validFrom: body.validFrom ?? null,
-        validUntil: body.validUntil ?? null,
-        capPerBeneficiary: body.capPerBeneficiary ?? null,
-        capPerDay: body.capPerDay ?? null,
-      })
-      return json(ruleView(rule))
-    },
+    handler: async ({ auth, input }) =>
+      wrap(async () => {
+        const body = input.body
+        const rule = await service.upsertRule(did(auth), {
+          id: body.id,
+          enabled: body.enabled,
+          description: body.description ?? null,
+          event: body.event as Rule['event'],
+          beneficiary: body.beneficiary as Rule['beneficiary'],
+          amount: body.amount,
+          vesting: body.vesting as Rule['vesting'],
+          codeKinds: (body.codeKinds ?? []) as Rule['codeKinds'],
+          campaignId: body.campaignId ?? null,
+          validFrom: body.validFrom ?? null,
+          validUntil: body.validUntil ?? null,
+          capPerBeneficiary: body.capPerBeneficiary ?? null,
+          capPerDay: body.capPerDay ?? null,
+        })
+        return json(ruleView(rule))
+      }),
   })
 
   server.add(admin.adjustPoints, {
@@ -613,6 +721,32 @@ export function createApp(opts: AppOptions): Express {
       .then((check) => res.json({ valid: check.valid }))
       .catch(next)
   })
+
+  // The PDS and chat service: may this account post and message?
+  app.get('/internal/phone-status', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({
+      verified: opts.phone ? await opts.phone.isVerified(did) : false,
+    })
+  })
+
+  // Development only (the log SMS driver): the last code sent to an account
+  const devCodes = opts.phone?.devCodes
+  if (devCodes) {
+    app.get('/internal/dev/last-otp', internalAuth, (req, res) => {
+      const did = typeof req.query.did === 'string' ? req.query.did : ''
+      const code = devCodes.get(did)
+      if (!code) {
+        res.status(404).json({ error: 'NotFound' })
+        return
+      }
+      res.json({ code })
+    })
+  }
 
   app.post(
     '/internal/referrals',

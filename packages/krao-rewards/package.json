@@ -34,7 +34,7 @@
     "vitest": "^4.1.10"
   },
   "scripts": {
-    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include 'net.krao.referral.*' 'net.krao.points.*' 'net.krao.kyc.*' 'net.krao.rewards.*'",
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include 'net.krao.referral.*' 'net.krao.points.*' 'net.krao.kyc.*' 'net.krao.rewards.*' 'net.krao.phone.*' 'net.krao.account.*'",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
     "test": "vitest run",

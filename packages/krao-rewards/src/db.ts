@@ -8,7 +8,8 @@ export type EntryStatus = 'pending' | 'approved' | 'void'
 /** Conditions for a ledger entry to be approved */
 export type Vesting = 'kyc:self' | 'kyc:related'
 export type RewardEvent = 'account.created' | 'kyc.approved'
-export type Beneficiary = 'actor' | 'referrer' | 'referrer2'
+/** Referral rewards are one level only (no referrer's referrer) */
+export type Beneficiary = 'actor' | 'referrer'
 
 export interface ReferralCodeTable {
   /** Upper case */
@@ -129,6 +130,44 @@ export interface AuditLogTable {
   createdAt: string
 }
 
+/** An account's verified phone number (see phone.ts); one account per number */
+export interface PhoneVerificationTable {
+  did: string
+  /** HMAC of the E.164 number: unique */
+  phoneHash: string
+  /** AES-256-GCM of the E.164 number, kept for the authorities */
+  phoneEnc: string
+  verifiedAt: string
+}
+
+/** The code last sent to an account, until used or expired */
+export interface PhoneOtpTable {
+  did: string
+  phoneHash: string
+  codeHash: string
+  attempts: number
+  expiresAt: string
+  createdAt: string
+}
+
+/** Codes sent, for the hourly limits per account and per number */
+export interface PhoneSendLogTable {
+  id: Generated<number>
+  did: string
+  phoneHash: string
+  sentAt: string
+}
+
+/** What an account agreed to, and when */
+export interface ConsentRecordTable {
+  id: Generated<number>
+  did: string
+  version: string
+  /** JSON string[] */
+  items: string
+  createdAt: string
+}
+
 export interface DatabaseSchema {
   referral_code: ReferralCodeTable
   referral: ReferralTable
@@ -139,6 +178,10 @@ export interface DatabaseSchema {
   points_entry: PointsEntryTable
   audit_log: AuditLogTable
   taken_down: TakenDownTable
+  phone_verification: PhoneVerificationTable
+  phone_otp: PhoneOtpTable
+  phone_send_log: PhoneSendLogTable
+  consent_record: ConsentRecordTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -159,7 +202,101 @@ export function createDb(location: string): Database {
  */
 const migrations = {
   '001-initial': { up: (db: Kysely<any>) => initialSchema(db as Database) },
+  '002-phone-consent': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('phone_verification')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('phoneHash', 'varchar', (col) => col.notNull().unique())
+        .addColumn('phoneEnc', 'varchar', (col) => col.notNull())
+        .addColumn('verifiedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('phone_otp')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('phoneHash', 'varchar', (col) => col.notNull())
+        .addColumn('codeHash', 'varchar', (col) => col.notNull())
+        .addColumn('attempts', 'integer', (col) => col.notNull())
+        .addColumn('expiresAt', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('phone_send_log')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('phoneHash', 'varchar', (col) => col.notNull())
+        .addColumn('sentAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index phone_send_log_did_idx on phone_send_log (did, sentAt)`.execute(
+        db,
+      )
+      await sql`create index phone_send_log_phone_idx on phone_send_log (phoneHash, sentAt)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('consent_record')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('version', 'varchar', (col) => col.notNull())
+        .addColumn('items', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index consent_record_did_idx on consent_record (did, id)`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Referral rewards are one level only, with a daily cap: the default
+   * inviter rule gets one if it has none (20 x 100 = 2,000 points a day),
+   * and rules for a referrer's referrer stop.
+   */
+  '003-one-level-referrals': {
+    up: async (db: Kysely<any>) => {
+      const at = new Date().toISOString()
+      const capped = await db
+        .updateTable('reward_rule')
+        .set((eb: any) => ({
+          capPerDay: DEFAULT_INVITER_CAP_PER_DAY,
+          version: eb('version', '+', 1),
+          updatedAt: at,
+          updatedBy: 'system',
+        }))
+        .where('id', '=', 'referral.inviter')
+        .where('capPerDay', 'is', null)
+        .executeTakeFirst()
+      const stopped = await db
+        .updateTable('reward_rule')
+        .set((eb: any) => ({
+          enabled: 0,
+          version: eb('version', '+', 1),
+          updatedAt: at,
+          updatedBy: 'system',
+        }))
+        .where('beneficiary', 'not in', ['actor', 'referrer'])
+        .where('enabled', '=', 1)
+        .executeTakeFirst()
+      const counts = {
+        capped: Number(capped.numUpdatedRows),
+        disabled: Number(stopped.numUpdatedRows),
+      }
+      if (!counts.capped && !counts.disabled) return
+      await db
+        .insertInto('audit_log')
+        .values({
+          actor: 'system',
+          action: 'rule.oneLevel',
+          subject: null,
+          data: JSON.stringify(counts),
+          createdAt: at,
+        })
+        .execute()
+    },
+  },
 }
+
+/** Daily cap of the default inviter rule: 20 sign-ups, 2,000 points */
+export const DEFAULT_INVITER_CAP_PER_DAY = 20
 
 export async function migrateDb(db: Database): Promise<void> {
   await runMigrations(db, migrations)
