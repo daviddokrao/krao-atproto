@@ -119,6 +119,8 @@ services:
       BSKY_SUGGESTIONS_URL: http://indexer:2589
       BSKY_TOPICS_URL: http://indexer:2589
       BSKY_IRIS_URL: http://indexer:2589
+      # Krao's own verifier accounts (blue check)
+      KRAO_TRUSTED_VERIFIER_DIDS: ${KRAO_TRUSTED_VERIFIER_DIDS:-}
     healthcheck:
       test:
         [
@@ -208,6 +210,8 @@ services:
       # Ozone and the moderators' accounts may read gated content (logged)
       KRAO_GATE_MODERATOR_DIDS: ${OZONE_SERVER_DID},${KRAO_GATE_MODERATOR_DIDS:-}
       KRAO_GATE_MODERATION_ACCESS: ${KRAO_GATE_MODERATION_ACCESS:-true}
+      KRAO_PHISHING_LIST_URL: ${KRAO_PHISHING_LIST_URL:-}
+      KRAO_SAFETY_ADMIN_DIDS: ${KRAO_SAFETY_ADMIN_DIDS:-}
 
   chat:
     <<: *backend

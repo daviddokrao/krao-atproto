@@ -278,9 +278,35 @@ const run = async () => {
   const admin = await createKraoAccount(network.pds.url, 'rewards-admin')
   kraoRewards.addAdmin(admin)
   kraoIndexer.addGateModerator(admin)
+  kraoIndexer.addSafetyAdmin(admin)
   console.log(
-    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin and gate moderator rewards-admin.test (${admin})`,
+    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin, gate moderator and safety admin rewards-admin.test (${admin})`,
   )
+  /*
+   * Krao's verifier: its app.bsky.graph.verification records give the blue
+   * check (the seed script verifies krao.test with it). Production sets
+   * verifiers with KRAO_TRUSTED_VERIFIER_DIDS, which works here too.
+   */
+  const verifier = await createKraoAccount(network.pds.url, 'krao-verify')
+  for (const did of [
+    verifier,
+    ...(process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '').split(','),
+  ]) {
+    if (!did.trim().startsWith('did:')) continue
+    await network.bsky.db.db
+      .insertInto('actor')
+      .values({
+        did: did.trim(),
+        // Old, so the AppView still indexes the handle when it sees one
+        indexedAt: new Date(0).toISOString(),
+        trustedVerifier: true,
+      })
+      .onConflict((oc) =>
+        oc.column('did').doUpdateSet({ trustedVerifier: true }),
+      )
+      .execute()
+  }
+  console.log(`☑️ Trusted verifier krao-verify.test (${verifier})`)
   // Like sign-up codes: the mock accounts above posted without a phone
   if (PHONE_REQUIRED) {
     network.pds.ctx.cfg.kraoRewards!.phoneRequired = true

@@ -286,6 +286,50 @@ async function publishFeeds(session) {
   }
 }
 
+/**
+ * The dev-env's trusted verifier (krao-verify.test) verifies krao.test, so
+ * the official account shows the blue check. The record names the subject's
+ * handle and display name, which must stay as they are for it to count.
+ */
+async function verifyOfficialAccount(subject, user) {
+  const verifier = await login('krao-verify.test', PASSWORD).catch(() => null)
+  if (!verifier) {
+    console.log(
+      '⚠️  Không có krao-verify.test (dev-env cũ?), bỏ qua huy hiệu xác minh',
+    )
+    return
+  }
+  await xrpc('com.atproto.repo.putRecord', {
+    token: verifier.accessJwt,
+    body: {
+      repo: verifier.did,
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {
+        $type: 'app.bsky.actor.profile',
+        displayName: 'Krao Verify',
+        description: 'Tài khoản xác minh chính thức của Krao.',
+      },
+    },
+  })
+  const { records } = await xrpc('com.atproto.repo.listRecords', {
+    query: {
+      repo: verifier.did,
+      collection: 'app.bsky.graph.verification',
+      limit: 100,
+    },
+  })
+  if (records.some((r) => r.value.subject === subject.did)) return
+  await createRecord(verifier, 'app.bsky.graph.verification', {
+    $type: 'app.bsky.graph.verification',
+    subject: subject.did,
+    handle: user.handle,
+    displayName: user.displayName,
+    createdAt: now(),
+  })
+  console.log(`☑️  ${user.handle} được krao-verify.test xác minh`)
+}
+
 async function main() {
   await xrpc('com.atproto.server.describeServer').catch(() => {
     throw new Error(`Không kết nối được PDS tại ${PDS}. Dev-env đã chạy chưa?`)
@@ -321,6 +365,7 @@ async function main() {
     await verifyPhone(sessions['alice.test'])
   }
   await publishFeeds(sessions['krao.test'])
+  await verifyOfficialAccount(sessions['krao.test'], USERS[0])
   if (process.argv.includes('--prefs-only')) return
 
   const posts = []
