@@ -65,6 +65,8 @@ services:
       PDS_KRAO_INDEXER_URL: http://indexer:2589
       PDS_KRAO_REWARDS_URL: http://rewards:2592
       PDS_KRAO_REWARDS_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN:?set KRAO_REWARDS_INTERNAL_TOKEN}
+      # Decree 147: posting needs a phone number verified with rewards
+      PDS_KRAO_PHONE_REQUIRED: 'true'
       PDS_HOME_URL: https://${KRAO_DOMAIN}/
       PDS_TERMS_OF_SERVICE_URL: https://${KRAO_DOMAIN}/terms
       PDS_PRIVACY_POLICY_URL: https://${KRAO_DOMAIN}/privacy
@@ -201,6 +203,9 @@ services:
       KRAO_KLIPY_API_KEY: ${KRAO_KLIPY_API_KEY:-}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN:?set KRAO_PUSH_INTERNAL_TOKEN}
+      # Ozone and the moderators' accounts may read gated content (logged)
+      KRAO_GATE_MODERATOR_DIDS: ${OZONE_SERVER_DID},${KRAO_GATE_MODERATOR_DIDS:-}
+      KRAO_GATE_MODERATION_ACCESS: ${KRAO_GATE_MODERATION_ACCESS:-true}
 
   chat:
     <<: *backend
@@ -216,6 +221,11 @@ services:
       KRAO_CHAT_MODERATOR_DIDS: ${OZONE_SERVER_DID}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      # Decree 147: sending needs a verified phone; deletions come by firehose
+      KRAO_CHAT_PHONE_REQUIRED: 'true'
+      KRAO_REWARDS_URL: http://rewards:2592
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
+      KRAO_FIREHOSE_URL: ws://pds:3000
 
   video:
     <<: *backend
@@ -251,6 +261,12 @@ services:
       SUMSUB_LEVEL: ${SUMSUB_LEVEL:-}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      # Phone verification (Decree 147): http, or log until a gateway is chosen
+      KRAO_SMS_PROVIDER: ${KRAO_SMS_PROVIDER:?set KRAO_SMS_PROVIDER (http, or log)}
+      KRAO_SMS_HTTP_URL: ${KRAO_SMS_HTTP_URL:-}
+      KRAO_SMS_HTTP_TOKEN: ${KRAO_SMS_HTTP_TOKEN:-}
+      KRAO_PHONE_HMAC_SECRET: ${KRAO_PHONE_HMAC_SECRET:?set KRAO_PHONE_HMAC_SECRET}
+      KRAO_PHONE_ENC_KEY: ${KRAO_PHONE_ENC_KEY:?set KRAO_PHONE_ENC_KEY}
 
   push:
     <<: *backend
@@ -261,7 +277,10 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
+      <<: *plc
       KRAO_PUSH_PORT: 2593
+      # Devices of deleted accounts are dropped (account events only)
+      KRAO_FIREHOSE_URL: ws://pds:3000
       KRAO_PUSH_DB: /data/push.sqlite
       KRAO_PUSH_COURIER_KEY: ${KRAO_PUSH_COURIER_KEY}
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}

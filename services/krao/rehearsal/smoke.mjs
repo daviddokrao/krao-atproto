@@ -114,7 +114,39 @@ if (mode === 'create') {
       { displayName: name },
       'self',
     )
+    const digits = String(Math.floor(Math.random() * 1e7)).padStart(7, '0')
+    await verifyPhone(res.data, `+8490${digits}`)
     return res.data
+  }
+  /*
+   * Posting and chat need a verified phone. The rehearsal's rewards service
+   * logs SMS codes and, in dev mode, hands them out on its internal route.
+   */
+  const verifyPhone = async (s, phone) => {
+    const rewardsDid = `did:web:rewards.${D}`
+    const call = async (method, body) =>
+      xrpc(host('rewards'), method, {
+        token: await serviceAuth(s, rewardsDid, method),
+        body,
+      })
+    const sent = await call('net.krao.phone.requestCode', { phone })
+    const otp = await fetch(
+      `http://rewards:2592/internal/dev/last-otp?did=${encodeURIComponent(s.did)}`,
+      {
+        headers: {
+          authorization: `Bearer ${process.env.KRAO_REWARDS_INTERNAL_TOKEN}`,
+        },
+      },
+    ).then((r) => r.json())
+    const verified = await call('net.krao.phone.verifyCode', {
+      phone,
+      code: otp.code,
+    })
+    check(
+      `${s.handle.split('.')[0]} verifies a phone number`,
+      sent.ok && verified.ok,
+      JSON.stringify([sent.data, verified.data]),
+    )
   }
   const ana = await signUp('ana')
   const bao = await signUp('bao')

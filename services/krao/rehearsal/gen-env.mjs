@@ -26,6 +26,10 @@ const env = {
   // Tips are not rehearsed: no chain here
   KRAO_RPC_URLS: '{"eip155:8453":"http://127.0.0.1:9"}',
   KRAO_REWARDS_BOOTSTRAP_CODE: 'KRAO-REHEARSAL',
+  // The rehearsal override logs SMS codes instead of sending them
+  KRAO_SMS_PROVIDER: 'log',
+  KRAO_PHONE_HMAC_SECRET: secret() + secret(),
+  KRAO_PHONE_ENC_KEY: key(),
   KRAO_GATE_MEDIA_S3_BUCKET: 'krao-gate-media',
   KRAO_GATE_MEDIA_S3_REGION: 'us-east-1',
   KRAO_GATE_MEDIA_S3_ENDPOINT: 'http://s3:9000',

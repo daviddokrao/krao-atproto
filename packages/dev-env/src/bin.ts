@@ -5,7 +5,7 @@ import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
 import { KraoPush } from '@krao/push'
-import { KraoRewards } from '@krao/rewards'
+import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
 import { generateMockSetup } from './mock/index.js'
@@ -29,6 +29,17 @@ const KRAO_PUSH = {
 const KRAO_REWARDS_TOKEN = 'krao-dev-rewards-token'
 /** Campaign code for the seed scripts and e2e tests to sign up with */
 const KRAO_DEV_CODE = 'KRAO-DEV'
+/** Keys for stored phone numbers; dev only */
+const KRAO_DEV_PHONE_SECRETS = {
+  hmacSecret: 'krao-dev-phone-hmac-secret-0123456789',
+  encKey: '0123456789abcdef'.repeat(4),
+}
+/*
+ * Posting and chat need a verified phone (Decree 147), as in production.
+ * Codes go to the log and to /internal/dev/last-otp of the rewards service.
+ * KRAO_DEV_PHONE_REQUIRED=false turns it off (eg a public demo).
+ */
+const PHONE_REQUIRED = process.env.KRAO_DEV_PHONE_REQUIRED !== 'false'
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -153,6 +164,8 @@ const run = async () => {
     // Where short links lead: the web app in front of this dev-env
     webUrl: process.env.KRAO_DEV_WEB_URL || 'http://localhost:8081',
     push: KRAO_PUSH,
+    // Ozone, and rewards-admin.test (added below), may read gated content
+    gateModeratorDids: [network.ozone.ctx.cfg.service.did],
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
@@ -192,6 +205,13 @@ const run = async () => {
     // Ozone reviews reported messages through chat.bsky.moderation.*
     moderatorDids: [network.ozone.ctx.cfg.service.did],
     push: KRAO_PUSH,
+    // Turned on below, once the dev-env's own accounts exist
+    phone: {
+      rewardsUrl: `http://localhost:${KRAO_REWARDS_PORT}`,
+      token: KRAO_REWARDS_TOKEN,
+      required: false,
+    },
+    firehoseUrl: network.pds.url.replace('http', 'ws'),
   })
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)
@@ -208,6 +228,9 @@ const run = async () => {
     // Tests review KYC by hand on every run
     manualReview: { dailyLimit: 1000 },
     push: KRAO_PUSH,
+    // SMS codes are logged, and readable at /internal/dev/last-otp
+    phone: { sms: new LogSmsProvider(), secrets: KRAO_DEV_PHONE_SECRETS },
+    devMode: true,
   })
   await kraoRewards.start()
   await kraoRewards.service.createCode('system', {
@@ -230,6 +253,8 @@ const run = async () => {
       schema: network.bsky.db.opts.schema,
     },
     pollMs: 500,
+    firehoseUrl: network.pds.url.replace('http', 'ws'),
+    plcUrl: network.plc.url,
   })
   await kraoPush.start()
   console.log(`🔔 Krao push service ${kraoPush.url}`)
@@ -247,9 +272,16 @@ const run = async () => {
   })
   const admin = await createKraoAccount(network.pds.url, 'rewards-admin')
   kraoRewards.addAdmin(admin)
+  kraoIndexer.addGateModerator(admin)
   console.log(
-    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin rewards-admin.test (${admin})`,
+    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin and gate moderator rewards-admin.test (${admin})`,
   )
+  // Like sign-up codes: the mock accounts above posted without a phone
+  if (PHONE_REQUIRED) {
+    network.pds.ctx.cfg.kraoRewards!.phoneRequired = true
+    kraoChat.phone!.cfg.required = true
+    console.log('📱 Posting and chat need a verified phone (codes in the log)')
+  }
   console.timeEnd('✅ Dev environment is ready')
 }
 
