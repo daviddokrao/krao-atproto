@@ -1,7 +1,15 @@
 import { once } from 'node:events'
 import type http from 'node:http'
+import { AccountDeletions } from './account-events.js'
 import { AppviewClient, AppviewNotifications, createPool } from './appview.js'
-import { type Database, type Platform, createDb, migrateDb } from './db.js'
+import {
+  type Database,
+  type Platform,
+  createDb,
+  getState,
+  migrateDb,
+  setState,
+} from './db.js'
 import {
   type ApnsConfig,
   ApnsSender,
@@ -33,7 +41,13 @@ export type KraoPushConfig = {
   apns?: ApnsConfig
   /** How often the AppView's notifications are read (default 1s) */
   pollMs?: number
+  /** The PDS firehose, to drop the devices of deleted accounts */
+  firehoseUrl?: string
+  /** DID directory (default https://plc.directory) */
+  plcUrl?: string
 }
+
+const FIREHOSE_CURSOR = 'firehose_cursor'
 
 export class KraoPush {
   private server?: http.Server
@@ -46,6 +60,7 @@ export class KraoPush {
     public notifications: AppviewNotifications | undefined,
     private app: ReturnType<typeof createApp>,
     private senders: Sender[],
+    private deletions?: AccountDeletions,
   ) {}
 
   static async create(cfg: KraoPushConfig): Promise<KraoPush> {
@@ -80,6 +95,18 @@ export class KraoPush {
         ? (recipients, actor) => notifications.shunned(recipients, actor)
         : undefined,
     })
+    const deletions = cfg.firehoseUrl
+      ? new AccountDeletions({
+          service: cfg.firehoseUrl,
+          plcUrl: cfg.plcUrl ?? 'https://plc.directory',
+          getCursor: async () => {
+            const value = await getState(db, FIREHOSE_CURSOR)
+            return value ? Number(value) : undefined
+          },
+          setCursor: (seq) => setState(db, FIREHOSE_CURSOR, String(seq)),
+          onDeleted: (did) => push.deleteAccount(did),
+        })
+      : undefined
     return new KraoPush(
       cfg,
       db,
@@ -87,6 +114,7 @@ export class KraoPush {
       notifications,
       app,
       Object.values(senders),
+      deletions,
     )
   }
 
@@ -98,6 +126,7 @@ export class KraoPush {
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
     this.notifications?.start()
+    this.deletions?.start()
     this.pruneTimer = setInterval(
       () =>
         void this.push.pruneSent().catch((err: unknown) => {
@@ -111,6 +140,7 @@ export class KraoPush {
 
   async destroy(): Promise<void> {
     clearInterval(this.pruneTimer)
+    await this.deletions?.destroy()
     await this.notifications?.destroy()
     for (const s of this.senders) s.close?.()
     if (this.server) {

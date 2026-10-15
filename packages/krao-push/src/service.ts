@@ -70,6 +70,25 @@ export class PushService {
       .execute()
   }
 
+  /** The account was deleted: its devices get nothing more */
+  async deleteAccount(did: string) {
+    await this.db.deleteFrom('device_token').where('did', '=', did).execute()
+  }
+
+  /** The account's devices by platform, without tokens (data exports) */
+  async deviceSummary(did: string) {
+    const rows = await this.db
+      .selectFrom('device_token')
+      .select('platform')
+      .where('did', '=', did)
+      .execute()
+    const platforms: Record<string, number> = {}
+    for (const { platform } of rows) {
+      platforms[platform] = (platforms[platform] ?? 0) + 1
+    }
+    return { count: rows.length, platforms }
+  }
+
   async setAgeRestricted(did: string, ageRestricted: boolean) {
     await this.db
       .updateTable('device_token')

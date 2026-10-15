@@ -81,6 +81,33 @@ describe('krao-push server', () => {
       body: JSON.stringify(body),
     })
 
+  it('counts devices by platform for exports, and forgets deleted accounts', async () => {
+    const client = courier()
+    for (const [token, platform] of [
+      ['tok-a', AppPlatform.IOS],
+      ['tok-b', AppPlatform.ANDROID],
+    ] as const) {
+      await client.registerDeviceToken({
+        did: 'did:example:dan',
+        token,
+        appId: 'io.krao.app',
+        platform,
+      })
+    }
+    const devices = () =>
+      fetch(`${base}/internal/devices?did=did:example:dan`, {
+        headers: { authorization: `Bearer ${INTERNAL}` },
+      }).then((r) => r.json())
+    expect(await devices()).toEqual({
+      count: 2,
+      platforms: { ios: 1, android: 1 },
+    })
+    const denied = await fetch(`${base}/internal/devices?did=did:example:dan`)
+    expect(denied.status).toBe(401)
+    await new PushService(db, {}).deleteAccount('did:example:dan')
+    expect(await devices()).toEqual({ count: 0, platforms: {} })
+  })
+
   it('registers and unregisters device tokens for the AppView', async () => {
     const client = courier()
     await client.registerDeviceToken({

@@ -1,11 +1,15 @@
 import { once } from 'node:events'
 import type http from 'node:http'
 import { IdResolver } from '@atproto/identity'
+import { AccountDeletions } from './account-events.js'
 import { Appview } from './appview.js'
 import { type Database, createDb, migrateDb } from './db.js'
+import { PhoneGate, type PhoneGateConfig } from './phone-gate.js'
 import { createApp } from './server.js'
 import { createPushClient } from './push-client.js'
 import { ChatService } from './service.js'
+
+const FIREHOSE_CURSOR = 'firehose_cursor'
 
 export type KraoChatConfig = {
   port: number
@@ -27,6 +31,10 @@ export type KraoChatConfig = {
   insecureFetch?: boolean
   /** Krao's push service, to tell members about new messages */
   push?: { url: string; token: string }
+  /** Sending needs a phone verified with Krao's rewards service (Decree 147) */
+  phone?: PhoneGateConfig
+  /** The PDS firehose, to remove the chat data of deleted accounts */
+  firehoseUrl?: string
 }
 
 export class KraoChat {
@@ -37,6 +45,9 @@ export class KraoChat {
     public db: Database,
     private app: ReturnType<typeof createApp>,
     private service: ChatService,
+    /** Set when phone verification is configured; `cfg.required` is live */
+    public phone?: PhoneGate,
+    private deletions?: AccountDeletions,
   ) {}
 
   static async create(cfg: KraoChatConfig): Promise<KraoChat> {
@@ -48,14 +59,40 @@ export class KraoChat {
     })
     const service = new ChatService(db, new Appview(cfg.appviewUrl))
     service.push = createPushClient(cfg.push?.url, cfg.push?.token)
+    const phone = cfg.phone ? new PhoneGate(cfg.phone) : undefined
     const app = createApp({
       service,
       idResolver,
       serviceDid: cfg.serviceDid,
       publicUrl: cfg.publicUrl,
       moderatorDids: cfg.moderatorDids,
+      phone,
     })
-    return new KraoChat(cfg, db, app, service)
+    const deletions = cfg.firehoseUrl
+      ? new AccountDeletions({
+          service: cfg.firehoseUrl,
+          idResolver,
+          getCursor: async () => {
+            const row = await db
+              .selectFrom('state')
+              .select('value')
+              .where('key', '=', FIREHOSE_CURSOR)
+              .executeTakeFirst()
+            return row ? Number(row.value) : undefined
+          },
+          setCursor: async (seq) => {
+            await db
+              .insertInto('state')
+              .values({ key: FIREHOSE_CURSOR, value: String(seq) })
+              .onConflict((oc) =>
+                oc.column('key').doUpdateSet({ value: String(seq) }),
+              )
+              .execute()
+          },
+          onDeleted: (did) => service.deleteAccount(did),
+        })
+      : undefined
+    return new KraoChat(cfg, db, app, service, phone, deletions)
   }
 
   get url() {
@@ -76,11 +113,13 @@ export class KraoChat {
       60 * 60 * 1000,
     )
     this.pruneTimer.unref()
+    this.deletions?.start()
     return this.server
   }
 
   async destroy(): Promise<void> {
     clearInterval(this.pruneTimer)
+    await this.deletions?.destroy()
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

@@ -1030,6 +1030,9 @@ importers:
       '@atproto/lex':
         specifier: workspace:^
         version: link:../lex/lex
+      '@atproto/sync':
+        specifier: workspace:^
+        version: link:../sync
       '@atproto/syntax':
         specifier: workspace:^
         version: link:../syntax
@@ -1119,6 +1122,9 @@ importers:
         specifier: ^8.5.0
         version: 8.5.0
     devDependencies:
+      '@atproto/crypto':
+        specifier: workspace:^
+        version: link:../crypto
       '@types/better-sqlite3':
         specifier: ^7.6.11
         version: 7.6.13
@@ -1134,6 +1140,12 @@ importers:
 
   packages/krao-push:
     dependencies:
+      '@atproto/identity':
+        specifier: workspace:^
+        version: link:../identity
+      '@atproto/sync':
+        specifier: workspace:^
+        version: link:../sync
       '@bufbuild/protobuf':
         specifier: ~1.6.0
         version: 1.6.0

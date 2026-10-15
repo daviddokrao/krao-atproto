@@ -119,6 +119,13 @@ export interface DatabaseSchema {
   join_request: JoinRequestTable
   prefs: PrefsTable
   actor_access: ActorAccessTable
+  state: StateTable
+}
+
+/** Small values the service keeps, eg its firehose cursor */
+export interface StateTable {
+  key: string
+  value: string
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -138,6 +145,15 @@ export function createDb(location: string): Database {
  */
 const migrations = {
   '001-initial': { up: (db: Kysely<any>) => initialSchema(db as Database) },
+  '002-state': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('state')
+        .addColumn('key', 'varchar', (col) => col.primaryKey())
+        .addColumn('value', 'varchar', (col) => col.notNull())
+        .execute()
+    },
+  },
 }
 
 export async function migrateDb(db: Database): Promise<void> {

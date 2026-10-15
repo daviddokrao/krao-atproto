@@ -12,8 +12,10 @@ import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import { ChatLimits, DAY, NEW_CONVOS_PER_DAY } from './limits.js'
 import { addGroupRoutes } from './group.js'
-import { chat } from './lexicons/index.js'
+import { exportChatData } from './export.js'
+import { chat, net } from './lexicons/index.js'
 import { addModerationMethods, isChatDisabled } from './moderation.js'
+import type { PhoneGate } from './phone-gate.js'
 import {
   ChatService,
   GROUP_MEMBER_LIMIT,
@@ -54,6 +56,13 @@ const BLOCKED_WHEN_DISABLED = new Set([
   'chat.bsky.group.approveJoinRequest',
 ])
 
+/** Methods that need a verified phone when the phone gate is on (Decree 147) */
+const NEED_PHONE = new Set([
+  'chat.bsky.convo.sendMessage',
+  'chat.bsky.convo.sendMessageBatch',
+  'chat.bsky.group.createGroup',
+])
+
 export type ChatAuth = ({ req }: MethodAuthContext) => Promise<{
   credentials: { did: string }
 }>
@@ -65,6 +74,8 @@ export function createApp(opts: {
   publicUrl?: string
   /** Moderation services (eg Krao's Ozone) allowed to call chat.bsky.moderation.* */
   moderatorDids?: string[]
+  /** Sending and starting convos may need a verified phone */
+  phone?: PhoneGate
 }): Express {
   const { service, idResolver, serviceDid } = opts
   const server = createServer([], {})
@@ -97,6 +108,7 @@ export function createApp(opts: {
         'ChatDisabled',
       )
     }
+    if (NEED_PHONE.has(nsid)) await opts.phone?.assertVerified(did)
     limits.take(did, nsid)
     return { credentials: { did } }
   }
@@ -128,6 +140,8 @@ export function createApp(opts: {
           .where('did', '=', viewer)
           .execute()
       } else {
+        // Starting a convo is reaching out: it needs a verified phone too
+        await opts.phone?.assertVerified(viewer)
         await service.assertCanMessage(viewer, other)
         limits.take(viewer, 'new-direct-convo', NEW_CONVOS_PER_DAY, DAY)
         await service.createDirectConvo(viewer, other)
@@ -428,6 +442,18 @@ export function createApp(opts: {
       await service.deleteAccount(credentials.did)
       return json({})
     },
+  })
+
+  // Krao: a copy of the account's chat data (Decree 13)
+  server.add(net.krao.account.exportData, {
+    auth,
+    handler: async ({ auth: { credentials } }) =>
+      json({
+        service: 'chat',
+        did: credentials.did,
+        exportedAt: new Date().toISOString(),
+        data: await exportChatData(service.db, credentials.did),
+      }),
   })
 
   server.add(chat.bsky.notification.getPreferences, {

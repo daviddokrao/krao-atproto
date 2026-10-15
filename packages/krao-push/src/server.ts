@@ -151,6 +151,16 @@ export function createApp(
       res.json({ delivered })
     },
   )
+  // For the rewards service's data exports: devices by platform, no tokens
+  app.get('/internal/devices', async (req, res) => {
+    if (!internal(req, res)) return
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!isDid(did)) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json(await push.deviceSummary(did))
+  })
   if (opts.logSenders) {
     // Development only: what would have reached devices
     app.get('/internal/recent', (req, res) => {
