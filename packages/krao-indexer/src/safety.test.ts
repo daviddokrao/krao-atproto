@@ -10,6 +10,7 @@ import {
   normalizeHost,
   parsePhishingConfig,
   postLinkHosts,
+  rebuildUnsafePosts,
   setPostLinks,
   withinDistance,
 } from './safety.js'
@@ -24,12 +25,14 @@ const list = (
   fuzzy: string[] = [],
   tolerance = 0,
 ) =>
-  new DomainMatcher(
-    [new Map(blocked.map((d) => [d, { source: 'list', reason: 'Phishing' }]))],
-    new Set(allowed),
+  new DomainMatcher({
+    blocked: [
+      new Map(blocked.map((d) => [d, { source: 'list', reason: 'Phishing' }])),
+    ],
+    allowed: new Set(allowed),
     fuzzy,
     tolerance,
-  )
+  })
 
 describe('normalizeHost', () => {
   it('takes the host of URLs and bare names, lowercase', () => {
@@ -82,18 +85,31 @@ describe('DomainMatcher', () => {
     expect(matcher.check('docs.safe.github.io').unsafe).toBe(false)
     expect(matcher.check('other.github.io').unsafe).toBe(true)
 
-    const withAdmin = new DomainMatcher(
-      [
-        new Map([
-          ['bad.safe.github.io', { source: 'admin', reason: 'Drainer' }],
-        ]),
-      ],
-      new Set(['safe.github.io']),
-    )
+    const withAdmin = new DomainMatcher({
+      admin: new Map([
+        ['bad.safe.github.io', { source: 'admin', reason: 'Drainer' }],
+      ]),
+      allowed: new Set(['safe.github.io']),
+    })
     expect(withAdmin.check('bad.safe.github.io')).toMatchObject({
       unsafe: true,
       reason: 'Drainer',
     })
+  })
+
+  it('lets admins allow false positives of the list, most specific first', () => {
+    const matcher = new DomainMatcher({
+      admin: new Map([
+        ['ok.example', { source: 'admin_allow', reason: null }],
+        ['bad.ok.example', { source: 'admin', reason: 'Drainer' }],
+      ]),
+      blocked: [
+        new Map([['ok.example', { source: 'list', reason: 'Phishing' }]]),
+      ],
+    })
+    expect(matcher.check('ok.example').unsafe).toBe(false)
+    expect(matcher.check('www.ok.example').unsafe).toBe(false)
+    expect(matcher.check('x.bad.ok.example').unsafe).toBe(true)
   })
 
   it('flags close lookalikes of fuzzy list entries', () => {
@@ -138,6 +154,14 @@ describe('parsePhishingConfig', () => {
       fuzzylist: ['metamask.io'],
       tolerance: 2,
     })
+  })
+
+  it('keeps at most 100 fuzzy entries', () => {
+    const config = parsePhishingConfig({
+      blacklist: [],
+      fuzzylist: Array.from({ length: 150 }, (_, i) => `site${i}.example`),
+    })
+    expect(config.fuzzylist).toHaveLength(100)
   })
 
   it('refuses other JSON', () => {
@@ -195,6 +219,87 @@ describe('SafetyList', () => {
     await setPostTags(db, uri, 'did:a', ['airdrop'])
     await setPostLinks(db, uri, 'did:a', hosts, safety.matcher)
   }
+
+  it('flags a drainer link hidden behind many harmless ones', async () => {
+    const harmless = Array.from(
+      { length: 25 },
+      (_, i) => `https://site${i}.example/`,
+    )
+    const record = {
+      text: 'links',
+      facets: [...harmless, 'https://drainer.test/claim'].map((uri) => ({
+        features: [{ $type: 'app.bsky.richtext.facet#link', uri }],
+      })),
+    }
+    await post('at://a/p/many', postLinkHosts(record))
+    expect(await rankPopularPosts(db)).toEqual([])
+    const stored = await db
+      .selectFrom('post_link')
+      .select('host')
+      .where('uri', '=', 'at://a/p/many')
+      .execute()
+    expect(stored.map((r) => r.host)).toContain('drainer.test')
+    expect(stored).toHaveLength(21)
+  })
+
+  it('keeps the flag of a post indexed while posts are flagged again', async () => {
+    // Enough hosts that the rebuild yields to the event loop
+    for (let i = 0; i < 600; i++) {
+      await db
+        .insertInto('post_link')
+        .values({
+          uri: `at://a/p/${i}`,
+          did: 'did:a',
+          host: `site${i}.example`,
+          indexedAt: new Date().toISOString(),
+        })
+        .execute()
+    }
+    const rebuild = rebuildUnsafePosts(db, safety.matcher)
+    await setPostLinks(
+      db,
+      'at://a/p/new',
+      'did:a',
+      ['drainer.test'],
+      safety.matcher,
+    )
+    await rebuild
+    const flagged = await db.selectFrom('unsafe_post').select('uri').execute()
+    expect(flagged.map((r) => r.uri)).toEqual(['at://a/p/new'])
+  })
+
+  it('lets admins allow a false positive of the synced list', async () => {
+    await safety.replaceList(
+      parsePhishingConfig({ blacklist: ['falsepos.example'] }),
+    )
+    await post('at://a/p/fp', ['app.falsepos.example'])
+    expect(await rankPopularPosts(db)).toEqual([])
+
+    const row = await safety.addDomain(
+      'did:admin',
+      'falsepos.example',
+      'Legit DEX',
+      'allow',
+    )
+    expect(row.source).toBe('admin_allow')
+    expect(safety.check('https://app.falsepos.example').unsafe).toBe(false)
+    expect(await rankPopularPosts(db)).toEqual(['at://a/p/fp'])
+
+    // Blocking it again replaces the allow entry
+    await safety.addDomain('did:admin', 'falsepos.example', 'Drainer after all')
+    expect(safety.check('https://app.falsepos.example')).toMatchObject({
+      unsafe: true,
+      reason: 'Drainer after all',
+    })
+    expect(await rankPopularPosts(db)).toEqual([])
+    const sources = await db
+      .selectFrom('unsafe_domain')
+      .select('source')
+      .where('domain', '=', 'falsepos.example')
+      .orderBy('source')
+      .execute()
+    expect(sources.map((r) => r.source)).toEqual(['admin', 'list'])
+  })
 
   it('knows the seed domains', () => {
     expect(safety.check('https://drainer.test/connect').unsafe).toBe(true)

@@ -10,7 +10,7 @@
         "properties": {
           "source": {
             "type": "string",
-            "knownValues": ["list", "admin", "seed"]
+            "knownValues": ["list", "admin", "admin_allow", "seed"]
           },
           "query": {
             "type": "string",

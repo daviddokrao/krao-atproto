@@ -208,7 +208,7 @@ export interface GateAccessLogTable {
   accessedAt: string
 }
 
-export type UnsafeDomainSource = 'list' | 'admin' | 'seed'
+export type UnsafeDomainSource = 'list' | 'admin' | 'admin_allow' | 'seed'
 
 /** A phishing or wallet-draining domain (see safety.ts); covers subdomains */
 export interface UnsafeDomainTable {

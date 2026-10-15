@@ -63,8 +63,8 @@
         "domain": { "type": "string", "maxLength": 253 },
         "source": {
           "type": "string",
-          "knownValues": ["list", "admin", "seed"],
-          "description": "list: the synced open phishing list; admin: added by a Krao admin; seed: built in."
+          "knownValues": ["list", "admin", "admin_allow", "seed"],
+          "description": "list: the synced open phishing list; admin: blocked by a Krao admin; admin_allow: allowed by a Krao admin (overrides list and seed entries); seed: built in."
         },
         "reason": { "type": "string", "maxLength": 300 },
         "addedAt": { "type": "string", "format": "datetime" }

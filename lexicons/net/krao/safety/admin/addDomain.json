@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Add a domain (and with it all its subdomains) to Krao's list of unsafe domains. Logged. Safety admins only; requires service auth for the indexer.",
+      "description": "Block a domain (and with it all its subdomains), or allow it to clear a false positive of the synced list or the built-in entries. An admin entry wins over every other entry; a domain has at most one (block or allow). Logged. Safety admins only; requires service auth for the indexer.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -16,7 +16,12 @@
               "maxLength": 253,
               "description": "A domain name, or a URL whose host is used. Internationalized names are stored in punycode."
             },
-            "reason": { "type": "string", "maxLength": 300 }
+            "reason": { "type": "string", "maxLength": 300 },
+            "mode": {
+              "type": "string",
+              "knownValues": ["block", "allow"],
+              "default": "block"
+            }
           }
         }
       },

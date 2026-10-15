@@ -28,19 +28,22 @@ describe('containsSeedPhrase', () => {
     expect(containsSeedPhrase(PHRASE_24)).toBe(true)
   })
 
-  it('finds them inside other text, any case and punctuation', () => {
+  it('finds them inside other text, in any case', () => {
     expect(
       containsSeedPhrase(
-        `Đây là ví của mình: ${PHRASE_12.toUpperCase().replace(/ /g, ', ')}. Giữ giùm nhé`,
+        `Đây là ví của mình: ${PHRASE_12.toUpperCase()}. Giữ giùm nhé`,
       ),
     ).toBe(true)
   })
 
-  it('finds numbered lists', () => {
-    const numbered = PHRASE_12.split(' ')
-      .map((w, i) => `${i + 1}. ${w}`)
-      .join('\n')
-    expect(containsSeedPhrase(numbered)).toBe(true)
+  it('finds numbered lists, one per line or on one line', () => {
+    const words = PHRASE_12.split(' ')
+    expect(
+      containsSeedPhrase(words.map((w, i) => `${i + 1}. ${w}`).join('\n')),
+    ).toBe(true)
+    expect(
+      containsSeedPhrase(words.map((w, i) => `${i + 1}) ${w}`).join(' ')),
+    ).toBe(true)
   })
 
   it('needs 12 words in a row', () => {
@@ -50,6 +53,28 @@ describe('containsSeedPhrase', () => {
     const broken = PHRASE_12.split(' ')
     broken.splice(6, 0, 'krao')
     expect(containsSeedPhrase(broken.join(' '))).toBe(false)
+  })
+
+  it('leaves lists of things alone (commas, one per line)', () => {
+    const groceries = [
+      'apple',
+      'banana',
+      'bread',
+      'butter',
+      'cheese',
+      'chicken',
+      'coffee',
+      'egg',
+      'garlic',
+      'lemon',
+      'milk',
+      'onion',
+      'orange',
+      'potato',
+    ]
+    expect(groceries.every((w) => bip39Words().has(w))).toBe(true)
+    expect(containsSeedPhrase(`Đi chợ: ${groceries.join(', ')}`)).toBe(false)
+    expect(containsSeedPhrase(groceries.join('\n'))).toBe(false)
   })
 
   it('leaves ordinary sentences alone', () => {
@@ -67,26 +92,48 @@ describe('containsSeedPhrase', () => {
 })
 
 describe('containsPrivateKey', () => {
-  it('finds a bare 64 hex character key', () => {
-    expect(containsPrivateKey(KEY)).toBe(true)
+  it('finds a key labelled as one, with or without 0x', () => {
     expect(containsPrivateKey(`my key is ${KEY.toUpperCase()}!`)).toBe(true)
+    expect(containsPrivateKey(`Private key: 0x${KEY}`)).toBe(true)
+    expect(containsPrivateKey(`khóa riêng của mình ${KEY}`)).toBe(true)
   })
 
-  it('leaves 0x hashes, shorter or longer hex and numbers alone', () => {
-    // Transaction hashes are written with 0x
-    expect(containsPrivateKey(`tx: 0x${KEY}`)).toBe(false)
-    expect(containsPrivateKey(KEY.slice(1))).toBe(false)
-    expect(containsPrivateKey(`${KEY}a`)).toBe(false)
+  it('finds a bare key sent on its own', () => {
+    expect(containsPrivateKey(KEY)).toBe(true)
+    expect(containsPrivateKey(`  ${KEY}\n`)).toBe(true)
+  })
+
+  it('leaves transaction ids and file hashes alone', () => {
+    // EVM transaction hashes are written with 0x
+    expect(containsPrivateKey(`0x${KEY}`)).toBe(false)
+    expect(containsPrivateKey(`Sent, tx 0x${KEY}`)).toBe(false)
+    // Bitcoin and Tron transaction ids, sha256 sums: no 0x
+    expect(containsPrivateKey(`txid: ${KEY}`)).toBe(false)
+    expect(containsPrivateKey(`Mã giao dịch ${KEY} nhé`)).toBe(false)
+    expect(containsPrivateKey(`sha256 hash ${KEY}`)).toBe(false)
+    expect(containsPrivateKey(`đã chuyển rồi, ${KEY} kiểm tra giúp`)).toBe(
+      false,
+    )
+    // Inside a URL, even after a key-like word
+    expect(
+      containsPrivateKey(`key https://tronscan.org/#/transaction/${KEY}`),
+    ).toBe(false)
+    expect(containsPrivateKey(`https://mempool.space/tx/${KEY}`)).toBe(false)
+  })
+
+  it('leaves shorter or longer hex and numbers alone', () => {
+    expect(containsPrivateKey(`key ${KEY.slice(1)}`)).toBe(false)
+    expect(containsPrivateKey(`key ${KEY}a`)).toBe(false)
     expect(containsPrivateKey('1'.repeat(64))).toBe(false)
     expect(
-      containsPrivateKey('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'),
+      containsPrivateKey('key 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'),
     ).toBe(false)
   })
 })
 
 describe('findSecrets', () => {
   it('names what it found', () => {
-    expect(findSecrets(`${PHRASE_12}\n${KEY}`)).toEqual([
+    expect(findSecrets(`${PHRASE_12}\nprivate key: ${KEY}`)).toEqual([
       'seedPhrase',
       'privateKey',
     ])

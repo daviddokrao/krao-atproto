@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { sql } from 'kysely'
 import type { Database, UnsafeDomainSource } from './db.js'
@@ -8,12 +9,14 @@ import { readLimited, safeFetch } from './safe-fetch.js'
  *   - list: an open list synced from KRAO_PHISHING_LIST_URL every 6 hours, in
  *     the shape of MetaMask's eth-phishing-detect config.json (blacklist,
  *     whitelist, fuzzylist, tolerance);
- *   - admin: domains Krao's safety admins add (net.krao.safety.admin.*);
+ *   - admin / admin_allow: domains Krao's safety admins block, or allow to
+ *     clear a false positive of the list (net.krao.safety.admin.*);
  *   - seed: a few obviously malicious .test domains, so dev and e2e have
  *     something to match.
- * A domain covers its subdomains. The list's whitelist wins over list and
- * seed entries (as in eth-phishing-detect), but not over an admin's entry.
- * Posts linking to a listed domain are kept out of Popular and trending.
+ * A domain covers its subdomains. Admin entries win over everything else
+ * (the most specific one first); then the list's whitelist wins over list
+ * and seed entries (as in eth-phishing-detect). Posts linking to a listed
+ * domain are kept out of Popular and trending.
  */
 
 export const SEED_DOMAINS: { domain: string; reason: string }[] = [
@@ -36,8 +39,14 @@ export const PHISHING_LIST_MAX_BYTES = 32 * 1024 * 1024
 const MAX_LIST_ENTRIES = 1_000_000
 /** Why open list entries are listed */
 const LIST_REASON = 'Listed as phishing'
-/** Most link hosts kept per post */
+/** Most link hosts kept per post, besides the unsafe ones */
 export const MAX_LINKS_PER_POST = 20
+/** Most link hosts read from one post */
+const MAX_SCANNED_LINKS = 500
+/** Most fuzzy list entries: each costs an edit distance per host checked */
+const MAX_FUZZY_ENTRIES = 100
+/** Hosts checked between yields to the event loop when flagging posts */
+const FLAG_BATCH = 500
 
 /**
  * The host of a URL (or of a bare host name), lowercase and in punycode, or
@@ -100,29 +109,54 @@ export type BlockEntry = { source: UnsafeDomainSource; reason: string | null }
 
 export type LinkVerdict = { unsafe: boolean; domain?: string; reason?: string }
 
+export type MatcherLists = {
+  /** Admin decisions (admin: block, admin_allow: allow); they win */
+  admin?: Map<string, BlockEntry>
+  /** Seed and list entries, checked in order */
+  blocked?: Map<string, BlockEntry>[]
+  /** The list's whitelist */
+  allowed?: Set<string>
+  /** Well-known sites whose close lookalikes are unsafe */
+  fuzzy?: string[]
+  tolerance?: number
+}
+
 /** Matches hosts against the unsafe domain list (see the top of this file) */
 export class DomainMatcher {
-  constructor(
-    /** Checked in order; admin entries win over the whitelist */
-    private blocked: Map<string, BlockEntry>[] = [],
-    private allowed: Set<string> = new Set(),
-    private fuzzy: string[] = [],
-    private tolerance = 0,
-  ) {}
+  private admin: Map<string, BlockEntry>
+  private blocked: Map<string, BlockEntry>[]
+  private allowed: Set<string>
+  private fuzzy: string[]
+  private tolerance: number
+
+  constructor(lists: MatcherLists = {}) {
+    this.admin = lists.admin ?? new Map()
+    this.blocked = lists.blocked ?? []
+    this.allowed = lists.allowed ?? new Set()
+    this.fuzzy = lists.fuzzy ?? []
+    this.tolerance = lists.tolerance ?? 0
+  }
 
   check(host: string): LinkVerdict {
     const parts = domainSuffixes(host)
-    const allowed = parts.some((d) => this.allowed.has(d))
+    for (const domain of parts) {
+      const entry = this.admin.get(domain)
+      if (entry?.source === 'admin_allow') return { unsafe: false }
+      if (entry) {
+        return { unsafe: true, domain, reason: entry.reason ?? undefined }
+      }
+    }
+    if (parts.some((d) => this.allowed.has(d))) return { unsafe: false }
     for (const domain of parts) {
       for (const map of this.blocked) {
         const entry = map.get(domain)
-        if (entry && (!allowed || entry.source === 'admin')) {
+        if (entry) {
           return { unsafe: true, domain, reason: entry.reason ?? undefined }
         }
       }
     }
     // Lookalikes of well-known crypto sites, compared on the last two labels
-    if (!allowed && this.tolerance > 0 && !isIP(host) && host[0] !== '[') {
+    if (this.tolerance > 0 && !isIP(host) && host[0] !== '[') {
       const base = parts[parts.length - 1]
       for (const target of this.fuzzy) {
         if (base !== target && withinDistance(base, target, this.tolerance)) {
@@ -131,15 +165,6 @@ export class DomainMatcher {
       }
     }
     return { unsafe: false }
-  }
-
-  /** The first unsafe host of `hosts`, if any */
-  firstUnsafe(hosts: string[]): (LinkVerdict & { host: string }) | undefined {
-    for (const host of hosts) {
-      const verdict = this.check(host)
-      if (verdict.unsafe) return { ...verdict, host }
-    }
-    return undefined
   }
 }
 
@@ -175,7 +200,7 @@ export function parsePhishingConfig(value: unknown): PhishingConfig {
   return {
     blacklist: hosts(config.blacklist),
     whitelist: hosts(config.whitelist),
-    fuzzylist: hosts(config.fuzzylist).slice(0, 1000),
+    fuzzylist: hosts(config.fuzzylist).slice(0, MAX_FUZZY_ENTRIES),
     tolerance:
       Number.isInteger(tolerance) && tolerance >= 0 && tolerance <= 3
         ? tolerance
@@ -185,7 +210,8 @@ export function parsePhishingConfig(value: unknown): PhishingConfig {
 
 /**
  * Hosts a post links to: link facets, external embeds (also under media)
- * and any http(s) URL in its text.
+ * and any http(s) URL in its text. All of them (up to a sanity bound):
+ * setPostLinks decides what to keep, after checking each one.
  */
 export function postLinkHosts(record: unknown): string[] {
   const value = (record ?? {}) as {
@@ -215,12 +241,17 @@ export function postLinkHosts(record: unknown): string[] {
     if (typeof url !== 'string') continue
     const host = normalizeHost(url)
     if (host) hosts.add(host)
-    if (hosts.size >= MAX_LINKS_PER_POST) break
+    if (hosts.size >= MAX_SCANNED_LINKS) break
   }
   return [...hosts]
 }
 
-/** Records the hosts a post links to, flagging it when one is unsafe */
+/**
+ * Records the hosts a post links to, flagging it when one is unsafe. Every
+ * host is checked; the unsafe ones are always kept, and others up to
+ * MAX_LINKS_PER_POST (for later list changes), so harmless links cannot
+ * push a drainer link out.
+ */
 export async function setPostLinks(
   db: Database,
   uri: string,
@@ -231,16 +262,25 @@ export async function setPostLinks(
   await db.deleteFrom('post_link').where('uri', '=', uri).execute()
   await db.deleteFrom('unsafe_post').where('uri', '=', uri).execute()
   if (!hosts.length) return
+  const unsafe = new Map<string, string>()
+  for (const host of hosts) {
+    const verdict = matcher?.check(host)
+    if (verdict?.unsafe && verdict.domain) unsafe.set(host, verdict.domain)
+  }
+  const kept = [
+    ...unsafe.keys(),
+    ...hosts.filter((h) => !unsafe.has(h)).slice(0, MAX_LINKS_PER_POST),
+  ]
   const at = new Date().toISOString()
   await db
     .insertInto('post_link')
-    .values(hosts.map((host) => ({ uri, did, host, indexedAt: at })))
+    .values(kept.map((host) => ({ uri, did, host, indexedAt: at })))
     .execute()
-  const hit = matcher?.firstUnsafe(hosts)
-  if (hit?.domain) {
+  const [domain] = unsafe.values()
+  if (domain) {
     await db
       .insertInto('unsafe_post')
-      .values({ uri, did, domain: hit.domain, flaggedAt: at })
+      .values({ uri, did, domain, flaggedAt: at })
       .execute()
   }
 }
@@ -250,22 +290,41 @@ export async function deletePostLinks(db: Database, uri: string) {
   await db.deleteFrom('unsafe_post').where('uri', '=', uri).execute()
 }
 
-/** Flags again every indexed post, after the list changed */
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+/**
+ * Flags again every indexed post, after the list changed. Hosts are checked
+ * in batches that let the event loop breathe; the hosts are then read again
+ * in the write transaction, so a post indexed meanwhile keeps its flag.
+ */
 export async function rebuildUnsafePosts(db: Database, matcher: DomainMatcher) {
-  const hosts = await db
+  const verdicts = new Map<string, string | null>()
+  const checkHost = (host: string) => {
+    const verdict = matcher.check(host)
+    verdicts.set(host, verdict.unsafe ? (verdict.domain ?? host) : null)
+  }
+  const snapshot = await db
     .selectFrom('post_link')
     .select('host')
     .distinct()
     .execute()
-  const flagged = new Map<string, string>()
-  for (const { host } of hosts) {
-    const verdict = matcher.check(host)
-    if (verdict.unsafe && verdict.domain) flagged.set(host, verdict.domain)
+  for (let i = 0; i < snapshot.length; i++) {
+    checkHost(snapshot[i].host)
+    if (i % FLAG_BATCH === FLAG_BATCH - 1) await yieldToLoop()
   }
   const at = new Date().toISOString()
   await db.transaction().execute(async (tx) => {
+    const current = await tx
+      .selectFrom('post_link')
+      .select('host')
+      .distinct()
+      .execute()
+    for (const { host } of current) {
+      if (!verdicts.has(host)) checkHost(host)
+    }
     await tx.deleteFrom('unsafe_post').execute()
-    for (const [host, domain] of flagged) {
+    for (const [host, domain] of verdicts) {
+      if (!domain) continue
       await tx
         .insertInto('unsafe_post')
         .columns(['uri', 'did', 'domain', 'flaggedAt'])
@@ -285,6 +344,35 @@ export async function rebuildUnsafePosts(db: Database, matcher: DomainMatcher) {
     }
   })
 }
+
+/** Flags the posts linking to `domain` or its subdomains (a new block) */
+export async function flagPostsForDomain(db: Database, domain: string) {
+  const subdomains = `%.${likeEscape(domain)}`
+  await db
+    .insertInto('unsafe_post')
+    .columns(['uri', 'did', 'domain', 'flaggedAt'])
+    .expression((eb) =>
+      eb
+        .selectFrom('post_link')
+        .select([
+          'uri',
+          'did',
+          sql<string>`${domain}`.as('domain'),
+          sql<string>`${new Date().toISOString()}`.as('flaggedAt'),
+        ])
+        .where((w) =>
+          w.or([
+            w('host', '=', domain),
+            sql<boolean>`host like ${subdomains} escape '\\'`,
+          ]),
+        ),
+    )
+    .onConflict((oc) => oc.column('uri').doNothing())
+    .execute()
+}
+
+/** `text` for a LIKE pattern with `escape '\'` */
+const likeEscape = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`)
 
 export type DomainRow = {
   domain: string
@@ -309,7 +397,8 @@ export type SafetyListOptions = {
 export class SafetyList {
   matcher = new DomainMatcher()
   private listBlocked = new Map<string, BlockEntry>()
-  private localBlocked = new Map<string, BlockEntry>()
+  private seedBlocked = new Map<string, BlockEntry>()
+  private adminEntries = new Map<string, BlockEntry>()
   private allowed = new Set<string>()
   private fuzzy: string[] = []
   private tolerance = 0
@@ -391,15 +480,27 @@ export class SafetyList {
       res,
       this.opts.maxBytes ?? PHISHING_LIST_MAX_BYTES,
     )
+    // The same list again (servers without ETags): nothing to redo
+    const hash = createHash('sha256').update(body).digest('hex')
+    if (hash === (await this.getState('listHash'))) {
+      await this.setState({ listSyncedAt: new Date().toISOString() })
+      return null
+    }
     const config = parsePhishingConfig(JSON.parse(body.toString('utf8')))
     // An empty answer must not wipe the list
     if (!config.blacklist.length) throw new Error('Phishing list is empty')
-    await this.replaceList(config, res.headers.get('etag') ?? undefined)
+    await this.replaceList(config, {
+      etag: res.headers.get('etag') ?? undefined,
+      hash,
+    })
     return config.blacklist.length
   }
 
   /** Replaces the open list's entries (sync, and tests) */
-  async replaceList(config: PhishingConfig, etag?: string) {
+  async replaceList(
+    config: PhishingConfig,
+    meta: { etag?: string; hash?: string } = {},
+  ) {
     const at = new Date().toISOString()
     await this.db.transaction().execute(async (tx) => {
       await tx
@@ -425,7 +526,8 @@ export class SafetyList {
       fuzzylist: JSON.stringify(config.fuzzylist),
       tolerance: String(config.tolerance),
       listSyncedAt: at,
-      ...(etag ? { listEtag: etag } : {}),
+      ...(meta.etag ? { listEtag: meta.etag } : {}),
+      ...(meta.hash ? { listHash: meta.hash } : {}),
     })
     await this.loadList()
     await this.flagPosts()
@@ -436,20 +538,31 @@ export class SafetyList {
     return host ? this.matcher.check(host) : { unsafe: false }
   }
 
+  /**
+   * Blocks a domain, or with mode 'allow' clears it (and its subdomains) of
+   * the synced list's and the seed's entries. One admin entry per domain.
+   */
   async addDomain(
     adminDid: string,
     input: string,
     reason?: string,
+    mode: 'block' | 'allow' = 'block',
   ): Promise<DomainRow> {
     const domain = normalizeHost(input)
     if (!domain) throw new InvalidDomainError('Not a domain name')
+    const source = mode === 'allow' ? 'admin_allow' : 'admin'
     const row: DomainRow = {
       domain,
-      source: 'admin',
+      source,
       reason: reason?.trim() || null,
       addedAt: new Date().toISOString(),
     }
-    await this.db.transaction().execute(async (tx) => {
+    const replaced = await this.db.transaction().execute(async (tx) => {
+      const res = await tx
+        .deleteFrom('unsafe_domain')
+        .where('domain', '=', domain)
+        .where('source', '=', mode === 'allow' ? 'admin' : 'admin_allow')
+        .executeTakeFirst()
       await tx
         .insertInto('unsafe_domain')
         .values(row)
@@ -463,25 +576,32 @@ export class SafetyList {
         .insertInto('safety_audit_log')
         .values({
           adminDid,
-          action: 'domain.add',
+          action: mode === 'allow' ? 'domain.allow' : 'domain.add',
           domain,
           reason: row.reason,
           at: row.addedAt,
         })
         .execute()
+      return Number(res.numDeletedRows) > 0
     })
     await this.loadLocal()
-    await this.flagPosts()
+    if (mode === 'block' && !replaced) {
+      // Only adds flags: no need to go through every post
+      await this.serialized(() => flagPostsForDomain(this.db, domain))
+    } else {
+      await this.flagPosts()
+    }
     return row
   }
 
+  /** Removes the admin entry (block or allow) of a domain */
   async removeDomain(adminDid: string, input: string): Promise<boolean> {
     const domain = normalizeHost(input) ?? input.trim().toLowerCase()
     const removed = await this.db.transaction().execute(async (tx) => {
       const res = await tx
         .deleteFrom('unsafe_domain')
         .where('domain', '=', domain)
-        .where('source', '=', 'admin')
+        .where('source', 'in', ['admin', 'admin_allow'])
         .executeTakeFirst()
       if (!Number(res.numDeletedRows)) return false
       await tx
@@ -525,7 +645,7 @@ export class SafetyList {
       qb = qb.where('source', '=', opts.source as UnsafeDomainSource)
     }
     if (opts.query) {
-      const pattern = `%${opts.query.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+      const pattern = `%${likeEscape(opts.query.toLowerCase())}%`
       qb = qb.where(sql<boolean>`domain like ${pattern} escape '\\'`)
     }
     if (opts.cursor) {
@@ -545,8 +665,12 @@ export class SafetyList {
 
   /** Flags indexed posts again with the current list, one run at a time */
   flagPosts(): Promise<void> {
+    return this.serialized(() => rebuildUnsafePosts(this.db, this.matcher))
+  }
+
+  private serialized(work: () => Promise<void>): Promise<void> {
     this.flagging = this.flagging
-      .then(() => rebuildUnsafePosts(this.db, this.matcher))
+      .then(work)
       .catch((err: unknown) =>
         console.error('Krao indexer: flagging unsafe posts failed', err),
       )
@@ -585,25 +709,29 @@ export class SafetyList {
     const rows = await this.db
       .selectFrom('unsafe_domain')
       .select(['domain', 'source', 'reason'])
-      .where('source', 'in', ['admin', 'seed'])
+      .where('source', 'in', ['admin', 'admin_allow', 'seed'])
       .execute()
-    const local = new Map<string, BlockEntry>()
+    const admin = new Map<string, BlockEntry>()
+    const seed = new Map<string, BlockEntry>()
     for (const row of rows) {
-      if (!local.has(row.domain) || row.source === 'admin') {
-        local.set(row.domain, { source: row.source, reason: row.reason })
-      }
+      ;(row.source === 'seed' ? seed : admin).set(row.domain, {
+        source: row.source,
+        reason: row.reason,
+      })
     }
-    this.localBlocked = local
+    this.adminEntries = admin
+    this.seedBlocked = seed
     this.rebuildMatcher()
   }
 
   private rebuildMatcher() {
-    this.matcher = new DomainMatcher(
-      [this.localBlocked, this.listBlocked],
-      this.allowed,
-      this.fuzzy,
-      this.tolerance,
-    )
+    this.matcher = new DomainMatcher({
+      admin: this.adminEntries,
+      blocked: [this.seedBlocked, this.listBlocked],
+      allowed: this.allowed,
+      fuzzy: this.fuzzy,
+      tolerance: this.tolerance,
+    })
   }
 
   private async getState(key: string): Promise<string | undefined> {

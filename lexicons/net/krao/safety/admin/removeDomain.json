@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Remove a domain that an admin added. Entries of the synced list and the built-in seed stay. Logged. Safety admins only; requires service auth for the indexer.",
+      "description": "Remove the admin entry (block or allow) of a domain. Entries of the synced list and the built-in seed stay. Logged. Safety admins only; requires service auth for the indexer.",
       "input": {
         "encoding": "application/json",
         "schema": {

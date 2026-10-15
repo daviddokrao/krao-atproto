@@ -979,6 +979,7 @@ function addSafetyRoutes(
           did(auth),
           input.body.domain,
           input.body.reason,
+          input.body.mode === 'allow' ? 'allow' : 'block',
         )
         return { encoding: 'application/json' as const, body: domainView(row) }
       } catch (err) {
