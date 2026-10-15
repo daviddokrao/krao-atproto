@@ -28,14 +28,17 @@ talks to Bluesky's services.
    `chat`, `video`, `rewards` and a wildcard `*` (user handles), all to the
    host. No proxying (Caddy needs to answer the ACME challenges itself).
 3. **S3** (any compatible store): a *private* bucket for gated media, and
-   one for backups (preferably at another provider).
+   one for backups (preferably at another provider). If the gated media
+   bucket keeps versions, add a lifecycle rule expiring noncurrent versions
+   (e.g. after 30 days): deleted gated media must not live on in old
+   versions.
 4. **`.env`**: `cp .env.example .env` and fill it in. Keep a copy of the
    keys offline: the PLC rotation keys control everyone's DIDs.
 5. **Ozone's DID**, once, on the PLC directory:
 
    ```bash
-   docker compose build
-   docker compose run --rm --no-deps push node services/krao/create-ozone-did.mjs
+   docker compose build push
+   docker run --rm --env-file .env krao-backend node services/krao/create-ozone-did.mjs
    ```
 
    Put the printed DID in `OZONE_SERVER_DID`.
@@ -107,7 +110,7 @@ archives in `KRAO_BACKUP_DIR` (and in `KRAO_BACKUP_S3_BUCKET` if set). Each
 archive holds every SQLite database (copied with `VACUUM INTO`, then
 `integrity_check`), a `pg_dump`, and the PDS blobs and videos. A backup that
 fails a check is thrown away and the older ones kept. Gated media in S3 is
-not in it: use the bucket's own versioning.
+not in it: use the bucket's versioning, with the expiry rule above.
 
 One now: `docker compose run --rm backup node services/krao/backup.mjs`
 

@@ -20,7 +20,7 @@
  *
  * Restore: see services/krao/README.md.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
@@ -93,11 +93,13 @@ function tarOthers(volume, dest) {
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, entry.name)
       if (entry.isDirectory()) walk(p)
-      // The -wal/-shm files belong to the live databases copied above
+      // The -wal/-shm files belong to the live databases copied above;
+      // tmp- files are work in progress (video encodes)
       else if (
         entry.isFile() &&
         !SQLITE_EXT.test(entry.name) &&
-        !/\.(sqlite|sqlite3|db)-(wal|shm|journal)$/.test(entry.name)
+        !/\.(sqlite|sqlite3|db)-(wal|shm|journal)$/.test(entry.name) &&
+        !p.includes('tmp-')
       ) {
         list.push(path.relative(volume, p))
       }
@@ -107,8 +109,16 @@ function tarOthers(volume, dest) {
   if (!list.length) return false
   const listFile = `${dest}.list`
   fs.writeFileSync(listFile, list.join('\n'))
-  execFileSync('tar', ['-cf', dest, '-C', volume, '-T', listFile])
+  // Files can go away while tar runs (a finished upload): tar says 1, fine
+  const tar = spawnSync(
+    'tar',
+    ['--ignore-failed-read', '-cf', dest, '-C', volume, '-T', listFile],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  )
   fs.rmSync(listFile)
+  if (tar.status !== 0 && tar.status !== 1) {
+    throw new Error(`tar failed: ${tar.stderr}`)
+  }
   // Reads it all back: a truncated tar fails here
   execFileSync('tar', ['-tf', dest], { stdio: 'ignore' })
   return true
@@ -152,6 +162,16 @@ export async function backupOnce() {
   const archive = path.join(OUT, `krao-backup-${stamp}.tar`)
   fs.mkdirSync(work, { recursive: true })
   try {
+    // Postgres first: the AppView's firehose cursor in it must not be ahead
+    // of the PDS copied after it, or after a restore it asks for the future
+    const pgUrl = process.env.KRAO_BACKUP_POSTGRES_URL
+    if (pgUrl) {
+      const dump = path.join(work, 'postgres.dump')
+      execFileSync('pg_dump', ['--format=custom', '--file', dump, pgUrl])
+      // Lists the dump's contents: a damaged dump fails here
+      execFileSync('pg_restore', ['--list', dump], { stdio: 'ignore' })
+      log('postgres: dumped')
+    }
     for (const volume of fs.readdirSync(VOLUMES).sort()) {
       if (SKIP.has(volume)) continue
       const dir = path.join(VOLUMES, volume)
@@ -162,14 +182,6 @@ export async function backupOnce() {
       }
       const files = tarOthers(dir, path.join(work, `${volume}-files.tar`))
       log(`${volume}: ${dbs.length} databases${files ? ', files' : ''}`)
-    }
-    const pgUrl = process.env.KRAO_BACKUP_POSTGRES_URL
-    if (pgUrl) {
-      const dump = path.join(work, 'postgres.dump')
-      execFileSync('pg_dump', ['--format=custom', '--file', dump, pgUrl])
-      // Lists the dump's contents: a damaged dump fails here
-      execFileSync('pg_restore', ['--list', dump], { stdio: 'ignore' })
-      log('postgres: dumped')
     }
     execFileSync('tar', ['-cf', archive, '-C', work, '.'])
     fs.rmSync(work, { recursive: true, force: true })

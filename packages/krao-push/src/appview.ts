@@ -148,19 +148,26 @@ export class AppviewNotifications {
   }
 
   private async handle(rows: NotificationRow[], now: number) {
-    // Only recipients with a device, only recent, each row once
+    // Only recipients with a device, only recent, rows not handled yet
     const withDevices = await this.push.hasDevices(rows.map((r) => r.did))
-    const todo: NotificationRow[] = []
-    for (const r of rows) {
-      if (!withDevices.has(r.did)) continue
-      if (now - new Date(r.sortAt).getTime() > MAX_AGE_MS) continue
-      if (r.did === r.author) continue
-      if (!(await this.push.claim(`n:${r.id}`))) continue
-      todo.push(r)
-    }
+    const done = await this.push.claimed(rows.map((r) => `n:${r.id}`))
+    const todo = rows.filter(
+      (r) =>
+        withDevices.has(r.did) &&
+        now - new Date(r.sortAt).getTime() <= MAX_AGE_MS &&
+        r.did !== r.author &&
+        !done.has(`n:${r.id}`),
+    )
     if (!todo.length) return 0
-    const allowed = await this.filter(todo)
-    const shown = allowed.filter((r) => socialTitle(r.reason, '') !== null)
+    const allowed = new Set(await this.filter(todo))
+    const shown = todo.filter(
+      (r) => allowed.has(r) && socialTitle(r.reason, '') !== null,
+    )
+    // Rows decided against are done; the rest only once delivered, so an
+    // AppView that fails below leaves them for the next poll
+    for (const r of todo) {
+      if (!shown.includes(r)) await this.push.claim(`n:${r.id}`)
+    }
     if (!shown.length) return 0
     const profiles = await this.appview.profiles(shown.map((r) => r.author))
     const texts = await this.appview.postTexts(
@@ -176,12 +183,15 @@ export class AppviewNotifications {
     for (const r of shown) {
       const author = profiles.get(r.author)
       // Hidden by the AppView (taken down, deactivated): say nothing
-      if (!author && !r.reason.endsWith('verified')) continue
-      const title = socialTitle(r.reason, nameOf(author))
-      if (!title) continue
+      if (!author && !r.reason.endsWith('verified')) {
+        await this.push.claim(`n:${r.id}`)
+        continue
+      }
+      const title = socialTitle(r.reason, nameOf(author)) as string
       const text = SHOWS_SUBJECT.has(r.reason)
         ? texts.get(r.reasonSubject ?? '')
         : texts.get(r.recordUri)
+      if (!(await this.push.claim(`n:${r.id}`))) continue
       const sent = await this.push.deliver(r.did, {
         title,
         body: excerpt(text),
@@ -200,6 +210,21 @@ export class AppviewNotifications {
       if (sent) pushed++
     }
     return pushed
+  }
+
+  /** Recipients who block, are blocked by, or mute `actor` */
+  async shunned(recipients: string[], actor: string): Promise<Set<string>> {
+    const rows = recipients.map((did, i) => ({
+      id: -i - 1,
+      did,
+      recordUri: '',
+      author: actor,
+      reason: '',
+      reasonSubject: null,
+      sortAt: '',
+    }))
+    const kept = new Set((await this.filter(rows)).map((r) => r.did))
+    return new Set(recipients.filter((d) => !kept.has(d)))
   }
 
   /** Drops rows the recipient turned off, or from accounts they block or mute */

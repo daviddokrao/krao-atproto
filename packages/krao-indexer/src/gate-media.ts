@@ -90,18 +90,23 @@ export async function insertGatedMedia(
   const id = randomBytes(16).toString('hex')
   // Bytes first: a row must never point at an object that is not there
   if (blobs) await blobs.put(id, data, mimeType)
-  await db
-    .insertInto('gated_media')
-    .values({
-      id,
-      did,
-      mimeType,
-      data: blobs ? Buffer.alloc(0) : data,
-      size: data.length,
-      createdAt: new Date().toISOString(),
-      store: blobs ? 's3' : 'db',
-    })
-    .execute()
+  try {
+    await db
+      .insertInto('gated_media')
+      .values({
+        id,
+        did,
+        mimeType,
+        data: blobs ? Buffer.alloc(0) : data,
+        size: data.length,
+        createdAt: new Date().toISOString(),
+        store: blobs ? 's3' : 'db',
+      })
+      .execute()
+  } catch (err) {
+    await blobs?.delete([id]).catch(() => {})
+    throw err
+  }
   return id
 }
 

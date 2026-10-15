@@ -29,7 +29,19 @@ const log = (...m) => console.log(new Date().toISOString(), ...m)
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'krao-restore-'))
 try {
   execFileSync('tar', ['-xf', archive, '-C', work])
-  for (const entry of fs.readdirSync(work, { withFileTypes: true })) {
+  // Databases (directories) before files (tars), and every target checked
+  // before anything is written
+  const entries = fs
+    .readdirSync(work, { withFileTypes: true })
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()))
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const dest = path.join(VOLUMES, entry.name)
+    if (fs.existsSync(dest) && fs.readdirSync(dest).length && !force) {
+      throw new Error(`${dest} is not empty (use --force to overwrite)`)
+    }
+  }
+  for (const entry of entries) {
     if (!entry.isDirectory() && !entry.name.endsWith('-files.tar')) continue
     const volume = entry.isDirectory()
       ? entry.name
@@ -40,10 +52,6 @@ try {
       continue
     }
     if (entry.isDirectory()) {
-      const existing = fs.readdirSync(dest)
-      if (existing.length && !force) {
-        throw new Error(`${dest} is not empty (use --force to overwrite)`)
-      }
       fs.cpSync(path.join(work, entry.name), dest, { recursive: true })
       log(`${volume}: databases restored`)
     } else {

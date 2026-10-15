@@ -89,6 +89,17 @@ export class PushService {
     return new Set(rows.map((r) => r.did))
   }
 
+  /** Which of `keys` are already handled */
+  async claimed(keys: string[]): Promise<Set<string>> {
+    if (!keys.length) return new Set()
+    const rows = await this.db
+      .selectFrom('sent')
+      .select('key')
+      .where('key', 'in', keys)
+      .execute()
+    return new Set(rows.map((r) => r.key))
+  }
+
   /**
    * Marks `key` as handled. False when it already was: the caller then sends
    * nothing, so a notification read twice reaches devices once.

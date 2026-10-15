@@ -76,6 +76,9 @@ export class KraoPush {
       courierKey: cfg.courierKey,
       internalToken: cfg.internalToken,
       logSenders: logSenders.length ? logSenders : undefined,
+      shunned: notifications
+        ? (recipients, actor) => notifications.shunned(recipients, actor)
+        : undefined,
     })
     return new KraoPush(
       cfg,

@@ -302,6 +302,7 @@ export class ChatService {
         if (other.state !== 'active') {
           reopen = other.did
           other.state = 'active'
+          other.status = 'request'
         }
       }
     }

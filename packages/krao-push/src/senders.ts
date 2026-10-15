@@ -33,9 +33,12 @@ export class LogSender implements Sender {
   async send(token: string, msg: PushMessage): Promise<SendResult> {
     this.recent.push({ platform: this.platform, token, msg })
     if (this.recent.length > 200) this.recent.shift()
+    // Message text (chat!) stays out of production logs
     console.log(
       `krao-push [${this.platform}] ${token.slice(0, 8)}…`,
-      JSON.stringify(msg),
+      process.env.NODE_ENV === 'production'
+        ? msg.data.reason
+        : JSON.stringify(msg),
     )
     return 'ok'
   }

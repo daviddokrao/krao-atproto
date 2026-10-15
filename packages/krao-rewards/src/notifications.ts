@@ -33,7 +33,8 @@ export async function pushRewardChanges(
   for (const [did, { points, ids }] of byDid) {
     push.notify({
       kind: 'points',
-      id: ids.join(','),
+      // Short and unique however many entries vested together
+      id: `${did}:${ids[0]}:${ids[ids.length - 1]}:${ids.length}`,
       recipientDid: did,
       points,
     })
@@ -48,7 +49,7 @@ export async function pushRewardChanges(
   for (const k of decided) {
     push.notify({
       kind: 'kyc',
-      id: `${k.did}:${k.status}`,
+      id: `${k.did}:${k.status}:${k.updatedAt}`,
       recipientDid: k.did,
       status: k.status,
     })

@@ -24,6 +24,8 @@ export type ServerOptions = {
   internalToken: string
   /** The log senders, when no push provider is configured (development) */
   logSenders?: LogSender[]
+  /** Recipients who block, are blocked by, or mute an actor (AppView data) */
+  shunned?: (recipients: string[], actor: string) => Promise<Set<string>>
 }
 
 const sameSecret = (given: string, expected: string) => {
@@ -143,7 +145,7 @@ export function createApp(
         res.status(400).json({ error: 'InvalidRequest' })
         return
       }
-      const delivered = await pushKraoEvent(push, appview, evt)
+      const delivered = await pushKraoEvent(push, appview, evt, opts.shunned)
       res.json({ delivered })
     },
   )

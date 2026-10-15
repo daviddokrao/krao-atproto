@@ -83,13 +83,30 @@ export async function pushKraoEvent(
   push: PushService,
   appview: AppviewClient,
   evt: KraoEvent,
+  /** Recipients who block, are blocked by, or mute the sender */
+  shunned?: (recipients: string[], actor: string) => Promise<Set<string>>,
 ): Promise<number> {
-  if (!(await push.claim(`k:${evt.kind}:${evt.id}`))) return 0
+  const key = `k:${evt.kind}:${evt.id}`
+  if ((await push.claimed([key])).size) return 0
   const recipients = evt.kind === 'chat' ? evt.recipientDids : [evt.recipientDid]
   const withDevices = await push.hasDevices(recipients)
   if (!withDevices.size) return 0
+  if (shunned && (evt.kind === 'chat' || evt.kind === 'tip')) {
+    for (const did of await shunned([...withDevices], evt.senderDid)) {
+      withDevices.delete(did)
+    }
+    if (!withDevices.size) return 0
+  }
 
-  const send = async (did: string, msg: PushMessage) => push.deliver(did, msg)
+  // Marked only once all lookups are done: a failure before here can retry
+  let claimed = false
+  const send = async (did: string, msg: PushMessage) => {
+    if (!claimed) {
+      if (!(await push.claim(key))) return 0
+      claimed = true
+    }
+    return push.deliver(did, msg)
+  }
   let sent = 0
   switch (evt.kind) {
     case 'chat': {
@@ -126,6 +143,7 @@ export async function pushKraoEvent(
         evt.senderDid,
       )
       if (!sender) return 0
+      if (!withDevices.has(evt.recipientDid)) return 0
       return send(evt.recipientDid, {
         title: `${nameOf(sender)} sent you a tip`,
         body: excerpt(evt.message),
