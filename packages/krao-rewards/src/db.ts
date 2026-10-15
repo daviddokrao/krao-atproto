@@ -170,6 +170,13 @@ export interface ConsentRecordTable {
   createdAt: string
 }
 
+/** Whether an account shows the "human" badge (see badges.ts) */
+export interface BadgePrefTable {
+  did: string
+  human: number
+  updatedAt: string
+}
+
 export interface DatabaseSchema {
   referral_code: ReferralCodeTable
   referral: ReferralTable
@@ -184,6 +191,7 @@ export interface DatabaseSchema {
   phone_otp: PhoneOtpTable
   phone_send_log: PhoneSendLogTable
   consent_record: ConsentRecordTable
+  badge_pref: BadgePrefTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -308,6 +316,16 @@ const migrations = {
       await sql`create index phone_send_log_sent_idx on phone_send_log (sentAt)`.execute(
         db,
       )
+    },
+  },
+  '005-badge-pref': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('badge_pref')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('human', 'integer', (col) => col.notNull())
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+        .execute()
     },
   },
 }

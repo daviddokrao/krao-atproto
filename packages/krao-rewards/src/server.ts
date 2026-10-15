@@ -28,6 +28,7 @@ import {
   listConsents,
   recordConsent,
 } from './account.js'
+import { getBadgeVisibility, humanDids, setBadgeVisibility } from './badges.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
 import {
@@ -133,6 +134,7 @@ export function createApp(opts: AppOptions): Express {
   const isReviewer = (did: string) =>
     opts.adminDids.has(did) || opts.kycReviewerDids.has(did)
   const checkCodeLimit = rateLimiter(30)
+  const getBadgesLimit = rateLimiter(120)
   // Each start is a call (and a cost) at the KYC provider
   const kycStartLimit = rateLimiter(5, 60 * 60_000)
   const server = createServer([], {})
@@ -353,6 +355,34 @@ export function createApp(opts: AppOptions): Express {
       }
       return json(await opts.kycProvider.startSession(viewer))
     },
+  })
+
+  // Badges: "human" when a phone or KYC is verified and the account opts in
+  server.add(net.krao.kyc.getBadges, async ({ params, req }) => {
+    if (!getBadgesLimit(req.ip ?? 'unknown')) {
+      throw new XRPCError(
+        ResponseType.RateLimitExceeded,
+        'Too many badge lookups, try again in a minute',
+      )
+    }
+    const humans = await humanDids(service.db, params.dids)
+    return json({
+      actors: params.dids
+        .filter((d, i) => humans.has(d) && params.dids.indexOf(d) === i)
+        .map((d) => ({ did: d, badges: ['human'] })),
+    })
+  })
+
+  server.add(net.krao.kyc.getBadgeVisibility, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json(await getBadgeVisibility(service.db, did(auth))),
+  })
+
+  server.add(net.krao.kyc.setBadgeVisibility, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      json(await setBadgeVisibility(service.db, did(auth), input.body.human)),
   })
 
   // Phone

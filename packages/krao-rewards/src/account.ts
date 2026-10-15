@@ -1,3 +1,4 @@
+import { getBadgeVisibility } from './badges.js'
 import type { Database } from './db.js'
 import type { PhoneService } from './phone.js'
 import { RewardsError, type RewardsService } from './service.js'
@@ -75,46 +76,55 @@ export async function exportRewardsData(
   pushDevices?: () => Promise<PushDevices | null>,
 ) {
   const { db } = service
-  const [code, invitedBy, referrals, entries, kyc, phoneStatus, consents] =
-    await Promise.all([
-      db
-        .selectFrom('referral_code')
-        .select(['code', 'createdAt'])
-        .where('ownerDid', '=', did)
-        .where('kind', '=', 'personal')
-        .executeTakeFirst(),
-      db
-        .selectFrom('referral')
-        .select(['code', 'referrerDid', 'createdAt'])
-        .where('did', '=', did)
-        .executeTakeFirst(),
-      db
-        .selectFrom('referral')
-        .select(['did', 'createdAt'])
-        .where('referrerDid', '=', did)
-        .orderBy('createdAt', 'desc')
-        .limit(10_000)
-        .execute(),
-      db
-        .selectFrom('points_entry')
-        .select([
-          'id',
-          'amount',
-          'status',
-          'ruleId',
-          'relatedDid',
-          'note',
-          'createdAt',
-          'decidedAt',
-        ])
-        .where('did', '=', did)
-        .orderBy('id', 'desc')
-        .limit(10_000)
-        .execute(),
-      service.kycRecord(did),
-      phone ? phone.status(did) : Promise.resolve(null),
-      listConsents(db, did),
-    ])
+  const [
+    code,
+    invitedBy,
+    referrals,
+    entries,
+    kyc,
+    phoneStatus,
+    consents,
+    badges,
+  ] = await Promise.all([
+    db
+      .selectFrom('referral_code')
+      .select(['code', 'createdAt'])
+      .where('ownerDid', '=', did)
+      .where('kind', '=', 'personal')
+      .executeTakeFirst(),
+    db
+      .selectFrom('referral')
+      .select(['code', 'referrerDid', 'createdAt'])
+      .where('did', '=', did)
+      .executeTakeFirst(),
+    db
+      .selectFrom('referral')
+      .select(['did', 'createdAt'])
+      .where('referrerDid', '=', did)
+      .orderBy('createdAt', 'desc')
+      .limit(10_000)
+      .execute(),
+    db
+      .selectFrom('points_entry')
+      .select([
+        'id',
+        'amount',
+        'status',
+        'ruleId',
+        'relatedDid',
+        'note',
+        'createdAt',
+        'decidedAt',
+      ])
+      .where('did', '=', did)
+      .orderBy('id', 'desc')
+      .limit(10_000)
+      .execute(),
+    service.kycRecord(did),
+    phone ? phone.status(did) : Promise.resolve(null),
+    listConsents(db, did),
+    getBadgeVisibility(db, did),
+  ])
   return withoutEmpty({
     referralCode: code?.code ?? null,
     signedUpWith: invitedBy
@@ -134,6 +144,7 @@ export async function exportRewardsData(
       : { status: 'none' },
     phone: phoneStatus ?? { verified: false },
     consents,
+    badges: { human: badges.human },
     pushDevices: pushDevices ? await pushDevices().catch(() => null) : null,
   })
 }
