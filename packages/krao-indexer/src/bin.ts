@@ -8,6 +8,8 @@ if ((process.env.KRAO_GATE_MEDIA_SECRET ?? '').length < 32) {
 }
 
 const indexer = await KraoIndexer.create({
+  // Rehearsals and dev only: identity lookups to private hosts over http
+  insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: Number(process.env.KRAO_INDEXER_PORT ?? 2589),
   dbLocation: process.env.KRAO_INDEXER_DB ?? 'krao-indexer.sqlite',
   // Krao is its own network: index Krao's PDS, not the whole Bluesky relay

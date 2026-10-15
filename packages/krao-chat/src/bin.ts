@@ -2,6 +2,8 @@
 import { KraoChat } from './index.js'
 
 const chat = await KraoChat.create({
+  // Rehearsals and dev only: identity lookups to private hosts over http
+  insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: Number(process.env.KRAO_CHAT_PORT ?? 2590),
   serviceDid: process.env.KRAO_CHAT_DID ?? 'did:web:chat.krao.net',
   dbLocation: process.env.KRAO_CHAT_DB ?? 'krao-chat.sqlite',

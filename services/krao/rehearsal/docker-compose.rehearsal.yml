@@ -8,6 +8,8 @@
 # readable by root only)
 x-trust: &trust
   NODE_EXTRA_CA_CERTS: /caddy-root.crt
+  # krao.test is not a public domain: let the Krao services look it up
+  KRAO_INSECURE_FETCH: 'true'
 
 x-trust-volume: &trust-volume ./rehearsal/caddy-root.crt:/caddy-root.crt:ro
 
