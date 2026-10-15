@@ -4,6 +4,7 @@ import { IdResolver } from '@atproto/identity'
 import { Appview } from './appview.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { createApp } from './server.js'
+import { createPushClient } from './push-client.js'
 import { ChatService } from './service.js'
 
 export type KraoChatConfig = {
@@ -24,6 +25,8 @@ export type KraoChatConfig = {
   moderatorDids?: string[]
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
+  /** Krao's push service, to tell members about new messages */
+  push?: { url: string; token: string }
 }
 
 export class KraoChat {
@@ -44,6 +47,7 @@ export class KraoChat {
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),
     })
     const service = new ChatService(db, new Appview(cfg.appviewUrl))
+    service.push = createPushClient(cfg.push?.url, cfg.push?.token)
     const app = createApp({
       service,
       idResolver,

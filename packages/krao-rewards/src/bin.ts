@@ -44,6 +44,12 @@ const rewards = await KraoRewards.create({
       : undefined,
     requireSecondApprover: env.KRAO_KYC_REQUIRE_SECOND_APPROVER === 'true',
   },
+  push: process.env.KRAO_PUSH_URL
+    ? {
+        url: process.env.KRAO_PUSH_URL,
+        token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
 })
 await rewards.start()
 console.log(`Krao rewards service listening on ${rewards.url}`)

@@ -35,6 +35,12 @@ const indexer = await KraoIndexer.create({
   webUrl: process.env.KRAO_WEB_URL,
   handleResolverUrl:
     process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://pds.krao.net',
+  push: process.env.KRAO_PUSH_URL
+    ? {
+        url: process.env.KRAO_PUSH_URL,
+        token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

@@ -11,6 +11,7 @@ import type {
   MessageTable,
   ReactionTable,
 } from './db.js'
+import type { PushClient } from './push-client.js'
 import { currentRev, nextRev, randomId } from './rev.js'
 
 /* The views below are plain JSON in the shapes of the chat.bsky lexicons */
@@ -42,6 +43,9 @@ export type MessageInput = {
 }
 
 export class ChatService {
+  /** Tells members about new messages when set */
+  push?: PushClient
+
   constructor(
     public db: Database,
     public appview: Appview,
@@ -357,7 +361,71 @@ export class ChatService {
         message: view,
       }))
     })
+    void this.pushMessage(convo, members, sender, row.id, input.text).catch(
+      (err: unknown) => console.error('Krao chat: push failed', err),
+    )
     return view
+  }
+
+  /**
+   * Pushes a new message to the members who want it: active, the convo not
+   * muted, and their chat notification settings (chat, or chatRequest while
+   * the convo is a request to them) allowing it.
+   */
+  private async pushMessage(
+    convo: ConvoTable,
+    members: MemberTable[],
+    sender: string,
+    messageId: string,
+    text: string | undefined,
+  ) {
+    if (!this.push) return
+    const candidates = members.filter(
+      (m) => m.did !== sender && m.state === 'active' && !m.muted,
+    )
+    if (!candidates.length) return
+    const prefRows = await this.db
+      .selectFrom('prefs')
+      .select(['did', 'prefs'])
+      .where(
+        'did',
+        'in',
+        candidates.map((m) => m.did),
+      )
+      .execute()
+    const prefsOf = new Map(prefRows.map((r) => [r.did, r.prefs]))
+    const wanted: { did: string; followsOnly: boolean }[] = []
+    for (const m of candidates) {
+      let pref: { include?: string; push?: boolean } | undefined
+      try {
+        const all = JSON.parse(prefsOf.get(m.did) ?? '{}')
+        pref = m.status === 'request' ? all.chatRequest : all.chat
+      } catch {
+        pref = undefined
+      }
+      if (pref?.push === false) continue
+      wanted.push({ did: m.did, followsOnly: pref?.include === 'follows' })
+    }
+    if (!wanted.length) return
+    let recipients = wanted.map((w) => w.did)
+    if (wanted.some((w) => w.followsOnly)) {
+      // followedBy: the member follows the sender
+      const rels = await this.appview.getRelationships(sender, recipients)
+      recipients = wanted
+        .filter((w) => !w.followsOnly || rels.get(w.did)?.followedBy)
+        .map((w) => w.did)
+    }
+    if (!recipients.length) return
+    this.push.notify({
+      kind: 'chat',
+      id: `${convo.id}:${messageId}`,
+      recipientDids: recipients,
+      senderDid: sender,
+      convoId: convo.id,
+      messageId,
+      text: text ?? '',
+      ...(convo.kind === 'group' && convo.name ? { groupName: convo.name } : {}),
+    })
   }
 
   /** Stores a system message (group events) and logs it to `dids` */

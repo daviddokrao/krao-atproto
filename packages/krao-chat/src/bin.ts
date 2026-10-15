@@ -12,6 +12,12 @@ const chat = await KraoChat.create({
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean),
+  push: process.env.KRAO_PUSH_URL
+    ? {
+        url: process.env.KRAO_PUSH_URL,
+        token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
 })
 await chat.start()
 console.log(`Krao chat service listening on ${chat.url}`)
