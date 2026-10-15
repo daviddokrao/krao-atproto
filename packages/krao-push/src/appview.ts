@@ -186,7 +186,8 @@ export class AppviewNotifications {
         title,
         body: excerpt(text),
         data: {
-          reason: r.reason,
+          // The app (and its Android channels) know follow-back as follow
+          reason: r.reason === 'follow-back' ? 'follow' : r.reason,
           uri: r.recordUri,
           subject: r.reasonSubject ?? '',
         },

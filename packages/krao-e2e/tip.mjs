@@ -4,6 +4,7 @@ import {
   ANVIL_KEYS,
   ETH_ASSET,
   INDEXER,
+  PDS,
   USDC,
   USDC_ASSET,
   checker,
@@ -26,6 +27,21 @@ const rw = wallet(ANVIL_KEYS[1])
 await dealErc20(sw.address, USDC, 100_000_000n) // 100 USDC to tip with
 await linkWallet(sender, sw)
 await linkWallet(recipient, rw)
+// A device for the recipient, to see the tip pushed (see push.mjs)
+const PUSH = process.env.KRAO_PUSH_URL ?? 'http://localhost:2593'
+const PUSH_TOKEN =
+  process.env.KRAO_PUSH_INTERNAL_TOKEN ?? 'krao-dev-push-internal-token'
+const deviceToken = `e2e-tip-${Date.now()}`
+await xrpc(PDS, 'app.bsky.notification.registerPush', {
+  token: recipient.accessJwt,
+  body: {
+    serviceDid:
+      process.env.KRAO_APPVIEW_DID ?? 'did:plc:dw4kbjf5mn7nhenabiqpkyh3',
+    token: deviceToken,
+    platform: 'android',
+    appId: 'io.krao.app',
+  },
+})
 const post = (
   await createRecord(recipient, 'app.bsky.feed.post', {
     text: 'Tip me if this helped 💎',
@@ -107,6 +123,20 @@ check(
 check(
   'USDC tip is verified',
   byTx(usdcTx).some((t) => t.status === 'verified'),
+)
+const pushed = (
+  await (
+    await fetch(`${PUSH}/internal/recent`, {
+      headers: { authorization: `Bearer ${PUSH_TOKEN}` },
+    })
+  ).json()
+).sent.filter((s) => s.token === deviceToken && s.msg.data.reason === 'krao-tip')
+check(
+  'each verified tip is pushed to the recipient, the cheats are not',
+  pushed.length === 2 &&
+    pushed.some((s) => s.msg.body === 'Great post!') &&
+    pushed.every((s) => s.msg.data.subject === post.uri),
+  JSON.stringify(pushed.map((s) => s.msg)),
 )
 check(
   'inflated amount on a reused tx is not counted',
