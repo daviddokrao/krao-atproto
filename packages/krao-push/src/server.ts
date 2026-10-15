@@ -115,7 +115,7 @@ export function createApp(
   push: PushService,
   appview: AppviewClient,
   opts: ServerOptions,
-) {
+): express.Express {
   const app = express()
   catchAsyncErrors(app)
   app.get('/_health', async (_req, res) => {
