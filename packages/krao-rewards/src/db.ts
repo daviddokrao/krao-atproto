@@ -155,6 +155,8 @@ export interface PhoneSendLogTable {
   id: Generated<number>
   did: string
   phoneHash: string
+  /** Client address, when known (per address limit) */
+  ip: string | null
   sentAt: string
 }
 
@@ -291,6 +293,21 @@ const migrations = {
           createdAt: at,
         })
         .execute()
+    },
+  },
+  // Code requests per client address, and the global hourly SMS cap
+  '004-phone-send-log-ip': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .alterTable('phone_send_log')
+        .addColumn('ip', 'varchar')
+        .execute()
+      await sql`create index phone_send_log_ip_idx on phone_send_log (ip, sentAt)`.execute(
+        db,
+      )
+      await sql`create index phone_send_log_sent_idx on phone_send_log (sentAt)`.execute(
+        db,
+      )
     },
   },
 }

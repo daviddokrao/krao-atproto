@@ -9,6 +9,7 @@ import {
 } from './kyc.js'
 import { pushRewardChanges } from './notifications.js'
 import {
+  type PhoneLimits,
   type PhoneSecrets,
   PhoneCrypto,
   PhoneService,
@@ -55,7 +56,12 @@ export type KraoRewardsConfig = {
    */
   bootstrapCode?: { code: string; maxUses: number }
   /** Phone verification (net.krao.phone.*); unavailable without it */
-  phone?: { sms: SmsProvider; secrets: PhoneSecrets }
+  phone?: {
+    sms: SmsProvider
+    secrets: PhoneSecrets
+    /** Allowed prefixes and SMS caps (see DEFAULT_PHONE_LIMITS) */
+    limits?: Partial<PhoneLimits>
+  }
   /**
    * Development and rehearsals only: with the log SMS driver, the codes sent
    * can be read at /internal/dev/last-otp (internal token)
@@ -106,7 +112,13 @@ export class KraoRewards {
     })
     const admins = new Set(cfg.adminDids ?? [])
     const phone = cfg.phone
-      ? new PhoneService(db, new PhoneCrypto(cfg.phone.secrets), cfg.phone.sms)
+      ? new PhoneService(
+          db,
+          new PhoneCrypto(cfg.phone.secrets),
+          cfg.phone.sms,
+          Date.now,
+          cfg.phone.limits,
+        )
       : null
     if (phone && cfg.devMode && cfg.phone?.sms.name === 'log') {
       phone.devCodes = new Map()

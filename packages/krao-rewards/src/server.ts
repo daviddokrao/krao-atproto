@@ -383,9 +383,16 @@ export function createApp(opts: AppOptions): Express {
 
   server.add(net.krao.phone.requestCode, {
     auth: userAuth,
-    handler: async ({ auth, input }) =>
+    handler: async ({ auth, input, req }) =>
       wrap(async () =>
-        json(await phoneService().requestCode(did(auth), input.body.phone)),
+        json(
+          await phoneService().requestCode(
+            did(auth),
+            input.body.phone,
+            // Behind a proxy on a private network (trust proxy above)
+            req.ip,
+          ),
+        ),
       ),
   })
 

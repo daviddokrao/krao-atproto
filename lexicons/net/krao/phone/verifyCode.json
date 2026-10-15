@@ -32,6 +32,10 @@
           "name": "InvalidPhone",
           "description": "Not a phone number in E.164 form."
         },
+        {
+          "name": "PhoneNotSupported",
+          "description": "Numbers of this country cannot be verified here."
+        },
         { "name": "InvalidCode", "description": "The code is wrong." },
         {
           "name": "CodeExpired",

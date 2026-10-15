@@ -136,12 +136,39 @@ describe('PhoneService', () => {
     expect(JSON.stringify(row)).not.toContain('912345678')
   })
 
-  it('gives a number to one account only', async () => {
+  const wrongFor = (did: string) =>
+    codeFor(did) === '000000' ? '111111' : '000000'
+
+  it('gives a number to one account only, telling only at verifyCode', async () => {
     await phone.requestCode(ALICE, '+84912345678')
     await phone.verifyCode(ALICE, '+84912345678', codeFor(ALICE))
-    expect(await errorOf(phone.requestCode(BOB, '0912345678'))).toBe(
+    // The same answer as for a free number, but no SMS
+    expect(await errorOf(phone.requestCode(BOB, '0912345678'))).toBe('none')
+    expect(sent).toHaveLength(1)
+    expect(phone.devCodes!.has(BOB)).toBe(false)
+    expect(await errorOf(phone.verifyCode(BOB, '+84912345678', '123456'))).toBe(
       'PhoneTaken',
     )
+  })
+
+  it('counts every request, also for numbers others hold', async () => {
+    await phone.requestCode(ALICE, '+84912345678')
+    await phone.verifyCode(ALICE, '+84912345678', codeFor(ALICE))
+    const errors = []
+    for (let i = 0; i < 6; i++) {
+      const number = i === 0 ? '+84912345678' : `+8491234567${i}`
+      errors.push(await errorOf(phone.requestCode(BOB, number)))
+      now += RESEND_COOLDOWN_MS
+    }
+    // Probing numbers is limited like asking for codes
+    expect(errors).toEqual([
+      'none',
+      'none',
+      'none',
+      'none',
+      'none',
+      'RateLimitExceeded',
+    ])
   })
 
   it('refuses a number another account verified meanwhile', async () => {
@@ -158,12 +185,20 @@ describe('PhoneService', () => {
     await phone.requestCode(ALICE, '+84912345678')
     await phone.verifyCode(ALICE, '+84912345678', codeFor(ALICE))
     await rewards.takeDown(ALICE)
-    expect(await errorOf(phone.requestCode(BOB, '+84912345678'))).toBe(
+    await phone.requestCode(BOB, '+84912345678')
+    expect(await errorOf(phone.verifyCode(BOB, '+84912345678', '123456'))).toBe(
       'PhoneTaken',
     )
     await rewards.accountDeleted(ALICE)
     expect(await phone.isVerified(ALICE)).toBe(false)
-    expect(await errorOf(phone.requestCode(BOB, '+84912345678'))).toBe('none')
+    now += RESEND_COOLDOWN_MS
+    await phone.requestCode(BOB, '+84912345678')
+    expect(
+      await errorOf(phone.verifyCode(BOB, '+84912345678', codeFor(BOB))),
+    ).toBe('none')
+    // Its send log stays: the number's hourly limit still counts it
+    const log = await db.selectFrom('phone_send_log').selectAll().execute()
+    expect(log.filter((r) => r.did === ALICE)).toHaveLength(1)
   })
 
   it('expires codes after 5 minutes', async () => {
@@ -181,12 +216,13 @@ describe('PhoneService', () => {
     ).toBe('CodeExpired')
   })
 
-  it('allows 5 attempts per code', async () => {
+  it('allows 5 attempts per code, then drops it', async () => {
     await phone.requestCode(ALICE, '+84912345678')
-    const wrong = codeFor(ALICE) === '000000' ? '111111' : '000000'
     const errors = []
     for (let i = 0; i < 5; i++) {
-      errors.push(await errorOf(phone.verifyCode(ALICE, '+84912345678', wrong)))
+      errors.push(
+        await errorOf(phone.verifyCode(ALICE, '+84912345678', wrongFor(ALICE))),
+      )
     }
     expect(errors).toEqual([
       'InvalidCode',
@@ -195,10 +231,24 @@ describe('PhoneService', () => {
       'InvalidCode',
       'TooManyAttempts',
     ])
-    // Even the right code is refused now
+    // Even the right code is refused now: the code is gone
     expect(
       await errorOf(phone.verifyCode(ALICE, '+84912345678', codeFor(ALICE))),
-    ).toBe('TooManyAttempts')
+    ).toBe('CodeExpired')
+  })
+
+  it('counts parallel guesses atomically', async () => {
+    await phone.requestCode(ALICE, '+84912345678')
+    const errors = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        errorOf(phone.verifyCode(ALICE, '+84912345678', wrongFor(ALICE))),
+      ),
+    )
+    expect(errors.filter((e) => e === 'InvalidCode')).toHaveLength(4)
+    expect(errors.every((e) => e !== 'none')).toBe(true)
+    expect(
+      await errorOf(phone.verifyCode(ALICE, '+84912345678', codeFor(ALICE))),
+    ).not.toBe('none')
   })
 
   it('waits a minute between codes and sends at most 5 an hour', async () => {
@@ -226,6 +276,54 @@ describe('PhoneService', () => {
     }
     expect(errors.slice(0, 5)).toEqual(['none', 'none', 'none', 'none', 'none'])
     expect(errors[5]).toBe('RateLimitExceeded')
+  })
+
+  it('holds the limits under parallel requests', async () => {
+    const sameNumber = await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        errorOf(phone.requestCode(`did:plc:p${i}`, '+84912345678')),
+      ),
+    )
+    expect(sameNumber.filter((e) => e === 'none')).toHaveLength(5)
+    const sameAccount = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        errorOf(phone.requestCode(BOB, `+8490000000${i}`)),
+      ),
+    )
+    expect(sameAccount.filter((e) => e === 'none')).toHaveLength(1)
+  })
+
+  it('caps codes per client address and in total', async () => {
+    const capped = new PhoneService(
+      db,
+      new PhoneCrypto(SECRETS),
+      { name: 'test', send: async () => {} },
+      () => now,
+      { ipHourlyCap: 2, globalHourlyCap: 3 },
+    )
+    const ask = (i: number, ip?: string) =>
+      errorOf(capped.requestCode(`did:plc:c${i}`, `+8490000001${i}`, ip))
+    expect(await ask(1, '10.0.0.1')).toBe('none')
+    expect(await ask(2, '10.0.0.1')).toBe('none')
+    expect(await ask(3, '10.0.0.1')).toBe('RateLimitExceeded')
+    expect(await ask(4, '10.0.0.2')).toBe('none')
+    // Three codes this hour: the global cap
+    expect(await ask(5, '10.0.0.3')).toBe('RateLimitExceeded')
+    expect(await ask(6)).toBe('RateLimitExceeded')
+  })
+
+  it('verifies only numbers of the allowed countries', async () => {
+    expect(await errorOf(phone.requestCode(ALICE, '+14155550100'))).toBe(
+      'PhoneNotSupported',
+    )
+    const us = new PhoneService(
+      db,
+      new PhoneCrypto(SECRETS),
+      { name: 'test', send: async () => {} },
+      () => now,
+      { allowedPrefixes: ['+84', '+1'] },
+    )
+    expect(await errorOf(us.requestCode(ALICE, '+14155550100'))).toBe('none')
   })
 
   it('rejects numbers that are not E.164', async () => {

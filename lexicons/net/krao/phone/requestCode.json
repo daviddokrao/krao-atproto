@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Send a one-time code by SMS to verify the viewer's phone number. A number can belong to one account only. Requires service auth for the rewards service.",
+      "description": "Send a one-time code by SMS to verify the viewer's phone number. A number can belong to one account only; a number another account holds gets the same answer but no SMS, and verifyCode reports PhoneTaken. Every request counts against the rate limits. Requires service auth for the rewards service.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -39,8 +39,8 @@
           "description": "Not a phone number in E.164 form."
         },
         {
-          "name": "PhoneTaken",
-          "description": "Another account verified this number."
+          "name": "PhoneNotSupported",
+          "description": "Numbers of this country cannot be verified here."
         },
         {
           "name": "PhoneUnavailable",

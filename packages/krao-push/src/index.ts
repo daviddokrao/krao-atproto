@@ -48,6 +48,7 @@ export type KraoPushConfig = {
 }
 
 const FIREHOSE_CURSOR = 'firehose_cursor'
+const PENDING_DELETIONS = 'pending_deletions'
 
 export class KraoPush {
   private server?: http.Server
@@ -104,6 +105,10 @@ export class KraoPush {
             return value ? Number(value) : undefined
           },
           setCursor: (seq) => setState(db, FIREHOSE_CURSOR, String(seq)),
+          getPending: async () =>
+            JSON.parse((await getState(db, PENDING_DELETIONS)) ?? '[]'),
+          setPending: (dids) =>
+            setState(db, PENDING_DELETIONS, JSON.stringify(dids)),
           onDeleted: (did) => push.deleteAccount(did),
         })
       : undefined

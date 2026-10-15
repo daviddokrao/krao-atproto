@@ -81,11 +81,17 @@ have no monetary value; they may be converted to a token later.
   HMAC (unique: one number, one account) and AES-256-GCM (kept while the
   account exists). Deleting the account frees the number; a takedown keeps
   it reserved.
-- Codes: 6 digits, stored as HMACs, 5 minutes, 5 tries, one a minute, 5 an
-  hour per account and per number.
-- SMS: `SmsProvider` adapter; `log` (dev, rehearsals) or `http` (POST
-  `{to, text}` with a bearer token). With `KRAO_DEV_MODE=true` and `log`,
-  `GET /internal/dev/last-otp?did=` returns the last code (internal token).
+- Codes: 6 digits, stored as HMACs, 5 minutes, 5 tries (counted atomically;
+  the code is dropped after the last), one a minute, 5 an hour per account
+  and per number, `KRAO_SMS_IP_HOURLY_CAP` per client address and
+  `KRAO_SMS_GLOBAL_HOURLY_CAP` in total, checked and recorded in one
+  `BEGIN IMMEDIATE` transaction. Only `KRAO_PHONE_ALLOWED_PREFIXES` (`+84`).
+- A number another account holds: `requestCode` answers as usual but sends
+  nothing (and the request counts); `verifyCode` then says `PhoneTaken`.
+- SMS: `SmsProvider` adapter; `log` (dev, rehearsals: refused without
+  `KRAO_DEV_MODE=true`) or `http` (POST `{to, text}` with a bearer token).
+  With `log`, `GET /internal/dev/last-otp?did=` returns the last code
+  (internal token).
 
 ## Consent and data export
 
@@ -125,6 +131,9 @@ have no monetary value; they may be converted to a token later.
 | `KRAO_SMS_HTTP_URL`, `KRAO_SMS_HTTP_TOKEN` | required with `http`       |
 | `KRAO_PHONE_HMAC_SECRET`                   | required with a provider   |
 | `KRAO_PHONE_ENC_KEY`                       | required with a provider   |
+| `KRAO_PHONE_ALLOWED_PREFIXES`              | `+84`                      |
+| `KRAO_SMS_GLOBAL_HOURLY_CAP`               | `500`                      |
+| `KRAO_SMS_IP_HOURLY_CAP`                   | `30`                       |
 | `KRAO_DEV_MODE`                            | `false`                    |
 
 ## Dev-env

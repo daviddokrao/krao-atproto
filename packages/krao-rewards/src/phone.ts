@@ -6,7 +6,8 @@ import {
   randomInt,
   timingSafeEqual,
 } from 'node:crypto'
-import type { Database } from './db.js'
+import { type SelectQueryBuilder, sql } from 'kysely'
+import type { Database, DatabaseSchema } from './db.js'
 import { RewardsError } from './service.js'
 
 /*
@@ -20,7 +21,7 @@ import { RewardsError } from './service.js'
 export const CODE_TTL_MS = 5 * 60_000
 export const MAX_ATTEMPTS = 5
 export const RESEND_COOLDOWN_MS = 60_000
-/** Codes sent per account, and per number, in an hour */
+/** Code requests per account, and per number, in an hour */
 export const SENDS_PER_HOUR = 5
 
 const E164_RE = /^\+[1-9]\d{6,14}$/
@@ -162,16 +163,38 @@ export type PhoneStatus = {
   maskedPhone?: string
 }
 
+export type PhoneLimits = {
+  /** Numbers must start with one of these (default +84: Vietnam only) */
+  allowedPrefixes: string[]
+  /** Codes sent per hour across all accounts (an SMS budget) */
+  globalHourlyCap: number
+  /** Codes per hour from one client address */
+  ipHourlyCap: number
+}
+
+export const DEFAULT_PHONE_LIMITS: PhoneLimits = {
+  allowedPrefixes: ['+84'],
+  globalHourlyCap: 500,
+  ipHourlyCap: 30,
+}
+
+const rateLimited = (message: string) =>
+  new RewardsError('RateLimitExceeded', message)
+
 export class PhoneService {
   /** Development only: the last code sent to each account */
   devCodes?: Map<string, string>
+  private limits: PhoneLimits
 
   constructor(
     private db: Database,
     private crypto: PhoneCrypto,
     private sms: SmsProvider,
     private clock: () => number = Date.now,
-  ) {}
+    limits: Partial<PhoneLimits> = {},
+  ) {
+    this.limits = { ...DEFAULT_PHONE_LIMITS, ...limits }
+  }
 
   private parse(raw: string) {
     const phone = normalizePhone(raw)
@@ -179,6 +202,12 @@ export class PhoneService {
       throw new RewardsError(
         'InvalidPhone',
         'Enter the phone number with its country code, eg +84912345678',
+      )
+    }
+    if (!this.limits.allowedPrefixes.some((p) => phone.startsWith(p))) {
+      throw new RewardsError(
+        'PhoneNotSupported',
+        `Only numbers starting with ${this.limits.allowedPrefixes.join(', ')} can be verified`,
       )
     }
     return { phone, phoneHash: this.crypto.hash(phone) }
@@ -193,51 +222,96 @@ export class PhoneService {
     return !!row && row.did !== did
   }
 
-  async requestCode(did: string, raw: string): Promise<{ expiresAt: string }> {
+  /**
+   * Counts the request against every limit and records it, in one
+   * IMMEDIATE transaction so concurrent requests cannot both pass. Every
+   * request counts, including those for numbers another account holds.
+   */
+  private async takeSendSlot(
+    did: string,
+    phoneHash: string,
+    ip: string | undefined,
+    now: number,
+  ) {
+    await this.db.connection().execute(async (conn) => {
+      await sql`begin immediate`.execute(conn)
+      try {
+        const count = async (
+          where: (qb: SendLogQuery) => SendLogQuery,
+          since: number,
+        ) => {
+          const row = await where(
+            conn
+              .selectFrom('phone_send_log')
+              .select((eb) => eb.fn.countAll<number>().as('count'))
+              .where('sentAt', '>=', iso(since)),
+          ).executeTakeFirstOrThrow()
+          return Number(row.count)
+        }
+        const hourAgo = now - 60 * 60_000
+        if (
+          (await count(
+            (qb) => qb.where('did', '=', did),
+            now - RESEND_COOLDOWN_MS + 1,
+          )) > 0
+        ) {
+          throw rateLimited(
+            'Please wait a minute before asking for another code',
+          )
+        }
+        if (
+          (await count((qb) => qb.where('did', '=', did), hourAgo)) >=
+            SENDS_PER_HOUR ||
+          (await count(
+            (qb) => qb.where('phoneHash', '=', phoneHash),
+            hourAgo,
+          )) >= SENDS_PER_HOUR ||
+          (ip &&
+            (await count((qb) => qb.where('ip', '=', ip), hourAgo)) >=
+              this.limits.ipHourlyCap)
+        ) {
+          throw rateLimited('Too many codes asked for, try again in an hour')
+        }
+        if ((await count((qb) => qb, hourAgo)) >= this.limits.globalHourlyCap) {
+          console.error('Krao rewards: the hourly SMS cap is reached')
+          throw rateLimited('Codes cannot be sent right now, try again later')
+        }
+        await conn
+          .insertInto('phone_send_log')
+          .values({ did, phoneHash, ip: ip ?? null, sentAt: iso(now) })
+          .execute()
+        await sql`commit`.execute(conn)
+      } catch (err) {
+        await sql`rollback`.execute(conn)
+        throw err
+      }
+    })
+  }
+
+  /**
+   * Sends a code. A number another account verified gets the same answer
+   * but no SMS (no enumeration here); verifyCode tells it apart.
+   */
+  async requestCode(
+    did: string,
+    raw: string,
+    ip?: string,
+  ): Promise<{ expiresAt: string }> {
     const { phone, phoneHash } = this.parse(raw)
-    if (await this.takenByOther(did, phoneHash)) {
-      throw new RewardsError(
-        'PhoneTaken',
-        'This phone number is already verified on another account',
-      )
-    }
     const now = this.clock()
-    const pending = await this.db
-      .selectFrom('phone_otp')
-      .select('createdAt')
-      .where('did', '=', did)
-      .executeTakeFirst()
-    if (pending && now - Date.parse(pending.createdAt) < RESEND_COOLDOWN_MS) {
-      throw new RewardsError(
-        'RateLimitExceeded',
-        'Please wait a minute before asking for another code',
-      )
-    }
-    const hourAgo = iso(now - 60 * 60_000)
-    const [byDid, byPhone] = await Promise.all([
-      this.sendCount('did', did, hourAgo),
-      this.sendCount('phoneHash', phoneHash, hourAgo),
-    ])
-    if (byDid >= SENDS_PER_HOUR || byPhone >= SENDS_PER_HOUR) {
-      throw new RewardsError(
-        'RateLimitExceeded',
-        'Too many codes asked for, try again in an hour',
-      )
-    }
+    await this.takeSendSlot(did, phoneHash, ip, now)
+    const taken = await this.takenByOther(did, phoneHash)
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-    // Counted before sending: a failing gateway is not retried faster
-    await this.db
-      .insertInto('phone_send_log')
-      .values({ did, phoneHash, sentAt: iso(now) })
-      .execute()
-    try {
-      await this.sms.send(phone, smsText(code))
-    } catch (err) {
-      console.error('Krao rewards: SMS failed', err)
-      throw new RewardsError(
-        'SmsFailed',
-        'The code could not be sent, try again later',
-      )
+    if (!taken) {
+      try {
+        await this.sms.send(phone, smsText(code))
+      } catch (err) {
+        console.error('Krao rewards: SMS failed', err)
+        throw new RewardsError(
+          'SmsFailed',
+          'The code could not be sent, try again later',
+        )
+      }
     }
     const row = {
       did,
@@ -252,22 +326,8 @@ export class PhoneService {
       .values(row)
       .onConflict((oc) => oc.column('did').doUpdateSet(row))
       .execute()
-    this.devCodes?.set(did, code)
+    if (!taken) this.devCodes?.set(did, code)
     return { expiresAt: row.expiresAt }
-  }
-
-  private async sendCount(
-    column: 'did' | 'phoneHash',
-    value: string,
-    since: string,
-  ) {
-    const row = await this.db
-      .selectFrom('phone_send_log')
-      .select((eb) => eb.fn.countAll<number>().as('count'))
-      .where(column, '=', value)
-      .where('sentAt', '>=', since)
-      .executeTakeFirstOrThrow()
-    return Number(row.count)
   }
 
   async verifyCode(did: string, raw: string, code: string) {
@@ -288,26 +348,49 @@ export class PhoneService {
         'The code expired or was sent to another number: ask for a new one',
       )
     }
-    if (otp.attempts >= MAX_ATTEMPTS) {
+    // Counted atomically before the code is compared: parallel guesses
+    // cannot get more tries
+    const counted = await this.db
+      .updateTable('phone_otp')
+      .set((eb) => ({ attempts: eb('attempts', '+', 1) }))
+      .where('did', '=', did)
+      .where('codeHash', '=', otp.codeHash)
+      .where('attempts', '<', MAX_ATTEMPTS)
+      .returning('attempts')
+      .executeTakeFirst()
+    if (!counted) {
       throw new RewardsError(
         'TooManyAttempts',
         'Too many wrong codes: ask for a new one',
       )
     }
-    await this.db
-      .updateTable('phone_otp')
-      .set({ attempts: otp.attempts + 1 })
-      .where('did', '=', did)
-      .execute()
+    const dropCode = () =>
+      this.db
+        .deleteFrom('phone_otp')
+        .where('did', '=', did)
+        .where('codeHash', '=', otp.codeHash)
+        .execute()
+    if (await this.takenByOther(did, phoneHash)) {
+      await dropCode()
+      throw new RewardsError(
+        'PhoneTaken',
+        'This phone number is already verified on another account',
+      )
+    }
     const given = Buffer.from(this.crypto.codeHash(did, phoneHash, code.trim()))
     const expected = Buffer.from(otp.codeHash)
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-      const left = MAX_ATTEMPTS - otp.attempts - 1
+      const left = MAX_ATTEMPTS - counted.attempts
+      if (left <= 0) {
+        await dropCode()
+        throw new RewardsError(
+          'TooManyAttempts',
+          'Too many wrong codes: ask for a new one',
+        )
+      }
       throw new RewardsError(
-        left > 0 ? 'InvalidCode' : 'TooManyAttempts',
-        left > 0
-          ? `Wrong code, ${left} ${left === 1 ? 'try' : 'tries'} left`
-          : 'Too many wrong codes: ask for a new one',
+        'InvalidCode',
+        `Wrong code, ${left} ${left === 1 ? 'try' : 'tries'} left`,
       )
     }
     const row = {
@@ -386,3 +469,9 @@ export class PhoneService {
       .execute()
   }
 }
+
+type SendLogQuery = SelectQueryBuilder<
+  DatabaseSchema,
+  'phone_send_log',
+  { count: number }
+>

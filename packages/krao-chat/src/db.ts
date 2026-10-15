@@ -160,6 +160,23 @@ export async function migrateDb(db: Database): Promise<void> {
   await runMigrations(db, migrations)
 }
 
+export async function getState(db: Database, key: string) {
+  const row = await db
+    .selectFrom('state')
+    .select('value')
+    .where('key', '=', key)
+    .executeTakeFirst()
+  return row?.value
+}
+
+export async function setState(db: Database, key: string, value: string) {
+  await db
+    .insertInto('state')
+    .values({ key, value })
+    .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
+    .execute()
+}
+
 async function initialSchema(db: Database): Promise<void> {
   await db.schema
     .createTable('actor_access')

@@ -67,6 +67,8 @@ services:
       PDS_KRAO_REWARDS_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN:?set KRAO_REWARDS_INTERNAL_TOKEN}
       # Decree 147: posting needs a phone number verified with rewards
       PDS_KRAO_PHONE_REQUIRED: 'true'
+      # Repo imports (account migration) are off unless turned on
+      PDS_ACCEPTING_REPO_IMPORTS: ${PDS_ACCEPTING_REPO_IMPORTS:-false}
       PDS_HOME_URL: https://${KRAO_DOMAIN}/
       PDS_TERMS_OF_SERVICE_URL: https://${KRAO_DOMAIN}/terms
       PDS_PRIVACY_POLICY_URL: https://${KRAO_DOMAIN}/privacy
@@ -261,8 +263,11 @@ services:
       SUMSUB_LEVEL: ${SUMSUB_LEVEL:-}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
-      # Phone verification (Decree 147): http, or log until a gateway is chosen
-      KRAO_SMS_PROVIDER: ${KRAO_SMS_PROVIDER:?set KRAO_SMS_PROVIDER (http, or log)}
+      # Phone verification (Decree 147): an SMS gateway (log is dev only)
+      KRAO_SMS_PROVIDER: ${KRAO_SMS_PROVIDER:?set KRAO_SMS_PROVIDER (http)}
+      KRAO_PHONE_ALLOWED_PREFIXES: ${KRAO_PHONE_ALLOWED_PREFIXES:-+84}
+      KRAO_SMS_GLOBAL_HOURLY_CAP: ${KRAO_SMS_GLOBAL_HOURLY_CAP:-500}
+      KRAO_SMS_IP_HOURLY_CAP: ${KRAO_SMS_IP_HOURLY_CAP:-30}
       KRAO_SMS_HTTP_URL: ${KRAO_SMS_HTTP_URL:-}
       KRAO_SMS_HTTP_TOKEN: ${KRAO_SMS_HTTP_TOKEN:-}
       KRAO_PHONE_HMAC_SECRET: ${KRAO_PHONE_HMAC_SECRET:?set KRAO_PHONE_HMAC_SECRET}

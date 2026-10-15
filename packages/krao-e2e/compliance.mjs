@@ -12,6 +12,8 @@ import {
   SIGNUP_CODE,
   checker,
   createRecord,
+  REWARDS,
+  REWARDS_TOKEN,
   lastOtp,
   login,
   rewardsCall,
@@ -185,13 +187,29 @@ for (let i = 0; i < 25; i++) {
 check('once verified, the account can post', posted.ok, posted.data.message)
 
 const bao = await signUp('bao')
-const taken = await rewardsCall(bao, 'net.krao.phone.requestCode', {
+const probe = await rewardsCall(bao, 'net.krao.phone.requestCode', {
   body: { phone: e164 },
+})
+check(
+  'asking a code for a number in use looks like any other request',
+  probe.ok && !!probe.data.expiresAt && !(await lastOtp(bao.did)),
+  JSON.stringify(probe.data),
+)
+const taken = await rewardsCall(bao, 'net.krao.phone.verifyCode', {
+  body: { phone: e164, code: '123456' },
 })
 check(
   'a second account cannot verify the same number',
   taken.data.error === 'PhoneTaken',
   JSON.stringify(taken.data),
+)
+const foreign = await rewardsCall(bao, 'net.krao.phone.requestCode', {
+  body: { phone: '+14155550100' },
+})
+check(
+  'numbers outside Vietnam are refused',
+  foreign.data.error === 'PhoneNotSupported',
+  JSON.stringify(foreign.data),
 )
 
 /*
@@ -386,18 +404,21 @@ const deleted = await fetch(`${PDS}/xrpc/com.atproto.admin.deleteAccount`, {
 check('an admin deletes Cam', deleted.ok, String(deleted.status))
 
 // The PDS reports deletions to rewards some seconds later
-let freed
 for (let i = 0; i < 40; i++) {
-  freed = await rewardsCall(bao, 'net.krao.phone.requestCode', {
-    body: { phone: camNumber },
+  const res = await fetch(`${REWARDS}/internal/phone-status?did=${cam.did}`, {
+    headers: { authorization: `Bearer ${REWARDS_TOKEN}` },
   })
-  if (freed.ok || freed.data.error !== 'PhoneTaken') break
+  if ((await res.json()).verified === false) break
   await sleep(1000)
 }
+const dan = await signUp('dan')
+const freed = await verifyPhone(dan, camNumber).catch((err) => ({
+  error: err.message,
+}))
 check(
   "the deleted account's number is free again",
-  freed.ok,
-  JSON.stringify(freed.data),
+  freed.verified === true,
+  JSON.stringify(freed),
 )
 check('its push devices are gone', (await devices()) === 0)
 const kraoView = await chat(krao, 'chat.bsky.convo.getMessages', {

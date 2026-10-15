@@ -35,13 +35,18 @@ if (sumsub && !sumsub.webhookSecret) {
 
 /*
  * Phone verification: KRAO_SMS_PROVIDER is log (codes in the log: dev and
- * rehearsals), http (a JSON gateway) or none (off). Its secrets are required
+ * rehearsals, with KRAO_DEV_MODE), http (a JSON gateway) or none (off). Its secrets are required
  * with a provider: the HMAC secret keys the stored numbers, so changing it
  * loses them.
  */
 const smsProvider = env.KRAO_SMS_PROVIDER || 'none'
+const devMode = env.KRAO_DEV_MODE === 'true'
 let sms: SmsProvider | undefined
 if (smsProvider === 'log') {
+  // Nobody could read the codes: never in production
+  if (!devMode) {
+    throw new Error('KRAO_SMS_PROVIDER=log needs KRAO_DEV_MODE=true')
+  }
   sms = new LogSmsProvider()
 } else if (smsProvider === 'http') {
   if (!env.KRAO_SMS_HTTP_URL || !env.KRAO_SMS_HTTP_TOKEN) {
@@ -60,6 +65,19 @@ if (sms && (!env.KRAO_PHONE_HMAC_SECRET || !env.KRAO_PHONE_ENC_KEY)) {
   throw new Error(
     'KRAO_PHONE_HMAC_SECRET and KRAO_PHONE_ENC_KEY are required with an SMS provider',
   )
+}
+const positive = (name: string, fallback: number) => {
+  const value = Number(env[name] || fallback)
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return value
+}
+const phoneLimits = {
+  // Comma-separated E.164 prefixes; Vietnam only by default
+  allowedPrefixes: list(env.KRAO_PHONE_ALLOWED_PREFIXES || '+84'),
+  globalHourlyCap: positive('KRAO_SMS_GLOBAL_HOURLY_CAP', 500),
+  ipHourlyCap: positive('KRAO_SMS_IP_HOURLY_CAP', 30),
 }
 
 const rewards = await KraoRewards.create({
@@ -99,9 +117,10 @@ const rewards = await KraoRewards.create({
           hmacSecret: env.KRAO_PHONE_HMAC_SECRET ?? '',
           encKey: env.KRAO_PHONE_ENC_KEY ?? '',
         },
+        limits: phoneLimits,
       }
     : undefined,
-  devMode: env.KRAO_DEV_MODE === 'true',
+  devMode,
 })
 await rewards.start()
 console.log(`Krao rewards service listening on ${rewards.url}`)

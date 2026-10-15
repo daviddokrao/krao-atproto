@@ -3,13 +3,14 @@ import type http from 'node:http'
 import { IdResolver } from '@atproto/identity'
 import { AccountDeletions } from './account-events.js'
 import { Appview } from './appview.js'
-import { type Database, createDb, migrateDb } from './db.js'
+import { type Database, createDb, getState, migrateDb, setState } from './db.js'
 import { PhoneGate, type PhoneGateConfig } from './phone-gate.js'
 import { createApp } from './server.js'
 import { createPushClient } from './push-client.js'
 import { ChatService } from './service.js'
 
 const FIREHOSE_CURSOR = 'firehose_cursor'
+const PENDING_DELETIONS = 'pending_deletions'
 
 export type KraoChatConfig = {
   port: number
@@ -73,22 +74,14 @@ export class KraoChat {
           service: cfg.firehoseUrl,
           idResolver,
           getCursor: async () => {
-            const row = await db
-              .selectFrom('state')
-              .select('value')
-              .where('key', '=', FIREHOSE_CURSOR)
-              .executeTakeFirst()
-            return row ? Number(row.value) : undefined
+            const value = await getState(db, FIREHOSE_CURSOR)
+            return value ? Number(value) : undefined
           },
-          setCursor: async (seq) => {
-            await db
-              .insertInto('state')
-              .values({ key: FIREHOSE_CURSOR, value: String(seq) })
-              .onConflict((oc) =>
-                oc.column('key').doUpdateSet({ value: String(seq) }),
-              )
-              .execute()
-          },
+          setCursor: (seq) => setState(db, FIREHOSE_CURSOR, String(seq)),
+          getPending: async () =>
+            JSON.parse((await getState(db, PENDING_DELETIONS)) ?? '[]'),
+          setPending: (dids) =>
+            setState(db, PENDING_DELETIONS, JSON.stringify(dids)),
           onDeleted: (did) => service.deleteAccount(did),
         })
       : undefined

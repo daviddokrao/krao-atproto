@@ -229,7 +229,12 @@ const run = async () => {
     manualReview: { dailyLimit: 1000 },
     push: KRAO_PUSH,
     // SMS codes are logged, and readable at /internal/dev/last-otp
-    phone: { sms: new LogSmsProvider(), secrets: KRAO_DEV_PHONE_SECRETS },
+    phone: {
+      sms: new LogSmsProvider(),
+      secrets: KRAO_DEV_PHONE_SECRETS,
+      // Every seed and e2e request comes from this machine
+      limits: { ipHourlyCap: 100_000, globalHourlyCap: 100_000 },
+    },
     devMode: true,
   })
   await kraoRewards.start()

@@ -820,10 +820,10 @@ export class RewardsService {
           ]),
         )
         .execute()
-      // Its phone number is free again (a takedown keeps it reserved)
+      // Its phone number is free again (a takedown keeps it reserved). The
+      // send log stays until pruned, so the per-number limits still count
       await tx.deleteFrom('phone_verification').where('did', '=', did).execute()
       await tx.deleteFrom('phone_otp').where('did', '=', did).execute()
-      await tx.deleteFrom('phone_send_log').where('did', '=', did).execute()
       await this.audit(tx, 'system', 'account.deleted', did)
     })
   }
