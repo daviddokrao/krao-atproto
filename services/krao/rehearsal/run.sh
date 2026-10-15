@@ -23,8 +23,7 @@ docker build -f Dockerfile -t krao-backend:latest ../..
 docker build -f Dockerfile --target tools -t krao-backend-tools:latest ../..
 
 step "Environment"
-docker run --rm -v "$PWD/rehearsal:/out" krao-backend:latest \
-  sh -c 'node services/krao/rehearsal/gen-env.mjs > /out/.env'
+docker run --rm krao-backend:latest node services/krao/rehearsal/gen-env.mjs > rehearsal/.env
 mkdir -p rehearsal/backups secrets
 "${DC[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 
