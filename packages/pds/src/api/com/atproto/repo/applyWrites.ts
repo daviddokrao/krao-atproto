@@ -86,6 +86,14 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('Too many writes. Max: 200')
       }
 
+      // Krao: posting may need a verified phone
+      await ctx.accountManager.kraoPhone?.assertCanWrite(
+        did,
+        writes
+          .filter((w) => !com.atproto.repo.applyWrites.delete.$isTypeOf(w))
+          .map((w) => w.collection),
+      )
+
       // Verify permission of every unique "action" / "collection" pair
       if (auth.credentials.type === 'oauth') {
         // @NOTE Unlike "importRepo", we do not require "action" = "*" here.

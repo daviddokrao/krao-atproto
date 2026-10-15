@@ -104,6 +104,8 @@ export function readEnv() {
     // Krao rewards service: invite codes are its referral codes when set
     kraoRewardsUrl: envStr('PDS_KRAO_REWARDS_URL'),
     kraoRewardsToken: envStr('PDS_KRAO_REWARDS_TOKEN'),
+    // Posting needs a phone number verified with the rewards service
+    kraoPhoneRequired: envBool('PDS_KRAO_PHONE_REQUIRED'),
 
     bskyAppViewUrl: envStr('PDS_BSKY_APP_VIEW_URL'),
     bskyAppViewDid: envStr('PDS_BSKY_APP_VIEW_DID'),

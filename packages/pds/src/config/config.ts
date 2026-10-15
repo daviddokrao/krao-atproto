@@ -195,8 +195,16 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
     : null
 
   const kraoRewardsCfg: ServerConfig['kraoRewards'] = env.kraoRewardsUrl
-    ? { url: env.kraoRewardsUrl, token: env.kraoRewardsToken ?? '' }
+    ? {
+        url: env.kraoRewardsUrl,
+        token: env.kraoRewardsToken ?? '',
+        phoneRequired: env.kraoPhoneRequired ?? false,
+      }
     : null
+  assert(
+    !env.kraoPhoneRequired || kraoRewardsCfg,
+    'PDS_KRAO_PHONE_REQUIRED needs the Krao rewards service (PDS_KRAO_REWARDS_URL)',
+  )
 
   let bskyAppViewCfg: ServerConfig['bskyAppView'] = null
   if (env.bskyAppViewUrl) {
@@ -555,6 +563,8 @@ export type KraoRewardsConfig = {
   url: string
   /** Shared secret for its /internal routes */
   token: string
+  /** Posting needs a phone number verified with the service (Decree 147) */
+  phoneRequired: boolean
 }
 
 export type BksyAppViewConfig = {
