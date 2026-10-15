@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.safety.admin.addDomain",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add a domain (and with it all its subdomains) to Krao's list of unsafe domains. Logged. Safety admins only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["domain"],
+          "properties": {
+            "domain": {
+              "type": "string",
+              "maxLength": 253,
+              "description": "A domain name, or a URL whose host is used. Internationalized names are stored in punycode."
+            },
+            "reason": { "type": "string", "maxLength": 300 }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "net.krao.safety.defs#domainView" }
+      },
+      "errors": [
+        { "name": "InvalidDomain", "description": "Not a domain name." }
+      ]
+    }
+  }
+}
