@@ -32,6 +32,7 @@ step "Postgres, PLC, S3, Caddy"
 echo "OZONE_SERVER_DID=did:plc:placeholder" >> rehearsal/.env
 "${DC[@]}" up -d postgres plc s3 caddy
 until "${DC[@]}" exec -T caddy test -f /data/caddy/pki/authorities/local/root.crt; do sleep 1; done
+"${DC[@]}" exec -T caddy cat /data/caddy/pki/authorities/local/root.crt > rehearsal/caddy-root.crt
 # The gated media bucket
 until docker run --rm --network krao-rehearsal_internal --env-file rehearsal/.env \
   -e AWS_ACCESS_KEY_ID=rehearsal -e AWS_SECRET_ACCESS_KEY=rehearsal \

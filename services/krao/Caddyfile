@@ -17,6 +17,14 @@
 	header -Server
 }
 
+# A service's own certificate. The tls line gives these sites their own
+# policy, so they are not swept into the handles' on-demand one below (which
+# would ask the PDS about api.<domain> and get no)
+(service) {
+	import common
+	tls {$KRAO_ACME_EMAIL}
+}
+
 pds.{$KRAO_DOMAIN}, *.{$KRAO_DOMAIN} {
 	tls {
 		on_demand
@@ -29,17 +37,17 @@ pds.{$KRAO_DOMAIN}, *.{$KRAO_DOMAIN} {
 }
 
 api.{$KRAO_DOMAIN} {
-	import common
+	import service
 	reverse_proxy appview:2584
 }
 
 mod.{$KRAO_DOMAIN} {
-	import common
+	import service
 	reverse_proxy ozone:3000
 }
 
 idx.{$KRAO_DOMAIN} {
-	import common
+	import service
 	request_body {
 		max_size 60MB
 	}
@@ -47,12 +55,12 @@ idx.{$KRAO_DOMAIN} {
 }
 
 chat.{$KRAO_DOMAIN} {
-	import common
+	import service
 	reverse_proxy chat:2590
 }
 
 video.{$KRAO_DOMAIN} {
-	import common
+	import service
 	request_body {
 		max_size 10MB
 	}
@@ -60,6 +68,6 @@ video.{$KRAO_DOMAIN} {
 }
 
 rewards.{$KRAO_DOMAIN} {
-	import common
+	import service
 	reverse_proxy rewards:2592
 }

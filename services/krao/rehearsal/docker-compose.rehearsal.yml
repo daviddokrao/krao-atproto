@@ -4,10 +4,12 @@
 # resolve to Caddy inside the network. S3 is SeaweedFS (MinIO no longer
 # publishes images). Never deploy this file.
 
+# Caddy's root certificate, copied out by run.sh (Caddy's own copy is
+# readable by root only)
 x-trust: &trust
-  NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
+  NODE_EXTRA_CA_CERTS: /caddy-root.crt
 
-x-trust-volume: &trust-volume caddy:/caddy:ro
+x-trust-volume: &trust-volume ./rehearsal/caddy-root.crt:/caddy-root.crt:ro
 
 services:
   plc:
