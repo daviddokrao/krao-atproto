@@ -43,6 +43,12 @@ const indexer = await KraoIndexer.create({
         token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
       }
     : undefined,
+  // Moderators (accounts, or Ozone's service DID) who may read gated content
+  gateModeratorDids: (process.env.KRAO_GATE_MODERATOR_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  gateModerationAccess: process.env.KRAO_GATE_MODERATION_ACCESS !== 'false',
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

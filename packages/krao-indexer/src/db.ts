@@ -199,7 +199,17 @@ export interface HiddenActorTable {
   since: string
 }
 
+/** A moderator read gated content (net.krao.gate.moderation.getContent) */
+export interface GateAccessLogTable {
+  id: Generated<number>
+  moderatorDid: string
+  uri: string
+  reason: string | null
+  accessedAt: string
+}
+
 export interface DatabaseSchema {
+  gate_access_log: GateAccessLogTable
   wallet: WalletTable
   tip: TipTable
   nft_avatar: NftAvatarTable
@@ -253,6 +263,21 @@ const migrations = {
         .execute()
       // Every way a row goes away queues its object, see purgeMediaTrash
       await sql`create trigger gated_media_trash_on_delete after delete on gated_media when old.store = 's3' begin insert or ignore into gated_media_trash (id, deletedAt) values (old.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')); end`.execute(
+        db,
+      )
+    },
+  },
+  '003-gate-access-log': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('gate_access_log')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('moderatorDid', 'varchar', (col) => col.notNull())
+        .addColumn('uri', 'varchar', (col) => col.notNull())
+        .addColumn('reason', 'varchar')
+        .addColumn('accessedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index gate_access_log_uri_idx on gate_access_log (uri, id)`.execute(
         db,
       )
     },

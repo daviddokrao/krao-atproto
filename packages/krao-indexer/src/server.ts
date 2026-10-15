@@ -51,6 +51,8 @@ import {
   readBounded,
   sniffMediaType,
 } from './gate-media.js'
+import { exportIndexerData } from './export.js'
+import { addGateModerationRoutes } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -111,6 +113,10 @@ export function createApp(
     mediaBlobs?: MediaBlobStore
     /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
     discoveryCacheMs?: number
+    /** Moderators who may read gated content (a live set) */
+    gateModerators?: Set<string>
+    /** Whether they may (KRAO_GATE_MODERATION_ACCESS, default true) */
+    gateModerationAccess?: boolean
   },
 ): Express {
   const {
@@ -313,6 +319,33 @@ export function createApp(
             url: mediaSigner.url(baseUrl(req), id) as UriString,
             mimeType,
           },
+        },
+      }
+    },
+  })
+
+  addGateModerationRoutes(server, db, {
+    idResolver,
+    gateDid,
+    moderators: opts.gateModerators ?? new Set(),
+    enabled: opts.gateModerationAccess ?? true,
+    mediaUrl: (req, id) => mediaSigner.url(baseUrl(req), id),
+  })
+
+  // Krao: a copy of what the indexer holds about the account (Decree 13)
+  server.add(net.krao.account.exportData, {
+    auth: serviceAuth(net.krao.account.exportData.$lxm),
+    handler: async ({ auth, req }) => {
+      const viewer = (auth.credentials as { did: string }).did
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          service: 'indexer',
+          did: viewer as `did:${string}:${string}`,
+          exportedAt: new Date().toISOString() as DatetimeString,
+          data: (await exportIndexerData(db, viewer, (id) =>
+            mediaSigner.url(baseUrl(req), id),
+          )) as never,
         },
       }
     },

@@ -33,13 +33,14 @@
     "undici": "^8.5.0"
   },
   "devDependencies": {
+    "@atproto/crypto": "workspace:^",
     "@types/better-sqlite3": "^7.6.11",
     "@types/cors": "^2.8.12",
     "@types/express": "^4.17.13",
     "vitest": "^4.1.10"
   },
   "scripts": {
-    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include app.bsky.feed.describeFeedGenerator app.bsky.feed.getFeedSkeleton net.krao.actor.getChainProfiles net.krao.actor.resolveNft net.krao.feed.getTips net.krao.feed.getTipTotals net.krao.gate.getRules net.krao.gate.getContent net.krao.gate.putContent net.krao.gate.uploadMedia app.bsky.unspecced.getSuggestedFeedsSkeleton app.bsky.unspecced.getSuggestedUsersSkeleton app.bsky.unspecced.getSuggestedUsersForExploreSkeleton app.bsky.unspecced.getSuggestedUsersForDiscoverSkeleton app.bsky.unspecced.getSuggestedUsersForSeeMoreSkeleton app.bsky.unspecced.getOnboardingSuggestedUsersSkeleton app.bsky.unspecced.getSuggestedStarterPacksSkeleton app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton app.bsky.unspecced.getSuggestionsSkeleton app.bsky.unspecced.getTrendingTopics app.bsky.unspecced.getTrendsSkeleton",
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include app.bsky.feed.describeFeedGenerator app.bsky.feed.getFeedSkeleton net.krao.actor.getChainProfiles net.krao.actor.resolveNft net.krao.feed.getTips net.krao.feed.getTipTotals net.krao.gate.getRules net.krao.gate.getContent net.krao.gate.putContent net.krao.gate.uploadMedia net.krao.gate.moderation.getContent net.krao.gate.moderation.listAccessLog net.krao.account.exportData app.bsky.unspecced.getSuggestedFeedsSkeleton app.bsky.unspecced.getSuggestedUsersSkeleton app.bsky.unspecced.getSuggestedUsersForExploreSkeleton app.bsky.unspecced.getSuggestedUsersForDiscoverSkeleton app.bsky.unspecced.getSuggestedUsersForSeeMoreSkeleton app.bsky.unspecced.getOnboardingSuggestedUsersSkeleton app.bsky.unspecced.getSuggestedStarterPacksSkeleton app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton app.bsky.unspecced.getSuggestionsSkeleton app.bsky.unspecced.getTrendingTopics app.bsky.unspecced.getTrendsSkeleton",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
     "test": "vitest run",

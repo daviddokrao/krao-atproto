@@ -59,6 +59,13 @@ export type KraoIndexerConfig = {
   feedPdsUrl?: string
   /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
   discoveryCacheMs?: number
+  /**
+   * Moderator accounts and moderation services (eg Krao's Ozone) that may
+   * read gated content, with every read logged
+   */
+  gateModeratorDids?: string[]
+  /** Whether moderators may read gated content (default true) */
+  gateModerationAccess?: boolean
 }
 
 export class KraoIndexer {
@@ -69,7 +76,13 @@ export class KraoIndexer {
     public db: Database,
     public indexer: FirehoseIndexer,
     private app: ReturnType<typeof createApp>,
+    private gateModerators: Set<string>,
   ) {}
+
+  /** Lets an account read gated content as a moderator (eg one made at startup) */
+  addGateModerator(did: string) {
+    this.gateModerators.add(did)
+  }
 
   static async create(cfg: KraoIndexerConfig): Promise<KraoIndexer> {
     const db = createDb(cfg.dbLocation)
@@ -98,6 +111,7 @@ export class KraoIndexer {
       : undefined
     indexer.mediaBlobs = mediaBlobs
     indexer.push = createPushClient(cfg.push?.url, cfg.push?.token)
+    const gateModerators = new Set(cfg.gateModeratorDids ?? [])
     return new KraoIndexer(
       cfg,
       db,
@@ -113,7 +127,10 @@ export class KraoIndexer {
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
         discoveryCacheMs: cfg.discoveryCacheMs,
+        gateModerators,
+        gateModerationAccess: cfg.gateModerationAccess,
       }),
+      gateModerators,
     )
   }
 

@@ -14,7 +14,11 @@ describe('migrateDb', () => {
     const db = createDb(':memory:')
     await migrateDb(db)
     await migrateDb(db)
-    expect(await applied(db)).toEqual(['001-initial', '002-gated-media-store'])
+    expect(await applied(db)).toEqual([
+      '001-initial',
+      '002-gated-media-store',
+      '003-gate-access-log',
+    ])
     await db.destroy()
   })
 
@@ -33,7 +37,11 @@ describe('migrateDb', () => {
       .select('evmAddress')
       .executeTakeFirstOrThrow()
     expect(row.evmAddress).toBe('0xabc')
-    expect(await applied(db)).toEqual(['001-initial', '002-gated-media-store'])
+    expect(await applied(db)).toEqual([
+      '001-initial',
+      '002-gated-media-store',
+      '003-gate-access-log',
+    ])
     await db.destroy()
   })
 })
