@@ -226,6 +226,7 @@ services:
       KRAO_REWARDS_PUBLIC_URL: https://rewards.${KRAO_DOMAIN}
       KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
       KRAO_REWARDS_ADMIN_DIDS: ${KRAO_REWARDS_ADMIN_DIDS:-}
+      KRAO_REWARDS_BOOTSTRAP_CODE: ${KRAO_REWARDS_BOOTSTRAP_CODE:-}
       KRAO_KYC_REVIEWER_DIDS: ${KRAO_KYC_REVIEWER_DIDS:-}
       KRAO_KYC_MANUAL_DAILY_LIMIT: ${KRAO_KYC_MANUAL_DAILY_LIMIT:-}
       SUMSUB_APP_TOKEN: ${SUMSUB_APP_TOKEN:-}
@@ -268,7 +269,7 @@ services:
       - chat:/volumes/chat
       - rewards:/volumes/rewards
       - push:/volumes/push
-      - video:/volumes/video:ro
+      - video:/volumes/video
       - ${KRAO_BACKUP_DIR:-./backups}:/backups
     user: root
     environment:
@@ -288,6 +289,7 @@ services:
     environment:
       KRAO_DOMAIN: ${KRAO_DOMAIN}
       KRAO_ACME_EMAIL: ${KRAO_ACME_EMAIL:?set KRAO_ACME_EMAIL}
+      KRAO_CADDY_GLOBAL: ''
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy:/data

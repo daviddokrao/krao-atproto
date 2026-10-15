@@ -37,6 +37,11 @@ export type KraoRewardsConfig = {
   insecureFetch?: boolean
   /** Krao's push service, to tell people about points and KYC */
   push?: { url: string; token: string }
+  /**
+   * A campaign code made at startup if missing, so the first accounts of a
+   * new network (the admins) can sign up. Disable it once they have.
+   */
+  bootstrapCode?: { code: string; maxUses: number }
 }
 
 export class KraoRewards {
@@ -62,6 +67,18 @@ export class KraoRewards {
     await migrateDb(db)
     const service = new RewardsService(db)
     await service.seedRules()
+    if (cfg.bootstrapCode) {
+      await service
+        .createCode('system', {
+          code: cfg.bootstrapCode.code,
+          kind: 'campaign',
+          maxUses: cfg.bootstrapCode.maxUses,
+          note: 'Bootstrap code for the first accounts',
+        })
+        .catch((err: unknown) => {
+          if ((err as { error?: string }).error !== 'CodeTaken') throw err
+        })
+    }
     const idResolver = new IdResolver({
       plcUrl: cfg.plcUrl,
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),

@@ -1,5 +1,7 @@
 {
 	email {$KRAO_ACME_EMAIL}
+	# Empty in production; local_certs for a rehearsal
+	{$KRAO_CADDY_GLOBAL:}
 	# Certificates for user handles (alice.krao.net) are issued when first
 	# requested, only for handles the PDS knows
 	on_demand_tls {

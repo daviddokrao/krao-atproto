@@ -44,6 +44,12 @@ const rewards = await KraoRewards.create({
       : undefined,
     requireSecondApprover: env.KRAO_KYC_REQUIRE_SECOND_APPROVER === 'true',
   },
+  bootstrapCode: process.env.KRAO_REWARDS_BOOTSTRAP_CODE
+    ? {
+        code: process.env.KRAO_REWARDS_BOOTSTRAP_CODE,
+        maxUses: Number(process.env.KRAO_REWARDS_BOOTSTRAP_CODE_MAX_USES || 5),
+      }
+    : undefined,
   push: process.env.KRAO_PUSH_URL
     ? {
         url: process.env.KRAO_PUSH_URL,

@@ -24,6 +24,13 @@ RUN pnpm run --recursive --stream --workspace-concurrency 1 \
   --filter '@krao/video...' --filter '@krao/rewards...' \
   --filter '@krao/push...' \
   build -- --force
+
+# With the dev dependencies, for one-off jobs such as the local PLC of a
+# rehearsal (services/krao/rehearsal); never run in production
+FROM build AS tools
+ENV NODE_ENV=development
+
+FROM build AS prune
 # Only production dependencies in the final image
 RUN pnpm install --prod --shamefully-hoist --frozen-lockfile --prefer-offline \
   --config.confirmModulesPurge=false
@@ -37,7 +44,7 @@ RUN apt-get update \
     postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app /app
+COPY --from=prune /app /app
 WORKDIR /app
 
 RUN mkdir /data && chown node:node /data
