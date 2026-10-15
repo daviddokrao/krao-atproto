@@ -90,6 +90,7 @@ services:
       postgres: { condition: service_healthy }
     environment:
       BSKY_PORT: 2584
+      LOG_ENABLED: 'true'
       BSKY_PUBLIC_URL: https://api.${KRAO_DOMAIN}
       BSKY_SERVER_DID: did:web:api.${KRAO_DOMAIN}
       BSKY_SERVICE_SIGNING_KEY: ${BSKY_SERVICE_SIGNING_KEY:?set BSKY_SERVICE_SIGNING_KEY}

@@ -57,6 +57,8 @@ const main = async () => {
     db,
     dataplanePort,
     config.didPlcUrl,
+    // Rehearsals only: identity lookups to a private PLC
+    config.disableSsrfProtection ? globalThis.fetch : undefined,
   )
   const signingKey = await Secp256k1Keypair.import(signingKeyHex)
   const server = BskyAppView.create({ config, signingKey })
