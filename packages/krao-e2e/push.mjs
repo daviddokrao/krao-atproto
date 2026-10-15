@@ -78,7 +78,12 @@ async function waitForPush(token, match, ms = 15_000) {
 const reg = (session, token, method = 'app.bsky.notification.registerPush') =>
   xrpc(PDS, method, {
     token: session.accessJwt,
-    body: { serviceDid: APPVIEW_DID, token, platform: 'ios', appId: 'io.krao.app' },
+    body: {
+      serviceDid: APPVIEW_DID,
+      token,
+      platform: 'ios',
+      appId: 'io.krao.app',
+    },
   })
 
 const ana = await signUp('Ana')
@@ -98,14 +103,10 @@ await create(bao, 'app.bsky.graph.follow', {
   subject: ana.did,
   createdAt: new Date().toISOString(),
 })
-const follow = await waitForPush(
-  anaToken,
-  (m) => m.data.reason === 'follow',
-)
+const follow = await waitForPush(anaToken, (m) => m.data.reason === 'follow')
 check(
   'a new follower is pushed, named',
-  follow?.title === 'Bao followed you' &&
-    follow.data.recipientDid === ana.did,
+  follow?.title === 'Bao followed you' && follow.data.recipientDid === ana.did,
   JSON.stringify(follow),
 )
 

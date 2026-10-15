@@ -21,19 +21,19 @@ services:
       KRAO_RPC_URL: http://kraonet-backend-anvil:8545
     volumes:
       - ./:/app/deploy:ro
-    expose: ["2583", "2584", "2589", "2590", "2591", "2592"]
+    expose: ['2583', '2584', '2589', '2590', '2591', '2592']
     networks: [edge, internal]
 
   anvil:
     image: ghcr.io/foundry-rs/foundry:stable
     container_name: kraonet-backend-anvil
     restart: unless-stopped
-    entrypoint: ["anvil"]
+    entrypoint: ['anvil']
     command:
       - --host=0.0.0.0
       - --chain-id=8453
       - --fork-url=https://mainnet.base.org
-    expose: ["8545"]
+    expose: ['8545']
     networks: [internal]
 
   # rpc.krao.net: standard JSON-RPC only, no Anvil cheat methods
@@ -42,12 +42,12 @@ services:
     container_name: kraonet-backend-rpc-guard
     restart: unless-stopped
     depends_on: [anvil]
-    command: ["node", "/app/rpc-guard.mjs"]
+    command: ['node', '/app/rpc-guard.mjs']
     environment:
       RPC_UPSTREAM: http://kraonet-backend-anvil:8545
     volumes:
       - ./rpc-guard.mjs:/app/rpc-guard.mjs:ro
-    expose: ["8545"]
+    expose: ['8545']
     networks: [edge, internal]
 
   postgres:

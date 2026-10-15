@@ -33,7 +33,11 @@ async function xrpc(base, method, { token, body, query, headers } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   })
-  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }
+  return {
+    ok: res.ok,
+    status: res.status,
+    data: await res.json().catch(() => ({})),
+  }
 }
 
 async function waitFor(fn, ms = 30_000) {
@@ -52,7 +56,11 @@ const create = async (s, collection, record, rkey) => {
       repo: s.did,
       collection,
       rkey,
-      record: { $type: collection, createdAt: new Date().toISOString(), ...record },
+      record: {
+        $type: collection,
+        createdAt: new Date().toISOString(),
+        ...record,
+      },
     },
   })
   if (!res.ok) throw new Error(`${collection}: ${JSON.stringify(res.data)}`)
@@ -95,8 +103,17 @@ if (mode === 'create') {
         inviteCode: process.env.KRAO_REWARDS_BOOTSTRAP_CODE,
       },
     })
-    check(`${name} signs up with the bootstrap code`, res.ok, JSON.stringify(res.data))
-    await create(res.data, 'app.bsky.actor.profile', { displayName: name }, 'self')
+    check(
+      `${name} signs up with the bootstrap code`,
+      res.ok,
+      JSON.stringify(res.data),
+    )
+    await create(
+      res.data,
+      'app.bsky.actor.profile',
+      { displayName: name },
+      'self',
+    )
     return res.data
   }
   const ana = await signUp('ana')
@@ -112,32 +129,54 @@ if (mode === 'create') {
       appId: 'io.krao.app',
     },
   })
-  check('a device token registers through the AppView', reg.ok, JSON.stringify(reg.data))
+  check(
+    'a device token registers through the AppView',
+    reg.ok,
+    JSON.stringify(reg.data),
+  )
 
-  const post = await create(ana, 'app.bsky.feed.post', { text: 'First post on Krao' })
+  const post = await create(ana, 'app.bsky.feed.post', {
+    text: 'First post on Krao',
+  })
   await create(bao, 'app.bsky.graph.follow', { subject: ana.did })
   await create(ana, 'app.bsky.graph.follow', { subject: bao.did })
-  await create(bao, 'app.bsky.feed.like', { subject: { uri: post.uri, cid: post.cid } })
+  await create(bao, 'app.bsky.feed.like', {
+    subject: { uri: post.uri, cid: post.cid },
+  })
 
   const indexed = await waitFor(async () => {
-    const res = await xrpc(API, 'app.bsky.feed.getPosts', { query: { uris: post.uri } })
+    const res = await xrpc(API, 'app.bsky.feed.getPosts', {
+      query: { uris: post.uri },
+    })
     return res.data.posts?.[0]?.likeCount === 1 ? res.data.posts[0] : null
   })
   check('the AppView indexes the post and the like', !!indexed)
 
   const pushed = await waitFor(async () => {
     const res = await fetch('http://push:2593/internal/recent', {
-      headers: { authorization: `Bearer ${process.env.KRAO_PUSH_INTERNAL_TOKEN}` },
+      headers: {
+        authorization: `Bearer ${process.env.KRAO_PUSH_INTERNAL_TOKEN}`,
+      },
     })
     const { sent } = await res.json()
-    return sent.find((s) => s.token === `rehearsal-${stamp}` && s.msg.data.reason === 'like')
+    return sent.find(
+      (s) => s.token === `rehearsal-${stamp}` && s.msg.data.reason === 'like',
+    )
   })
-  check('the like is pushed to Ana', pushed?.msg.title === 'bao liked your post', JSON.stringify(pushed))
+  check(
+    'the like is pushed to Ana',
+    pushed?.msg.title === 'bao liked your post',
+    JSON.stringify(pushed),
+  )
 
   const convo = await chat(bao, 'chat.bsky.convo.getConvoForMembers', {
     query: { members: [ana.did] },
   })
-  check('chat works through the PDS and did:web', convo.ok, JSON.stringify(convo.data))
+  check(
+    'chat works through the PDS and did:web',
+    convo.ok,
+    JSON.stringify(convo.data),
+  )
   const sent = await chat(bao, 'chat.bsky.convo.sendMessage', {
     body: { convoId: convo.data.convo?.id, message: { text: 'Hello Ana' } },
   })
@@ -148,10 +187,17 @@ if (mode === 'create') {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64',
   )
-  const gateToken = await serviceAuth(ana, `did:web:idx.${D}`, 'net.krao.gate.uploadMedia')
+  const gateToken = await serviceAuth(
+    ana,
+    `did:web:idx.${D}`,
+    'net.krao.gate.uploadMedia',
+  )
   const upload = await fetch(`${host('idx')}/xrpc/net.krao.gate.uploadMedia`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${gateToken}`, 'content-type': 'image/png' },
+    headers: {
+      authorization: `Bearer ${gateToken}`,
+      'content-type': 'image/png',
+    },
     body: png,
   })
   const media = await upload.json().catch(() => ({}))
@@ -163,19 +209,46 @@ if (mode === 'create') {
     forcePathStyle: true,
   })
   const head = await s3
-    .send(new HeadObjectCommand({ Bucket: process.env.KRAO_GATE_MEDIA_S3_BUCKET, Key: `gate-media/${id}` }))
+    .send(
+      new HeadObjectCommand({
+        Bucket: process.env.KRAO_GATE_MEDIA_S3_BUCKET,
+        Key: `gate-media/${id}`,
+      }),
+    )
     .catch((e) => e)
-  check('its bytes are in the S3 bucket', head.ContentLength === png.length, String(head))
+  check(
+    'its bytes are in the S3 bucket',
+    head.ContentLength === png.length,
+    String(head),
+  )
 
-  const rewardsToken = await serviceAuth(ana, `did:web:rewards.${D}`, 'net.krao.referral.getOverview')
-  const overview = await xrpc(host('rewards'), 'net.krao.referral.getOverview', {
-    token: rewardsToken,
-  })
-  check('rewards gave Ana a personal code', /^[2-9A-Z]{8}$/.test(overview.data.code ?? ''), JSON.stringify(overview.data))
+  const rewardsToken = await serviceAuth(
+    ana,
+    `did:web:rewards.${D}`,
+    'net.krao.referral.getOverview',
+  )
+  const overview = await xrpc(
+    host('rewards'),
+    'net.krao.referral.getOverview',
+    {
+      token: rewardsToken,
+    },
+  )
+  check(
+    'rewards gave Ana a personal code',
+    /^[2-9A-Z]{8}$/.test(overview.data.code ?? ''),
+    JSON.stringify(overview.data),
+  )
 
   fs.writeFileSync(
     STATE,
-    JSON.stringify({ ana: ana.handle, bao: bao.handle, post: post.uri, convoId: convo.data.convo?.id, mediaId: id }),
+    JSON.stringify({
+      ana: ana.handle,
+      bao: bao.handle,
+      post: post.uri,
+      convoId: convo.data.convo?.id,
+      mediaId: id,
+    }),
   )
 } else if (mode === 'verify') {
   const state = JSON.parse(fs.readFileSync(STATE, 'utf8'))
@@ -184,7 +257,9 @@ if (mode === 'create') {
   })
   check('Ana logs in after the restore', login.ok, JSON.stringify(login.data))
   const posts = await waitFor(async () => {
-    const res = await xrpc(API, 'app.bsky.feed.getPosts', { query: { uris: state.post } })
+    const res = await xrpc(API, 'app.bsky.feed.getPosts', {
+      query: { uris: state.post },
+    })
     return res.data.posts?.[0]?.likeCount === 1 ? res.data.posts : null
   })
   check('her post and its like are back in the AppView', !!posts)
@@ -197,7 +272,11 @@ if (mode === 'create') {
     JSON.stringify(convo.data),
   )
   const recent = await fetch(`${host('idx')}/_health`).then((r) => r.json())
-  check('the indexer kept its firehose cursor', recent.firehoseSeq > 0, JSON.stringify(recent))
+  check(
+    'the indexer kept its firehose cursor',
+    recent.firehoseSeq > 0,
+    JSON.stringify(recent),
+  )
 } else {
   console.error('Usage: smoke.mjs create|verify')
   process.exit(2)

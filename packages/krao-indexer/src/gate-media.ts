@@ -279,7 +279,8 @@ export function addGatedMediaRoute(
       .where('id', '=', id)
       .executeTakeFirst()
     if (!row || (row.store !== 'db' && !blobs)) {
-      if (row) console.error(`Krao gate: no store configured for ${row.store} media`)
+      if (row)
+        console.error(`Krao gate: no store configured for ${row.store} media`)
       res.status(404).json({ error: 'NotFound' })
       return
     }

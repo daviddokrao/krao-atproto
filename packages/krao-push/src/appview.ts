@@ -288,11 +288,13 @@ export class AppviewNotifications {
       const key = PREFERENCE_KEY[r.reason]
       const pref = key
         ? (prefsByDid.get(r.did)?.[key] as
-            | { push?: boolean; include?: string }
-            | undefined)
+            { push?: boolean; include?: string } | undefined)
         : undefined
       if (pref?.push === false) return false
-      if (pref?.include === 'follows' && !following.has(pair(r.did, r.author))) {
+      if (
+        pref?.include === 'follows' &&
+        !following.has(pair(r.did, r.author))
+      ) {
         return false
       }
       return true

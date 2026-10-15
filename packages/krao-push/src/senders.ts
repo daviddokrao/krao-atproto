@@ -167,11 +167,10 @@ export class ApnsSender implements Sender {
     const claims = base64url(
       JSON.stringify({ iss: this.cfg.teamId, iat: Math.floor(now / 1000) }),
     )
-    const signature = signData(
-      'sha256',
-      Buffer.from(`${header}.${claims}`),
-      { key: this.cfg.key, dsaEncoding: 'ieee-p1363' },
-    ).toString('base64url')
+    const signature = signData('sha256', Buffer.from(`${header}.${claims}`), {
+      key: this.cfg.key,
+      dsaEncoding: 'ieee-p1363',
+    }).toString('base64url')
     this.jwt = { value: `${header}.${claims}.${signature}`, issued: now }
     return this.jwt.value
   }

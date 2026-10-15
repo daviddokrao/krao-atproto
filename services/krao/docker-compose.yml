@@ -72,7 +72,13 @@ services:
       PDS_CRAWLERS: ''
       LOG_ENABLED: 'true'
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://localhost:3000/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:3000/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
       interval: 10s
       retries: 30
 
@@ -109,7 +115,13 @@ services:
       BSKY_TOPICS_URL: http://indexer:2589
       BSKY_IRIS_URL: http://indexer:2589
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://localhost:2584/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:2584/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
       interval: 10s
       retries: 30
 
@@ -261,7 +273,13 @@ services:
 
   backup:
     <<: *backend
-    command: [node, services/krao/backup.mjs, --every, '${KRAO_BACKUP_EVERY_HOURS:-24}']
+    command:
+      [
+        node,
+        services/krao/backup.mjs,
+        --every,
+        '${KRAO_BACKUP_EVERY_HOURS:-24}',
+      ]
     # Reads the live databases; writes copies to /backups (and S3 when set)
     volumes:
       - pds:/volumes/pds

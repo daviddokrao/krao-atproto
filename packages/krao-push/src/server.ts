@@ -49,7 +49,9 @@ const isDid = (s: string) => s.startsWith('did:') && s.length <= 2048
 export const courierRoutes =
   (push: PushService, courierKey: string) => (router: ConnectRouter) => {
     const auth = (ctx: HandlerContext) => {
-      if (!sameSecret(bearer(ctx.requestHeader.get('authorization')), courierKey)) {
+      if (
+        !sameSecret(bearer(ctx.requestHeader.get('authorization')), courierKey)
+      ) {
         throw new ConnectError('invalid api key', Code.Unauthenticated)
       }
     }

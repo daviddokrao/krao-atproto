@@ -80,7 +80,9 @@ export class S3MediaStore implements MediaBlobStore {
         new DeleteObjectsCommand({
           Bucket: this.cfg.bucket,
           Delete: {
-            Objects: ids.slice(i, i + 1000).map((id) => ({ Key: this.key(id) })),
+            Objects: ids
+              .slice(i, i + 1000)
+              .map((id) => ({ Key: this.key(id) })),
             Quiet: true,
           },
         }),

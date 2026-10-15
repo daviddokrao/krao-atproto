@@ -88,7 +88,8 @@ export async function pushKraoEvent(
 ): Promise<number> {
   const key = `k:${evt.kind}:${evt.id}`
   if ((await push.claimed([key])).size) return 0
-  const recipients = evt.kind === 'chat' ? evt.recipientDids : [evt.recipientDid]
+  const recipients =
+    evt.kind === 'chat' ? evt.recipientDids : [evt.recipientDid]
   const withDevices = await push.hasDevices(recipients)
   if (!withDevices.size) return 0
   if (shunned && (evt.kind === 'chat' || evt.kind === 'tip')) {

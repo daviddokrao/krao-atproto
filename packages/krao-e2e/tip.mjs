@@ -130,7 +130,9 @@ const pushed = (
       headers: { authorization: `Bearer ${PUSH_TOKEN}` },
     })
   ).json()
-).sent.filter((s) => s.token === deviceToken && s.msg.data.reason === 'krao-tip')
+).sent.filter(
+  (s) => s.token === deviceToken && s.msg.data.reason === 'krao-tip',
+)
 check(
   'each verified tip is pushed to the recipient, the cheats are not',
   pushed.length === 2 &&

@@ -2,20 +2,20 @@
 
 Everything Krao runs, on one host, from one image:
 
-| Container | What | Public at |
-|---|---|---|
-| `pds` | accounts, repos, blobs (SQLite + disk in the `pds` volume) | `pds.<domain>`, handles `*.<domain>` |
-| `appview` | `app.bsky.*` reads: data plane + API + firehose indexing (`../bsky/krao-appview.ts`) | `api.<domain>` |
-| `bsync` | mutes and private data for the AppView | – |
-| `ozone`, `ozone-daemon` | moderation | `mod.<domain>` |
-| `indexer` | wallets, tips, gates, NFTs, feeds, discovery, short links | `idx.<domain>` |
-| `chat` | DMs and groups (`chat.bsky.*`) | `chat.<domain>` |
-| `video` | video uploads and HLS | `video.<domain>` |
-| `rewards` | referral codes, points, KYC | `rewards.<domain>` |
-| `push` | device tokens and push notifications (in place of Bluesky's courier) | – |
-| `backup` | daily backups | – |
-| `postgres` | AppView, bsync and Ozone data | – |
-| `caddy` | TLS and routing (`Caddyfile`) | ports 80/443 |
+| Container               | What                                                                                 | Public at                            |
+| ----------------------- | ------------------------------------------------------------------------------------ | ------------------------------------ |
+| `pds`                   | accounts, repos, blobs (SQLite + disk in the `pds` volume)                           | `pds.<domain>`, handles `*.<domain>` |
+| `appview`               | `app.bsky.*` reads: data plane + API + firehose indexing (`../bsky/krao-appview.ts`) | `api.<domain>`                       |
+| `bsync`                 | mutes and private data for the AppView                                               | –                                    |
+| `ozone`, `ozone-daemon` | moderation                                                                           | `mod.<domain>`                       |
+| `indexer`               | wallets, tips, gates, NFTs, feeds, discovery, short links                            | `idx.<domain>`                       |
+| `chat`                  | DMs and groups (`chat.bsky.*`)                                                       | `chat.<domain>`                      |
+| `video`                 | video uploads and HLS                                                                | `video.<domain>`                     |
+| `rewards`               | referral codes, points, KYC                                                          | `rewards.<domain>`                   |
+| `push`                  | device tokens and push notifications (in place of Bluesky's courier)                 | –                                    |
+| `backup`                | daily backups                                                                        | –                                    |
+| `postgres`              | AppView, bsync and Ozone data                                                        | –                                    |
+| `caddy`                 | TLS and routing (`Caddyfile`)                                                        | ports 80/443                         |
 
 Krao is its own network: the AppView indexes only this PDS, and nothing
 talks to Bluesky's services.
@@ -27,7 +27,7 @@ talks to Bluesky's services.
 2. **DNS** for `<domain>`: A records for `pds`, `api`, `mod`, `idx`,
    `chat`, `video`, `rewards` and a wildcard `*` (user handles), all to the
    host. No proxying (Caddy needs to answer the ACME challenges itself).
-3. **S3** (any compatible store): a *private* bucket for gated media, and
+3. **S3** (any compatible store): a _private_ bucket for gated media, and
    one for backups (preferably at another provider). If the gated media
    bucket keeps versions, add a lifecycle rule expiring noncurrent versions
    (e.g. after 30 days): deleted gated media must not live on in old

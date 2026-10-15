@@ -425,7 +425,9 @@ export class ChatService {
       convoId: convo.id,
       messageId,
       text: text ?? '',
-      ...(convo.kind === 'group' && convo.name ? { groupName: convo.name } : {}),
+      ...(convo.kind === 'group' && convo.name
+        ? { groupName: convo.name }
+        : {}),
     })
   }
 

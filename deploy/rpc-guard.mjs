@@ -96,7 +96,11 @@ http
   .listen(PORT, () => console.log(`rpc-guard on :${PORT} -> ${UPSTREAM}`))
 
 function rejectUpstream(id) {
-  return { jsonrpc: '2.0', id: id ?? null, error: { code: -32603, message: 'Upstream error' } }
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    error: { code: -32603, message: 'Upstream error' },
+  }
 }
 
 function send(res, value) {

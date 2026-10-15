@@ -57,7 +57,9 @@ function findSqlite(dir) {
 
 function tables(db) {
   return db
-    .prepare(`select name from sqlite_master where type = 'table' order by name`)
+    .prepare(
+      `select name from sqlite_master where type = 'table' order by name`,
+    )
     .all()
     .map((r) => r.name)
 }

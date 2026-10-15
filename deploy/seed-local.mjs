@@ -25,7 +25,8 @@ const USERS = [
   {
     handle: 'defi-minh.test',
     displayName: 'Minh DeFi',
-    description: 'Yield farmer. Theo dõi các protocol DeFi trên Ethereum và Base.',
+    description:
+      'Yield farmer. Theo dõi các protocol DeFi trên Ethereum và Base.',
   },
   {
     handle: 'nft-lan.test',
@@ -70,12 +71,28 @@ const POSTS = {
 }
 
 const FOLLOWS = {
-  'krao.test': ['defi-minh.test', 'nft-lan.test', 'dev-hung.test', 'dao-mai.test'],
-  'defi-minh.test': ['krao.test', 'dev-hung.test', 'dao-mai.test', 'alice.test'],
+  'krao.test': [
+    'defi-minh.test',
+    'nft-lan.test',
+    'dev-hung.test',
+    'dao-mai.test',
+  ],
+  'defi-minh.test': [
+    'krao.test',
+    'dev-hung.test',
+    'dao-mai.test',
+    'alice.test',
+  ],
   'nft-lan.test': ['krao.test', 'dev-hung.test', 'bob.test'],
   'dev-hung.test': ['krao.test', 'defi-minh.test', 'nft-lan.test'],
   'dao-mai.test': ['krao.test', 'defi-minh.test', 'dev-hung.test'],
-  'alice.test': ['krao.test', 'defi-minh.test', 'nft-lan.test', 'dev-hung.test', 'dao-mai.test'],
+  'alice.test': [
+    'krao.test',
+    'defi-minh.test',
+    'nft-lan.test',
+    'dev-hung.test',
+    'dao-mai.test',
+  ],
 }
 
 /** Tag facets for the #hashtags in `text` (byte offsets, as atproto wants) */
@@ -84,27 +101,30 @@ function tagFacets(text) {
   for (const match of text.matchAll(/#(\w+)/g)) {
     const byteStart = Buffer.byteLength(text.slice(0, match.index))
     facets.push({
-      index: {byteStart, byteEnd: byteStart + Buffer.byteLength(match[0])},
-      features: [{$type: 'app.bsky.richtext.facet#tag', tag: match[1]}],
+      index: { byteStart, byteEnd: byteStart + Buffer.byteLength(match[0]) },
+      features: [{ $type: 'app.bsky.richtext.facet#tag', tag: match[1] }],
     })
   }
   return facets
 }
 
-async function xrpc(method, {token, body, query} = {}) {
+async function xrpc(method, { token, body, query } = {}) {
   const url = new URL(`/xrpc/${method}`, PDS)
-  if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+  if (query)
+    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
   const res = await fetch(url, {
     method: body ? 'POST' : 'GET',
     headers: {
-      ...(body ? {'content-type': 'application/json'} : {}),
-      ...(token ? {authorization: `Bearer ${token}`} : {}),
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const err = new Error(`${method}: ${data.error ?? res.status} ${data.message ?? ''}`)
+    const err = new Error(
+      `${method}: ${data.error ?? res.status} ${data.message ?? ''}`,
+    )
     err.code = data.error
     throw err
   }
@@ -113,7 +133,7 @@ async function xrpc(method, {token, body, query} = {}) {
 
 async function login(handle, password) {
   return xrpc('com.atproto.server.createSession', {
-    body: {identifier: handle, password},
+    body: { identifier: handle, password },
   })
 }
 
@@ -137,7 +157,7 @@ async function ensureAccount(user) {
 function createRecord(session, collection, record) {
   return xrpc('com.atproto.repo.createRecord', {
     token: session.accessJwt,
-    body: {repo: session.did, collection, record},
+    body: { repo: session.did, collection, record },
   })
 }
 
@@ -145,7 +165,7 @@ const now = () => new Date().toISOString()
 
 /** Skips the app's age assurance prompt for test accounts. */
 async function setBirthDate(session) {
-  const {preferences} = await xrpc('app.bsky.actor.getPreferences', {
+  const { preferences } = await xrpc('app.bsky.actor.getPreferences', {
     token: session.accessJwt,
   })
   await xrpc('app.bsky.actor.putPreferences', {
@@ -191,7 +211,7 @@ async function publishFeeds(session) {
     console.log('⚠️  Krao indexer chưa phục vụ feed, bỏ qua các feed Krao')
     return
   }
-  const {did} = await res.json()
+  const { did } = await res.json()
   for (const feed of FEEDS) {
     await xrpc('com.atproto.repo.putRecord', {
       token: session.accessJwt,
@@ -238,7 +258,9 @@ async function main() {
     console.log(`👤 ${user.handle} (${s.did})`)
   }
   // alice.test is created by the dev-env mock setup
-  sessions['alice.test'] = await login('alice.test', 'hunter2').catch(() => null)
+  sessions['alice.test'] = await login('alice.test', 'hunter2').catch(
+    () => null,
+  )
   if (sessions['alice.test']) await setBirthDate(sessions['alice.test'])
   await publishFeeds(sessions['krao.test'])
   if (process.argv.includes('--prefs-only')) return
@@ -253,7 +275,7 @@ async function main() {
         langs: ['vi'],
         createdAt: now(),
       })
-      posts.push({handle, ...ref})
+      posts.push({ handle, ...ref })
     }
   }
   console.log(`📝 ${posts.length} bài viết`)
@@ -263,7 +285,13 @@ async function main() {
     if (!sessions[handle]) continue
     for (const target of targets) {
       const t = sessions[target]
-      const did = t?.did ?? (await xrpc('com.atproto.identity.resolveHandle', {query: {handle: target}})).did
+      const did =
+        t?.did ??
+        (
+          await xrpc('com.atproto.identity.resolveHandle', {
+            query: { handle: target },
+          })
+        ).did
       await createRecord(sessions[handle], 'app.bsky.graph.follow', {
         $type: 'app.bsky.graph.follow',
         subject: did,
@@ -280,7 +308,7 @@ async function main() {
       if (handle === post.handle || !sessions[handle] || (i + j) % 2) continue
       await createRecord(sessions[handle], 'app.bsky.feed.like', {
         $type: 'app.bsky.feed.like',
-        subject: {uri: post.uri, cid: post.cid},
+        subject: { uri: post.uri, cid: post.cid },
         createdAt: now(),
       })
       likes++
@@ -289,24 +317,41 @@ async function main() {
   console.log(`❤️  ${likes} lượt thích`)
 
   const replies = [
-    ['nft-lan.test', 'krao.test', 1, 'Avatar NFT có xác minh! Mình chờ cái này lâu lắm rồi 🎨'],
-    ['dev-hung.test', 'krao.test', 1, 'Đăng nhập bằng ví + SIWE, mình sẵn sàng đóng góp code.'],
-    ['dao-mai.test', 'defi-minh.test', 1, 'Chuẩn! DYOR luôn là nguyên tắc số 1.'],
+    [
+      'nft-lan.test',
+      'krao.test',
+      1,
+      'Avatar NFT có xác minh! Mình chờ cái này lâu lắm rồi 🎨',
+    ],
+    [
+      'dev-hung.test',
+      'krao.test',
+      1,
+      'Đăng nhập bằng ví + SIWE, mình sẵn sàng đóng góp code.',
+    ],
+    [
+      'dao-mai.test',
+      'defi-minh.test',
+      1,
+      'Chuẩn! DYOR luôn là nguyên tắc số 1.',
+    ],
   ]
   for (const [author, target, idx, text] of replies) {
     const parent = posts.filter((p) => p.handle === target)[idx]
-    const ref = {uri: parent.uri, cid: parent.cid}
+    const ref = { uri: parent.uri, cid: parent.cid }
     await createRecord(sessions[author], 'app.bsky.feed.post', {
       $type: 'app.bsky.feed.post',
       text,
       langs: ['vi'],
-      reply: {root: ref, parent: ref},
+      reply: { root: ref, parent: ref },
       createdAt: now(),
     })
   }
   console.log(`💬 ${replies.length} trả lời`)
 
-  console.log(`\n✅ Xong. Đăng nhập app với một trong các handle trên, mật khẩu: ${PASSWORD}`)
+  console.log(
+    `\n✅ Xong. Đăng nhập app với một trong các handle trên, mật khẩu: ${PASSWORD}`,
+  )
 }
 
 main().catch((e) => {
