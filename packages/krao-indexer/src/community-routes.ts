@@ -23,6 +23,7 @@ import {
   listCommunities,
 } from './community.js'
 import type { Database } from './db.js'
+import { communityFeedUri } from './holders.js'
 import { net } from './lexicons/index.js'
 import { getPoll, getPollsForPosts, pollViews } from './poll.js'
 import { keyedLimit } from './rate-limit.js'
@@ -42,6 +43,8 @@ export type CommunityRouteOptions = {
   /** Audience of service auth tokens (the gate service's DID) */
   gateDid: string
   checks: CommunityChecks
+  /** The indexer's feed generator DID, which community feeds must name */
+  feedGenDid?: string
 }
 
 export function addCommunityRoutes(
@@ -93,6 +96,7 @@ export function addCommunityRoutes(
   ): Promise<CommunityView> => {
     const access = JSON.parse(row.access) as CommunityAccess
     const moderators = await getModerators(db, row)
+    const feed = opts.feedGenDid ? await communityFeedUri(db, row) : undefined
     return {
       uri: row.uri,
       cid: row.cid,
@@ -112,6 +116,7 @@ export function addCommunityRoutes(
       ...(moderators.length ? { moderators } : {}),
       createdAt: row.createdAt,
       indexedAt: row.indexedAt,
+      ...(feed ? { feed } : {}),
       ...(viewer ? { viewer: viewerView(viewer) } : {}),
     } as unknown as CommunityView
   }
@@ -140,7 +145,12 @@ export function addCommunityRoutes(
         liveLimit(caller)
         viewer = await getViewerState(db, opts.checks, row, caller, true)
       }
-      return json({ community: await communityView(row, viewer) })
+      return json({
+        community: await communityView(row, viewer),
+        ...(opts.feedGenDid
+          ? { feedGeneratorDid: opts.feedGenDid as `did:${string}:${string}` }
+          : {}),
+      })
     },
   })
 

@@ -4,6 +4,7 @@ import { rpcForChains } from '@krao/wallet'
 import { IdResolver } from '@atproto/identity'
 import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
+import { HolderFeeds } from './holders.js'
 import { FirehoseIndexer } from './indexer.js'
 import { RewardsHumanCheck } from './human.js'
 import { RewardsEventsClient } from './rewards-events.js'
@@ -27,6 +28,8 @@ export * from './address-check.js'
 export * from './token.js'
 export * from './names.js'
 export * from './language.js'
+export * from './onchain.js'
+export * from './holders.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -106,6 +109,14 @@ export type KraoIndexerConfig = {
    * 5 minutes). Prices need an RPC for eip155:8453 in rpcUrls.
    */
   tokens?: { factory?: string; sampleIntervalMs?: number }
+  /**
+   * The holders-<symbol> feeds: the value in US dollars a holder's wallets
+   * must hold (default 1), and how long balances are reused (default 15
+   * minutes, 0: off)
+   */
+  holderFeed?: { minUsd?: number; cacheMs?: number }
+  /** How long the on-chain profile tab reuses NFT holdings (default 10 min, 0: off) */
+  onchainCacheMs?: number
 }
 
 export class KraoIndexer {
@@ -207,6 +218,12 @@ export class KraoIndexer {
         replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
         human,
         tokens,
+        holderFeeds: new HolderFeeds(db, {
+          rpc: rpcs.get('eip155:8453'),
+          minUsd: cfg.holderFeed?.minUsd,
+          cacheMs: cfg.holderFeed?.cacheMs,
+        }),
+        onchainCacheMs: cfg.onchainCacheMs,
       }),
       gateModerators,
       safety,

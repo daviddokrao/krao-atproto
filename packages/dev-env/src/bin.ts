@@ -158,6 +158,9 @@ const run = async () => {
     nftRecheckMs: 15_000,
     // Tests and demos check feeds and suggestions right after writing
     discoveryCacheMs: 0,
+    // ...and balances and NFTs right after moving them on the fork
+    holderFeed: { cacheMs: 0 },
+    onchainCacheMs: 0,
     gateDid: 'did:web:gate.krao.test',
     // Local Anvil chain (chain id 8453, forked from Base), see Krao README
     rpcUrls: {

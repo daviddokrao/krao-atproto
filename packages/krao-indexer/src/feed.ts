@@ -129,14 +129,17 @@ export async function listFeedGenerators(db: Database): Promise<string[]> {
 /**
  * Newest posts first. The cursor is `<indexedAt>::<cid>`. With
  * `vietnamese`, only Vietnamese posts (see language.ts) and, as in Popular,
- * none that link to unsafe domains: the "Tiếng Việt" feed.
+ * none that link to unsafe domains: the "Tiếng Việt" feed. With `dids`,
+ * only posts by these accounts, none linking to unsafe domains either (the
+ * holder feeds).
  */
 export async function getLatestPosts(
   db: Database,
   limit: number,
   cursor?: string,
-  opts: { vietnamese?: boolean } = {},
+  opts: { vietnamese?: boolean; dids?: string[] } = {},
 ) {
+  if (opts.dids && !opts.dids.length) return { posts: [] as string[] }
   let qb = db
     .selectFrom('feed_post')
     .select(['uri', 'cid', 'indexedAt'])
@@ -144,12 +147,12 @@ export async function getLatestPosts(
     .orderBy('indexedAt', 'desc')
     .orderBy('cid', 'desc')
     .limit(limit)
-  if (opts.vietnamese) {
-    qb = qb
-      .where('vi', '=', 1)
-      .where('uri', 'not in', (eb) =>
-        eb.selectFrom('unsafe_post').select('uri'),
-      )
+  if (opts.vietnamese) qb = qb.where('vi', '=', 1)
+  if (opts.dids) qb = qb.where('did', 'in', opts.dids)
+  if (opts.vietnamese || opts.dids) {
+    qb = qb.where('uri', 'not in', (eb) =>
+      eb.selectFrom('unsafe_post').select('uri'),
+    )
   }
   if (cursor) {
     const [indexedAt, cid] = cursor.split('::')

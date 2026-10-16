@@ -19,10 +19,11 @@ import {
 
 type TokenView = net.krao.token.defs.TokenView
 
-const toView = (data: TokenViewData): TokenView => ({
+const toView = (data: TokenViewData, holderFeed?: string): TokenView => ({
   ...data,
   logo: data.logo as UriString | undefined,
   updatedAt: data.updatedAt as DatetimeString | undefined,
+  ...(holderFeed ? { holderFeed: holderFeed as AtUriString } : {}),
 })
 
 export function addTokenRoutes(
@@ -32,9 +33,12 @@ export function addTokenRoutes(
     idResolver: IdResolver
     gateDid: string
     admins: Set<string>
+    /** The token's holders-<symbol> feed, when one is published */
+    holderFeed?: (key: string) => Promise<string | undefined>
   },
 ) {
   const { tokens } = opts
+  const holderFeed = async (key: string) => opts.holderFeed?.(key)
   const token = net.krao.token
   const find = async (symbol: string) => {
     const row = await tokens.getToken(symbol)
@@ -53,10 +57,14 @@ export function addTokenRoutes(
 
   server.add(token.listTokens, async () => {
     const rows = await tokens.listTokens()
-    const views = await Promise.all(rows.map((row) => tokens.view(row)))
+    const views = await Promise.all(
+      rows.map(async (row) =>
+        toView(await tokens.view(row), await holderFeed(row.key)),
+      ),
+    )
     return {
       encoding: 'application/json' as const,
-      body: { tokens: views.map(toView) },
+      body: { tokens: views },
     }
   })
 
@@ -64,7 +72,9 @@ export function addTokenRoutes(
     const row = await find(params.symbol)
     return {
       encoding: 'application/json' as const,
-      body: { token: toView(await tokens.view(row)) },
+      body: {
+        token: toView(await tokens.view(row), await holderFeed(row.key)),
+      },
     }
   })
 

@@ -18,7 +18,11 @@ import {
 import { InvalidAddressError, checkAddresses } from './address-check.js'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
-import { isCommunityMember } from './community.js'
+import {
+  getCommunity,
+  getCommunityFeed,
+  isCommunityMember,
+} from './community.js'
 import { addCommunityRoutes } from './community-routes.js'
 import { addCreatorRoutes } from './creator-routes.js'
 import type { Database } from './db.js'
@@ -58,6 +62,13 @@ import {
   sniffMediaType,
 } from './gate-media.js'
 import { exportIndexerData } from './export.js'
+import {
+  type HolderFeeds,
+  communityFeedSlug,
+  holderFeedKey,
+  holderFeedUri,
+} from './holders.js'
+import { addOnchainRoutes } from './onchain-routes.js'
 import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
 import { ChainClock, isActiveMember } from './membership.js'
@@ -142,6 +153,10 @@ export function createApp(
     human?: HumanCheck
     /** The token catalog (net.krao.token.*); its admins are the safety admins */
     tokens?: TokenCatalog
+    /** The holders-<symbol> feeds; empty without it */
+    holderFeeds?: HolderFeeds
+    /** How long the on-chain tab reuses NFT holdings (default 10 min, 0: off) */
+    onchainCacheMs?: number
   },
 ): Express {
   const {
@@ -373,7 +388,7 @@ export function createApp(
     admins: opts.safetyAdmins ?? new Set(),
   })
 
-  addCommunityRoutes(server, db, { idResolver, gateDid, checks })
+  addCommunityRoutes(server, db, { idResolver, gateDid, checks, feedGenDid })
 
   addCreatorRoutes(server, db, {
     idResolver,
@@ -391,8 +406,21 @@ export function createApp(
       idResolver,
       gateDid,
       admins: opts.safetyAdmins ?? new Set(),
+      holderFeed: feedGenDid ? (key) => holderFeedUri(db, key) : undefined,
     })
   }
+
+  addOnchainRoutes(server, db, {
+    rpcs,
+    idResolver,
+    gateDid,
+    admins: opts.safetyAdmins ?? new Set(),
+    clock,
+    resolveDid: async (actor) =>
+      (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
+    baseUrl: (req) => baseUrl(req),
+    cacheMs: opts.onchainCacheMs,
+  })
 
   // Operations: the safety admins also run the indexer's admin methods
   server.add(net.krao.indexer.admin.replayFailedEvents, {
@@ -640,9 +668,13 @@ export function createApp(
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
       // The record's rkey picks the ranking: "popular", "vietnamese" (newest
-      // Vietnamese posts), else newest first
+      // Vietnamese posts), "holders-<symbol>" (posts of token holders),
+      // "community-<slug>" (a community's public posts), else newest first
       const limit = params.limit ?? 50
-      const rkey = params.feed.split('/').pop()
+      const feedUri = new AtUri(params.feed)
+      const rkey = feedUri.rkey
+      const holderKey = holderFeedKey(rkey)
+      const slug = communityFeedSlug(rkey)
       const page =
         rkey === POPULAR_FEED_RKEY
           ? getPopularPosts(
@@ -652,9 +684,16 @@ export function createApp(
               undefined,
               await popularRanking(),
             )
-          : getLatestPosts(db, limit, params.cursor, {
-              vietnamese: rkey === VIETNAMESE_FEED_RKEY,
-            })
+          : holderKey
+            ? (async () =>
+                getLatestPosts(db, limit, params.cursor, {
+                  dids: (await opts.holderFeeds?.holders(holderKey)) ?? [],
+                }))()
+            : slug
+              ? communityFeedPosts(feedUri.host, slug, limit, params.cursor)
+              : getLatestPosts(db, limit, params.cursor, {
+                  vietnamese: rkey === VIETNAMESE_FEED_RKEY,
+                })
       const { posts, cursor } = await page.catch(() => {
         throw new InvalidRequestError('Malformed cursor')
       })
@@ -666,6 +705,27 @@ export function createApp(
         },
       }
     })
+  }
+
+  /**
+   * A community's feed generator: the public posts of the community whose
+   * owner published it (another repo's generator gives nothing)
+   */
+  async function communityFeedPosts(
+    owner: string,
+    slug: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ posts: string[]; cursor?: string }> {
+    const community = await getCommunity(
+      db,
+      `at://${owner}/net.krao.community.profile/${slug}`,
+    )
+    if (!community) return { posts: [] }
+    const page = await getCommunityFeed(db, community.uri, limit, cursor, {
+      publicOnly: true,
+    })
+    return { posts: page.feed.map((item) => item.post), cursor: page.cursor }
   }
 
   /*
@@ -814,6 +874,10 @@ export function createApp(
   // Memberships and creator numbers: database reads
   app.use('/xrpc/net.krao.membership.', rateLimit(300))
   app.use('/xrpc/net.krao.creator.', rateLimit(300))
+  // The on-chain tab reads NFTs on chain (cached); its history is a database read
+  app.use('/xrpc/net.krao.actor.getOnchainProfile', rateLimit(60))
+  app.use('/xrpc/net.krao.actor.getSupportHistory', rateLimit(300))
+  app.use('/xrpc/net.krao.nft.', rateLimit(300))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))

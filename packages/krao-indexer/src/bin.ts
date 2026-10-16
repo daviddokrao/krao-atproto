@@ -73,6 +73,12 @@ const indexer = await KraoIndexer.create({
       ? Number(process.env.KRAO_TOKEN_PRICE_INTERVAL_MS)
       : undefined,
   },
+  // "Holders of $X" feeds: the US dollar value a holder's wallets must hold
+  holderFeed: {
+    minUsd: process.env.KRAO_HOLDER_FEED_MIN_USD
+      ? Number(process.env.KRAO_HOLDER_FEED_MIN_USD)
+      : undefined,
+  },
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)
