@@ -76,6 +76,11 @@ import {
   setPostLinks,
 } from './safety.js'
 import {
+  type TokenCatalog,
+  deleteCashtagsForDid,
+  deletePostCashtags,
+} from './token.js'
+import {
   GATE_RULE_COLLECTION,
   deleteContentWithoutRule,
   deleteGateDataForDid,
@@ -216,6 +221,8 @@ export class FirehoseIndexer {
   push?: PushClient
   /** Flags posts that link to unsafe domains when set */
   safety?: SafetyList
+  /** Indexes cashtags of catalog tokens in posts when set */
+  tokens?: TokenCatalog
   /** Checks smart contract wallet links on chain when set */
   walletRpc?: EvmRpcForChain
   /**
@@ -582,6 +589,7 @@ export class FirehoseIndexer {
             postLinkHosts(evt.record),
             this.safety?.matcher,
           )
+          await this.tokens?.indexPost(evt.uri.toString(), evt.did, evt.record)
         }
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
@@ -660,6 +668,7 @@ export class FirehoseIndexer {
         await deleteFeedPost(this.db, evt.uri.toString())
         await deletePostTags(this.db, evt.uri.toString())
         await deletePostLinks(this.db, evt.uri.toString())
+        await deletePostCashtags(this.db, evt.uri.toString())
         await deleteGateDataForSubject(this.db, evt.uri.toString())
         await deleteSubmissionsForPost(this.db, evt.uri.toString())
         await deletePollsForPost(this.db, evt.uri.toString())
@@ -713,6 +722,7 @@ export class FirehoseIndexer {
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)
         await deleteFeedDataForDid(this.db, evt.did)
+        await deleteCashtagsForDid(this.db, evt.did)
         await deleteDiscoveryDataForDid(this.db, evt.did)
         await deleteCommunityDataForDid(this.db, evt.did)
         await deletePollDataForDid(this.db, evt.did)

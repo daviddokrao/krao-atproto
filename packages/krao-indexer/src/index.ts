@@ -10,6 +10,7 @@ import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
 import { createPushClient } from './push-client.js'
 import { SafetyList } from './safety.js'
+import { TokenCatalog } from './token.js'
 
 export * from './db.js'
 export * from './wallets.js'
@@ -20,6 +21,7 @@ export * from './gate.js'
 export * from './feed.js'
 export * from './safety.js'
 export * from './address-check.js'
+export * from './token.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -87,6 +89,12 @@ export type KraoIndexerConfig = {
    * verified.
    */
   rewards?: { url: string; token: string }
+  /**
+   * Token catalog prices: the Uniswap v3 factory on Base whose pools price
+   * the tokens (default Uniswap's), and how often prices are read (default
+   * 5 minutes). Prices need an RPC for eip155:8453 in rpcUrls.
+   */
+  tokens?: { factory?: string; sampleIntervalMs?: number }
 }
 
 export class KraoIndexer {
@@ -100,6 +108,7 @@ export class KraoIndexer {
     private gateModerators: Set<string>,
     public safety: SafetyList,
     private safetyAdmins: Set<string>,
+    public tokens: TokenCatalog,
   ) {}
 
   /** Lets an account read gated content as a moderator (eg one made at startup) */
@@ -150,6 +159,13 @@ export class KraoIndexer {
       ? new RewardsHumanCheck(cfg.rewards.url, cfg.rewards.token)
       : undefined
     indexer.human = human
+    const tokens = new TokenCatalog(db, {
+      rpc: rpcs.get('eip155:8453'),
+      factory: cfg.tokens?.factory,
+      sampleIntervalMs: cfg.tokens?.sampleIntervalMs,
+    })
+    await tokens.init()
+    indexer.tokens = tokens
     const gateModerators = new Set(cfg.gateModeratorDids ?? [])
     const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
     return new KraoIndexer(
@@ -173,10 +189,12 @@ export class KraoIndexer {
         safetyAdmins,
         replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
         human,
+        tokens,
       }),
       gateModerators,
       safety,
       safetyAdmins,
+      tokens,
     )
   }
 
@@ -187,6 +205,7 @@ export class KraoIndexer {
   async start(): Promise<http.Server> {
     this.indexer.start()
     this.safety.start()
+    this.tokens.start()
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
     return this.server
@@ -195,6 +214,7 @@ export class KraoIndexer {
   async destroy(): Promise<void> {
     await this.indexer.destroy()
     await this.safety.destroy()
+    await this.tokens.destroy()
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

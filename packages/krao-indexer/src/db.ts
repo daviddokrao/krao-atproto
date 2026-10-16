@@ -364,7 +364,48 @@ export interface PollVoteWalletTable {
   vote: string
 }
 
+export type TokenQuote = 'USDC' | 'WETH' | 'usd'
+
+/** A token of Krao's catalog (see token.ts) */
+export interface TokenTable {
+  /** The symbol in upper case, for lookups */
+  key: string
+  symbol: string
+  name: string
+  chain: string
+  address: string
+  decimals: number
+  quote: TokenQuote
+  /** Uniswap v3 pool of the token and the quote token; null until found */
+  pool: string | null
+  logo: string | null
+  source: 'seed' | 'admin'
+  /** 1: taken out by an admin (kept so that seed tokens stay out) */
+  removed: number
+  priceUsd: string | null
+  updatedAt: string | null
+  addedAt: string
+}
+
+/** A price sample of a catalog token */
+export interface TokenPriceTable {
+  key: string
+  t: string
+  priceUsd: string
+}
+
+/** A post by a Krao account mentioning a catalog token as a cashtag */
+export interface PostCashtagTable {
+  uri: string
+  did: string
+  key: string
+  indexedAt: string
+}
+
 export interface DatabaseSchema {
+  token: TokenTable
+  token_price: TokenPriceTable
+  post_cashtag: PostCashtagTable
   community: CommunityTable
   community_membership: CommunityMembershipTable
   community_moderator: CommunityActionTable
@@ -641,6 +682,51 @@ const migrations = {
         .addPrimaryKeyConstraint('poll_vote_wallet_pkey', ['poll', 'address'])
         .execute()
       await sql`create index poll_vote_wallet_vote_idx on poll_vote_wallet (vote)`.execute(
+        db,
+      )
+    },
+  },
+  '006-tokens': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('token')
+        .addColumn('key', 'varchar', (col) => col.primaryKey())
+        .addColumn('symbol', 'varchar', (col) => col.notNull())
+        .addColumn('name', 'varchar', (col) => col.notNull())
+        .addColumn('chain', 'varchar', (col) => col.notNull())
+        .addColumn('address', 'varchar', (col) => col.notNull())
+        .addColumn('decimals', 'integer', (col) => col.notNull())
+        .addColumn('quote', 'varchar', (col) => col.notNull())
+        .addColumn('pool', 'varchar')
+        .addColumn('logo', 'varchar')
+        .addColumn('source', 'varchar', (col) => col.notNull())
+        .addColumn('removed', 'integer', (col) => col.notNull().defaultTo(0))
+        .addColumn('priceUsd', 'varchar')
+        .addColumn('updatedAt', 'varchar')
+        .addColumn('addedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('token_price')
+        .addColumn('key', 'varchar', (col) => col.notNull())
+        .addColumn('t', 'varchar', (col) => col.notNull())
+        .addColumn('priceUsd', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('token_price_pkey', ['key', 't'])
+        .execute()
+      await sql`create index token_price_time_idx on token_price (t)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('post_cashtag')
+        .addColumn('uri', 'varchar', (col) => col.notNull())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('key', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('post_cashtag_pkey', ['uri', 'key'])
+        .execute()
+      await sql`create index post_cashtag_feed_idx on post_cashtag (key, indexedAt, uri)`.execute(
+        db,
+      )
+      await sql`create index post_cashtag_did_idx on post_cashtag (did)`.execute(
         db,
       )
     },

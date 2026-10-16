@@ -58,11 +58,18 @@ const indexer = await KraoIndexer.create({
   gateModerationAccess: process.env.KRAO_GATE_MODERATION_ACCESS !== 'false',
   // eg MetaMask's https://raw.githubusercontent.com/MetaMask/eth-phishing-detect/main/src/config.json
   phishingListUrl: process.env.KRAO_PHISHING_LIST_URL || undefined,
-  // Accounts that may add and remove unsafe domains
+  // Accounts that may add and remove unsafe domains (and catalog tokens)
   safetyAdminDids: (process.env.KRAO_SAFETY_ADMIN_DIDS ?? '')
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean),
+  // Token prices: Uniswap v3 pools on Base, read through KRAO_RPC_URLS
+  tokens: {
+    factory: process.env.KRAO_UNISWAP_V3_FACTORY || undefined,
+    sampleIntervalMs: process.env.KRAO_TOKEN_PRICE_INTERVAL_MS
+      ? Number(process.env.KRAO_TOKEN_PRICE_INTERVAL_MS)
+      : undefined,
+  },
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

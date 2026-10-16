@@ -74,6 +74,8 @@ import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
 import { InvalidDomainError, type SafetyList } from './safety.js'
 import { addStarterPackRoutes } from './starter-packs.js'
+import type { TokenCatalog } from './token.js'
+import { addTokenRoutes } from './token-routes.js'
 import {
   listTips,
   tipTotals,
@@ -133,6 +135,8 @@ export function createApp(
     ) => Promise<{ replayed: number; failed: number; remaining: number }>
     /** Krao's verification, for "verified" communities and polls */
     human?: HumanCheck
+    /** The token catalog (net.krao.token.*); its admins are the safety admins */
+    tokens?: TokenCatalog
   },
 ): Express {
   const {
@@ -361,6 +365,15 @@ export function createApp(
   })
 
   addCommunityRoutes(server, db, { idResolver, gateDid, checks })
+
+  if (opts.tokens) {
+    addTokenRoutes(server, {
+      tokens: opts.tokens,
+      idResolver,
+      gateDid,
+      admins: opts.safetyAdmins ?? new Set(),
+    })
+  }
 
   // Operations: the safety admins also run the indexer's admin methods
   server.add(net.krao.indexer.admin.replayFailedEvents, {
@@ -758,6 +771,8 @@ export function createApp(
   // Communities and polls: cheap reads, but member counts and feeds are joins
   app.use('/xrpc/net.krao.community.', rateLimit(300))
   app.use('/xrpc/net.krao.poll.', rateLimit(300))
+  // Token pages: cheap reads (prices come from the database, not the chain)
+  app.use('/xrpc/net.krao.token.', rateLimit(300))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))
