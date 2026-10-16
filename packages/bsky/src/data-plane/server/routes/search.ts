@@ -18,8 +18,8 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
     const { term, limit, cursor } = req
     const { ref } = db.db.dynamic
     const words = searchWords(cleanQuery(term))
-    if (words.length) return searchActorsRanked(db, words, limit, cursor)
-    // Krao: no separate search service, so match display names too, ignoring case
+    if (isRankable(words)) return searchActorsRanked(db, words, limit, cursor)
+    // Krao: no separate search service, so match display names too, ignoring case and accents
     const pattern = `%${escapeLike(cleanQuery(term))}%`
     let builder = db.db
       .selectFrom('actor')
@@ -27,7 +27,7 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
       .where((eb) =>
         eb.or([
           eb('actor.handle', 'ilike', pattern),
-          eb('profile.displayName', 'ilike', pattern),
+          unaccentedContains('profile.displayName', cleanQuery(term)),
         ]),
       )
       .selectAll('actor')
@@ -70,16 +70,16 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
     }
 
     const words = searchWords(q)
-    if (words.length) {
+    if (isRankable(words)) {
       return searchPostsRanked(db, words, authorDid, limit, cursor)
     }
 
     const { ref } = db.db.dynamic
-    let builder = db.db
-      .selectFrom('post')
-      // Krao: case-insensitive, since this is Krao's only post search
-      .where('post.text', 'ilike', `%${escapeLike(q)}%`)
-      .selectAll()
+    let builder = db.db.selectFrom('post').selectAll()
+    // Krao: case- and accent-insensitive, since this is Krao's only post search
+    for (const word of words) {
+      builder = builder.where(unaccentedContains('post.text', word))
+    }
 
     if (authorDid) {
       builder = builder.where('post.creator', '=', authorDid)
@@ -226,6 +226,21 @@ const parseOffset = (cursor?: string) => {
   return Math.min(n, MAX_SEARCH_OFFSET)
 }
 
+/** The cursor of the next page; none past the offset cap, or it would repeat the last page */
+const nextCursor = (rows: unknown[], offset: number, limit: number) =>
+  rows.length > limit && offset + limit <= MAX_SEARCH_OFFSET
+    ? String(offset + limit)
+    : undefined
+
+/*
+ * A word shorter than a trigram cannot use the trigram indexes, so a query
+ * made only of such words ("a", "đi") would rank every post or actor. Those
+ * are matched newest first instead, which stops at the first page.
+ */
+const MIN_RANKED_WORD = 3
+const isRankable = (words: string[]) =>
+  words.some((w) => w.length >= MIN_RANKED_WORD)
+
 const contains = (term: string) => `%${escapeLike(term)}%`
 
 /** `column` holds `term`, ignoring case and accents (uses the f_unaccent indexes) */
@@ -267,7 +282,7 @@ async function searchPostsRanked(
     .execute()
   return {
     uris: rows.slice(0, limit).map((row) => row.uri),
-    cursor: rows.length > limit ? String(offset + limit) : undefined,
+    cursor: nextCursor(rows, offset, limit),
   }
 }
 
@@ -308,6 +323,6 @@ async function searchActorsRanked(
     .execute()
   return {
     dids: rows.slice(0, limit).map((row) => row.did),
-    cursor: rows.length > limit ? String(offset + limit) : undefined,
+    cursor: nextCursor(rows, offset, limit),
   }
 }
