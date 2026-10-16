@@ -499,8 +499,20 @@ export interface RewardsOutboxTable {
   error: string | null
 }
 
+/**
+ * Wallets that already earned an account its wallet.linked reward (see
+ * rewards-events.ts): kept after unlinking and account deletion, so one
+ * wallet cannot earn for account after account. No DID is kept.
+ */
+export interface RewardedWalletTable {
+  /** The EVM address (any chain), or the account id for other chains */
+  wallet: string
+  createdAt: string
+}
+
 export interface DatabaseSchema {
   primary_name: PrimaryNameTable
+  rewarded_wallet: RewardedWalletTable
   rewards_outbox: RewardsOutboxTable
   membership_plan: MembershipPlanTable
   membership_payment: MembershipPaymentTable
@@ -978,6 +990,23 @@ const migrations = {
         db,
       )
       await sql`create index rewards_outbox_did_idx on rewards_outbox (did)`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Wallets that earned a wallet.linked reward, so that unlinking a wallet
+   * and linking it to another account earns nothing. Filled with the
+   * wallets of accounts already queued.
+   */
+  '009-rewarded-wallet': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('rewarded_wallet')
+        .addColumn('wallet', 'varchar', (col) => col.primaryKey())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`insert or ignore into rewarded_wallet (wallet, createdAt) select coalesce(w.evmAddress, w.account), o.createdAt from wallet w join rewards_outbox o on o.did = w.did and o.type = 'wallet.linked' where w.status = 'verified'`.execute(
         db,
       )
     },

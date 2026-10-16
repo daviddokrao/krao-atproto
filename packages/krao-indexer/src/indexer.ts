@@ -73,6 +73,7 @@ import {
   deleteAccountEventsForDid,
   deliverAccountEvents,
   queueAccountEvent,
+  queueWalletLinked,
 } from './rewards-events.js'
 import {
   PAYMENT_COLLECTION,
@@ -644,13 +645,20 @@ export class FirehoseIndexer {
         await markPrimaryNameStale(this.db, evt.did)
         this.nameRound.kick()
         // The account's first verified wallet, unless another account
-        // linked it first (one wallet cannot earn for many accounts)
+        // linked it first or it earned another account its reward before
+        // (one wallet cannot earn for many accounts, even one at a time)
         if (
+          this.rewardsEvents &&
           row.status === 'verified' &&
           (await this.isKraoAccount(evt.did)) &&
-          (await getWalletOwners(this.db, row.account)).includes(evt.did)
+          (await getWalletOwners(this.db, row.account)).includes(evt.did) &&
+          (await queueWalletLinked(
+            this.db,
+            evt.did,
+            row.evmAddress ?? row.account,
+          ))
         ) {
-          await this.queueRewardsEvent('wallet.linked', evt.did)
+          this.rewardsRound.kick()
         }
       } else if (evt.collection === TIP_COLLECTION) {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)

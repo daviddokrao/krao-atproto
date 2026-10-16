@@ -1,4 +1,5 @@
-import type { Database } from './db.js'
+import type { Kysely } from 'kysely'
+import type { Database, DatabaseSchema } from './db.js'
 
 /*
  * Account events the rewards service rewards (M32): an account's first
@@ -43,7 +44,7 @@ export class RewardsEventsClient implements RewardsEventSender {
 
 /** Queues the event unless it was queued before; true when queued now */
 export async function queueAccountEvent(
-  db: Database,
+  db: Kysely<DatabaseSchema>,
   type: AccountEvent,
   did: string,
 ): Promise<boolean> {
@@ -63,6 +64,34 @@ export async function queueAccountEvent(
     .onConflict((oc) => oc.column('id').doNothing())
     .executeTakeFirst()
   return Number(result.numInsertedOrUpdatedRows ?? 0) > 0
+}
+
+/**
+ * Queues `did`'s wallet.linked event for `wallet` (its EVM address, or its
+ * account id on other chains), unless the account was rewarded before or
+ * the wallet already earned an account its reward (it was unlinked and
+ * linked again elsewhere). True when queued now.
+ */
+export async function queueWalletLinked(
+  db: Database,
+  did: string,
+  wallet: string,
+): Promise<boolean> {
+  return db.transaction().execute(async (tx) => {
+    const used = await tx
+      .selectFrom('rewarded_wallet')
+      .select('wallet')
+      .where('wallet', '=', wallet)
+      .executeTakeFirst()
+    if (used) return false
+    if (!(await queueAccountEvent(tx, 'wallet.linked', did))) return false
+    await tx
+      .insertInto('rewarded_wallet')
+      .values({ wallet, createdAt: new Date().toISOString() })
+      .onConflict((oc) => oc.column('wallet').doNothing())
+      .execute()
+    return true
+  })
 }
 
 /** Sends the queued events that are due; failures wait longer each time */

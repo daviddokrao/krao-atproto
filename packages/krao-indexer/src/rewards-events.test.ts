@@ -6,6 +6,7 @@ import {
   deleteAccountEventsForDid,
   deliverAccountEvents,
   queueAccountEvent,
+  queueWalletLinked,
 } from './rewards-events.js'
 
 describe('rewards events outbox', () => {
@@ -91,5 +92,18 @@ describe('rewards events outbox', () => {
       (calls[0].init.headers as Record<string, string>).authorization,
     ).toBe('Bearer secret')
     await expect(client.send('post.first', 'did:a')).rejects.toThrow(/503/)
+  })
+  it('rewards a wallet once, even when relinked to other accounts', async () => {
+    expect(await queueWalletLinked(db, 'did:a', '0xw')).toBe(true)
+    // did:a unlinks it, did:b links it: nothing for did:b
+    expect(await queueWalletLinked(db, 'did:b', '0xw')).toBe(false)
+    // did:a deleted and recreated as did:c with the same wallet: nothing
+    await deleteAccountEventsForDid(db, 'did:a')
+    expect(await queueWalletLinked(db, 'did:c', '0xw')).toBe(false)
+    // did:b's own new wallet still counts, once
+    expect(await queueWalletLinked(db, 'did:b', '0xv')).toBe(true)
+    expect(await queueWalletLinked(db, 'did:b', '0xu')).toBe(false)
+    // 0xu earned nothing, so another account may still be rewarded for it
+    expect(await queueWalletLinked(db, 'did:d', '0xu')).toBe(true)
   })
 })

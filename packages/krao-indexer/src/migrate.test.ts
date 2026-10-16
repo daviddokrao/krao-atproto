@@ -23,6 +23,7 @@ describe('migrateDb', () => {
       '006-tokens',
       '007-memberships',
       '008-growth',
+      '009-rewarded-wallet',
     ])
     await db.destroy()
   })
@@ -51,6 +52,7 @@ describe('migrateDb', () => {
       '006-tokens',
       '007-memberships',
       '008-growth',
+      '009-rewarded-wallet',
     ])
     await db.destroy()
   })
