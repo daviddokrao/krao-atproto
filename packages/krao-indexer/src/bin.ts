@@ -43,6 +43,13 @@ const indexer = await KraoIndexer.create({
         token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
       }
     : undefined,
+  // Verified communities and polls ask the rewards service (phone or KYC)
+  rewards: process.env.KRAO_REWARDS_URL
+    ? {
+        url: process.env.KRAO_REWARDS_URL,
+        token: process.env.KRAO_REWARDS_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
   // Moderators (accounts, or Ozone's service DID) who may read gated content
   gateModeratorDids: (process.env.KRAO_GATE_MODERATOR_DIDS ?? '')
     .split(',')

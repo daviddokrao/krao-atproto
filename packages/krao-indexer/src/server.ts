@@ -18,6 +18,8 @@ import {
 import { InvalidAddressError, checkAddresses } from './address-check.js'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
+import { isCommunityMember } from './community.js'
+import { addCommunityRoutes } from './community-routes.js'
 import type { Database } from './db.js'
 import {
   POPULAR_FEED_RKEY,
@@ -56,6 +58,7 @@ import {
 import { exportIndexerData } from './export.js'
 import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
+import type { HumanCheck } from './human.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
 import { fetchNftImageAsPng } from './nft-image.js'
@@ -128,6 +131,8 @@ export function createApp(
     replayFailedEvents?: (
       limit: number,
     ) => Promise<{ replayed: number; failed: number; remaining: number }>
+    /** Krao's verification, for "verified" communities and polls */
+    human?: HumanCheck
   },
 ): Express {
   const {
@@ -146,6 +151,7 @@ export function createApp(
   const globalAccountScores = cachedValue(cacheMs, () => accountScores(db))
   const trending = cachedValue(cacheMs, () => trendingTags(db, 50))
   const topTags = async (limit = 10) => (await trending()).slice(0, limit)
+  const checks = { rpcs, human: opts.human }
   const baseUrl = (req: {
     protocol: string
     get(name: string): string | undefined
@@ -209,9 +215,13 @@ export function createApp(
           'NotFound',
         )
       }
-      if (!(await isEligible(db, rpcs, rule, viewer))) {
+      const eligible = await isEligible(db, rpcs, rule, viewer, {
+        isCommunityMember: (community, did) =>
+          isCommunityMember(db, checks, community, did),
+      })
+      if (!eligible) {
         throw new ForbiddenError(
-          'Your linked wallets do not meet the conditions of this post',
+          'You do not meet the conditions of this post',
           'NotEligible',
         )
       }
@@ -349,6 +359,8 @@ export function createApp(
     safety: opts.safety,
     admins: opts.safetyAdmins ?? new Set(),
   })
+
+  addCommunityRoutes(server, db, { idResolver, gateDid, checks })
 
   // Operations: the safety admins also run the indexer's admin methods
   server.add(net.krao.indexer.admin.replayFailedEvents, {
@@ -743,6 +755,9 @@ export function createApp(
   // Cheap, but each call takes 20 items: enough for a client checking a feed
   app.use('/xrpc/net.krao.safety.checkLinks', rateLimit(120))
   app.use('/xrpc/net.krao.safety.checkAddresses', rateLimit(60))
+  // Communities and polls: cheap reads, but member counts and feeds are joins
+  app.use('/xrpc/net.krao.community.', rateLimit(300))
+  app.use('/xrpc/net.krao.poll.', rateLimit(300))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))

@@ -19,6 +19,7 @@ describe('migrateDb', () => {
       '002-gated-media-store',
       '003-gate-access-log',
       '004-safety',
+      '005-communities-polls',
     ])
     await db.destroy()
   })
@@ -43,6 +44,7 @@ describe('migrateDb', () => {
       '002-gated-media-store',
       '003-gate-access-log',
       '004-safety',
+      '005-communities-polls',
     ])
     await db.destroy()
   })

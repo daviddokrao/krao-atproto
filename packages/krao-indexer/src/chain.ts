@@ -74,6 +74,40 @@ export class EvmRpc {
     }
   }
 
+  /** The latest block number */
+  async blockNumber(): Promise<bigint> {
+    return BigInt(await this.call<string>('eth_blockNumber', []))
+  }
+
+  /**
+   * The asset balance of `address` at `block` (eg a poll's snapshot). Node
+   * failures throw; a token contract that reverts counts as no balance.
+   */
+  async balanceAt(
+    asset: ParsedAsset,
+    address: string,
+    block: bigint,
+  ): Promise<bigint> {
+    const tag = '0x' + block.toString(16)
+    if (asset.kind === 'native') {
+      return BigInt(await this.call<string>('eth_getBalance', [address, tag]))
+    }
+    let res: string
+    try {
+      res = await this.call<string>('eth_call', [
+        {
+          to: asset.contract,
+          data: '0x70a08231' + address.replace(/^0x/, '').padStart(64, '0'),
+        },
+        tag,
+      ])
+    } catch (err) {
+      if (/revert/i.test(String((err as Error)?.message))) return 0n
+      throw err
+    }
+    return res && res !== '0x' ? BigInt(res.slice(0, 66)) : 0n
+  }
+
   /**
    * Check that `txHash` moved exactly `amount` of the asset from `from` (when
    * given) to `to`, in a transaction that succeeded.

@@ -5,6 +5,7 @@ import { IdResolver } from '@atproto/identity'
 import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { FirehoseIndexer } from './indexer.js'
+import { RewardsHumanCheck } from './human.js'
 import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
 import { createPushClient } from './push-client.js'
@@ -80,6 +81,12 @@ export type KraoIndexerConfig = {
   phishingListUrl?: string
   /** Accounts that may change the unsafe domain list */
   safetyAdminDids?: string[]
+  /**
+   * Krao's rewards service, asked whether an account verified a phone or
+   * passed KYC ("verified" communities and polls). Unset: nobody counts as
+   * verified.
+   */
+  rewards?: { url: string; token: string }
 }
 
 export class KraoIndexer {
@@ -139,6 +146,10 @@ export class KraoIndexer {
     })
     await safety.init()
     indexer.safety = safety
+    const human = cfg.rewards
+      ? new RewardsHumanCheck(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    indexer.human = human
     const gateModerators = new Set(cfg.gateModeratorDids ?? [])
     const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
     return new KraoIndexer(
@@ -161,6 +172,7 @@ export class KraoIndexer {
         safety,
         safetyAdmins,
         replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
+        human,
       }),
       gateModerators,
       safety,

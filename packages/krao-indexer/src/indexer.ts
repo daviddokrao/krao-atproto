@@ -34,8 +34,39 @@ import {
   setPostTags,
   upsertFeedFollow,
 } from './discovery.js'
+import {
+  COMMUNITY_COLLECTION,
+  COMMUNITY_COLLECTIONS,
+  MEMBERSHIP_COLLECTION,
+  SUBMISSION_COLLECTION,
+  actionRowFromRecord,
+  communityRowFromRecord,
+  deleteCommunityDataForDid,
+  deleteCommunityRecord,
+  deleteSubmissionsForPost,
+  isActionCollection,
+  membershipRowFromRecord,
+  recheckMemberships,
+  submissionRowFromRecord,
+  upsertAction,
+  upsertCommunity,
+  upsertMembership,
+  upsertSubmission,
+} from './community.js'
 import { deleteOrphanedMedia } from './gate-media.js'
+import type { HumanCheck } from './human.js'
 import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
+import {
+  POLL_COLLECTION,
+  VOTE_COLLECTION,
+  deletePoll,
+  deletePollDataForDid,
+  deletePollsForPost,
+  deleteVote,
+  indexPoll,
+  indexVote,
+  pollRowFromRecord,
+} from './poll.js'
 import type { PushClient } from './push-client.js'
 import {
   type SafetyList,
@@ -127,6 +158,9 @@ export class FirehoseIndexer {
         GATE_RULE_COLLECTION,
         // Always: a deleted post takes its gated content with it
         POST_COLLECTION,
+        ...COMMUNITY_COLLECTIONS,
+        POLL_COLLECTION,
+        VOTE_COLLECTION,
         ...(feed.did
           ? [
               FEED_GENERATOR_COLLECTION,
@@ -152,6 +186,9 @@ export class FirehoseIndexer {
   // Separate rounds: slow NFT metadata must not hold up tips, and back
   private tipRound = new Round('tip', () => this.verifyPendingTips())
   private nftRound = new Round('NFT avatar', () => this.recheckNftAvatars())
+  private membershipRound = new Round('community membership', () =>
+    this.recheckMemberships(),
+  )
 
   start() {
     void this.firehose.start()
@@ -180,6 +217,13 @@ export class FirehoseIndexer {
   safety?: SafetyList
   /** Checks smart contract wallet links on chain when set */
   walletRpc?: EvmRpcForChain
+  /**
+   * Krao's verification (rewards service), for "verified" communities and
+   * polls; without it nobody counts as verified
+   */
+  human?: HumanCheck
+  /** How often memberships of condition and verified communities are re-checked */
+  membershipRecheckMs = 10 * 60 * 1000
 
   private destroyed = false
 
@@ -252,11 +296,27 @@ export class FirehoseIndexer {
   kickVerification() {
     this.tipRound.kick()
     this.nftRound.kick()
+    this.membershipRound.kick()
   }
 
   /** Resolves once the current verification rounds, if any, are done */
   async verificationIdle() {
-    await Promise.all([this.tipRound.idle(), this.nftRound.idle()])
+    await Promise.all([
+      this.tipRound.idle(),
+      this.nftRound.idle(),
+      this.membershipRound.idle(),
+    ])
+  }
+
+  /** What community and poll checks need */
+  get checks() {
+    return { rpcs: this.rpcs, human: this.human }
+  }
+
+  /** New memberships right away, others every `membershipRecheckMs` */
+  async recheckMemberships() {
+    const due = new Date(Date.now() - this.membershipRecheckMs).toISOString()
+    await recheckMemberships(this.db, this.checks, due)
   }
 
   /**
@@ -548,6 +608,32 @@ export class FirehoseIndexer {
           )
           if (row) await upsertFeedInteraction(this.db, row)
         }
+      } else if (COMMUNITY_COLLECTIONS.includes(evt.collection)) {
+        await this.indexCommunityRecord(
+          evt.collection,
+          evt.uri.toString(),
+          evt.cid.toString(),
+          evt.did,
+          evt.record,
+        )
+      } else if (evt.collection === POLL_COLLECTION) {
+        const row = pollRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+          this.rpcs,
+        )
+        if (row) await indexPoll(this.db, this.rpcs, row)
+      } else if (evt.collection === VOTE_COLLECTION) {
+        await indexVote(
+          this.db,
+          this.checks,
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+        )
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
         if (record.did === this.feed.did) {
@@ -574,6 +660,14 @@ export class FirehoseIndexer {
         await deletePostTags(this.db, evt.uri.toString())
         await deletePostLinks(this.db, evt.uri.toString())
         await deleteGateDataForSubject(this.db, evt.uri.toString())
+        await deleteSubmissionsForPost(this.db, evt.uri.toString())
+        await deletePollsForPost(this.db, evt.uri.toString())
+      } else if (COMMUNITY_COLLECTIONS.includes(evt.collection)) {
+        await deleteCommunityRecord(this.db, evt.collection, evt.uri.toString())
+      } else if (evt.collection === POLL_COLLECTION) {
+        await deletePoll(this.db, evt.uri.toString())
+      } else if (evt.collection === VOTE_COLLECTION) {
+        await deleteVote(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
         await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
@@ -617,7 +711,41 @@ export class FirehoseIndexer {
         await deleteGateDataForDid(this.db, evt.did)
         await deleteFeedDataForDid(this.db, evt.did)
         await deleteDiscoveryDataForDid(this.db, evt.did)
+        await deleteCommunityDataForDid(this.db, evt.did)
+        await deletePollDataForDid(this.db, evt.did)
       }
+    }
+  }
+
+  /** A community record; one that breaks the rules is not (or no longer) indexed */
+  private async indexCommunityRecord(
+    collection: string,
+    uri: string,
+    cid: string,
+    did: string,
+    record: unknown,
+  ) {
+    if (collection === COMMUNITY_COLLECTION) {
+      const row = communityRowFromRecord(uri, did, cid, record)
+      if (row) await upsertCommunity(this.db, row)
+      else await deleteCommunityRecord(this.db, collection, uri)
+    } else if (collection === MEMBERSHIP_COLLECTION) {
+      const row = membershipRowFromRecord(uri, did, record)
+      if (row) {
+        await upsertMembership(this.db, row)
+        // Condition and verified communities: checked by the next round
+        this.membershipRound.kick()
+      } else {
+        await deleteCommunityRecord(this.db, collection, uri)
+      }
+    } else if (collection === SUBMISSION_COLLECTION) {
+      const row = submissionRowFromRecord(uri, did, record)
+      if (row) await upsertSubmission(this.db, row)
+      else await deleteCommunityRecord(this.db, collection, uri)
+    } else if (isActionCollection(collection)) {
+      const row = actionRowFromRecord(collection, uri, did, record)
+      if (row) await upsertAction(this.db, collection, row)
+      else await deleteCommunityRecord(this.db, collection, uri)
     }
   }
 

@@ -251,7 +251,130 @@ export interface UnsafePostTable {
   flaggedAt: string
 }
 
+export type CommunityAccessMode = 'open' | 'approval' | 'condition' | 'verified'
+
+/** A net.krao.community.profile record (see community.ts) */
+export interface CommunityTable {
+  uri: string
+  /** Owner: the repo holding the record */
+  did: string
+  cid: string
+  /** The record key */
+  slug: string
+  name: string
+  description: string | null
+  /** CID of the avatar blob */
+  avatar: string | null
+  /** JSON array of strings */
+  rules: string
+  accessMode: CommunityAccessMode
+  /** JSON of the record's access object (conditions, match) */
+  access: string
+  chatJoinLink: string | null
+  createdAt: string
+  indexedAt: string
+}
+
+/** A net.krao.community.membership record */
+export interface CommunityMembershipTable {
+  uri: string
+  did: string
+  community: string
+  /**
+   * For 'condition' and 'verified' communities, the last check: 1 meets the
+   * requirement, 0 does not, null not checked yet
+   */
+  eligible: number | null
+  reason: string | null
+  checkedAt: string | null
+  createdAt: string
+  indexedAt: string
+}
+
+/**
+ * Moderator, approval, ban and hide records: written by the owner or a
+ * moderator, which is checked when they are read (moderators come and go)
+ */
+export interface CommunityActionTable {
+  uri: string
+  /** Who wrote it */
+  did: string
+  community: string
+  /** An account (moderator, approval, ban) or a post (hide) */
+  subject: string
+  reason: string | null
+  createdAt: string
+}
+
+/** A net.krao.community.submission record: a post in a community feed */
+export interface CommunitySubmissionTable {
+  uri: string
+  did: string
+  community: string
+  post: string
+  postCid: string
+  createdAt: string
+  indexedAt: string
+}
+
+export type PollMode = 'account' | 'verified' | 'token'
+
+/** A net.krao.poll.poll record (see poll.ts); never changed once indexed */
+export interface PollTable {
+  uri: string
+  did: string
+  post: string
+  question: string | null
+  /** JSON array of strings */
+  options: string
+  /** When the poll opened: its record's createdAt, or when it was published if earlier */
+  startsAt: string
+  endsAt: string
+  mode: PollMode
+  /** CAIP-19 asset, for token polls */
+  asset: string | null
+  /** Block whose balances weigh the votes of token polls, decimal */
+  snapshotBlock: string | null
+  resultsVisibility: 'always' | 'afterEnd'
+  createdAt: string
+  indexedAt: string
+}
+
+export type VoteStatus = 'counted' | 'ignored' | 'deleted'
+
+/** A net.krao.poll.vote record */
+export interface PollVoteTable {
+  uri: string
+  did: string
+  poll: string
+  option: number
+  status: VoteStatus
+  /** Decimal: 1 for account and verified polls, the balance for token polls */
+  weight: string
+  reason: string | null
+  /** When the vote was published (the firehose event time) */
+  votedAt: string
+  indexedAt: string
+}
+
+/** A wallet whose snapshot balance weighed a vote: it weighs one vote per poll */
+export interface PollVoteWalletTable {
+  poll: string
+  address: string
+  vote: string
+}
+
 export interface DatabaseSchema {
+  community: CommunityTable
+  community_membership: CommunityMembershipTable
+  community_moderator: CommunityActionTable
+  community_approval: CommunityActionTable
+  community_ban: CommunityActionTable
+  community_hide: CommunityActionTable
+  community_submission: CommunitySubmissionTable
+  poll: PollTable
+  poll_vote: PollVoteTable
+  poll_vote_wallet: PollVoteWalletTable
   gate_access_log: GateAccessLogTable
   unsafe_domain: UnsafeDomainTable
   safety_state: SafetyStateTable
@@ -380,6 +503,144 @@ const migrations = {
       // Address poisoning checks look up wallets by their first and last
       // characters (see address-check.ts, which must use these expressions)
       await sql`create index wallet_evm_ends_idx on wallet (substr(evmAddress, 1, 6), substr(evmAddress, -4))`.execute(
+        db,
+      )
+    },
+  },
+  '005-communities-polls': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('community')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('cid', 'varchar', (col) => col.notNull())
+        .addColumn('slug', 'varchar', (col) => col.notNull())
+        .addColumn('name', 'varchar', (col) => col.notNull())
+        .addColumn('description', 'varchar')
+        .addColumn('avatar', 'varchar')
+        .addColumn('rules', 'varchar', (col) => col.notNull())
+        .addColumn('accessMode', 'varchar', (col) => col.notNull())
+        .addColumn('access', 'varchar', (col) => col.notNull())
+        .addColumn('chatJoinLink', 'varchar')
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index community_did_idx on community (did)`.execute(db)
+      await sql`create index community_time_idx on community (indexedAt)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('community_membership')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('community', 'varchar', (col) => col.notNull())
+        .addColumn('eligible', 'integer')
+        .addColumn('reason', 'varchar')
+        .addColumn('checkedAt', 'varchar')
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index community_membership_idx on community_membership (community, did)`.execute(
+        db,
+      )
+      await sql`create index community_membership_did_idx on community_membership (did)`.execute(
+        db,
+      )
+      await sql`create index community_membership_checked_idx on community_membership (checkedAt)`.execute(
+        db,
+      )
+      for (const table of [
+        'community_moderator',
+        'community_approval',
+        'community_ban',
+        'community_hide',
+      ]) {
+        await db.schema
+          .createTable(table)
+          .addColumn('uri', 'varchar', (col) => col.primaryKey())
+          .addColumn('did', 'varchar', (col) => col.notNull())
+          .addColumn('community', 'varchar', (col) => col.notNull())
+          .addColumn('subject', 'varchar', (col) => col.notNull())
+          .addColumn('reason', 'varchar')
+          .addColumn('createdAt', 'varchar', (col) => col.notNull())
+          .execute()
+        await sql`create index ${sql.raw(`${table}_idx`)} on ${sql.raw(
+          table,
+        )} (community, subject)`.execute(db)
+        await sql`create index ${sql.raw(`${table}_did_idx`)} on ${sql.raw(
+          table,
+        )} (did)`.execute(db)
+      }
+      await db.schema
+        .createTable('community_submission')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('community', 'varchar', (col) => col.notNull())
+        .addColumn('post', 'varchar', (col) => col.notNull())
+        .addColumn('postCid', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      // A post is in a community feed once, however often it is submitted
+      await sql`create unique index community_submission_post_idx on community_submission (community, post)`.execute(
+        db,
+      )
+      await sql`create index community_submission_feed_idx on community_submission (community, indexedAt, uri)`.execute(
+        db,
+      )
+      await sql`create index community_submission_did_idx on community_submission (did)`.execute(
+        db,
+      )
+      await sql`create index community_submission_by_post_idx on community_submission (post)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('poll')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('post', 'varchar', (col) => col.notNull())
+        .addColumn('question', 'varchar')
+        .addColumn('options', 'varchar', (col) => col.notNull())
+        .addColumn('startsAt', 'varchar', (col) => col.notNull())
+        .addColumn('endsAt', 'varchar', (col) => col.notNull())
+        .addColumn('mode', 'varchar', (col) => col.notNull())
+        .addColumn('asset', 'varchar')
+        .addColumn('snapshotBlock', 'varchar')
+        .addColumn('resultsVisibility', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index poll_post_idx on poll (post)`.execute(db)
+      await sql`create index poll_did_idx on poll (did)`.execute(db)
+      await db.schema
+        .createTable('poll_vote')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('poll', 'varchar', (col) => col.notNull())
+        .addColumn('option', 'integer', (col) => col.notNull())
+        .addColumn('status', 'varchar', (col) => col.notNull())
+        .addColumn('weight', 'varchar', (col) => col.notNull())
+        .addColumn('reason', 'varchar')
+        .addColumn('votedAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      // One vote per account and poll: the first valid one (a deleted vote
+      // keeps its place, so votes cannot be changed by deleting them)
+      await sql`create unique index poll_vote_once_idx on poll_vote (poll, did) where status in ('counted', 'deleted')`.execute(
+        db,
+      )
+      await sql`create index poll_vote_poll_idx on poll_vote (poll, status)`.execute(
+        db,
+      )
+      await sql`create index poll_vote_did_idx on poll_vote (did)`.execute(db)
+      await db.schema
+        .createTable('poll_vote_wallet')
+        .addColumn('poll', 'varchar', (col) => col.notNull())
+        .addColumn('address', 'varchar', (col) => col.notNull())
+        .addColumn('vote', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('poll_vote_wallet_pkey', ['poll', 'address'])
+        .execute()
+      await sql`create index poll_vote_wallet_vote_idx on poll_vote_wallet (vote)`.execute(
         db,
       )
     },
