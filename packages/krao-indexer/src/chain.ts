@@ -29,6 +29,7 @@ export type TransferCheck =
 
 type Receipt = {
   status: string
+  blockNumber: string
   from: string
   to: string | null
   logs: { address: string; topics: string[]; data: string }[]
@@ -106,6 +107,74 @@ export class EvmRpc {
       throw err
     }
     return res && res !== '0x' ? BigInt(res.slice(0, 66)) : 0n
+  }
+
+  /** Unix time (seconds) of a block, or of the latest one */
+  async blockTime(block = 'latest'): Promise<number> {
+    const res = await this.call<{ timestamp: string } | null>(
+      'eth_getBlockByNumber',
+      [block, false],
+    )
+    if (!res) throw new Error('eth_getBlockByNumber: block not found')
+    return Number(BigInt(res.timestamp))
+  }
+
+  /**
+   * The ERC-20 `contract` amount `txHash` moved from any of `from` to any of
+   * `to` (lowercase addresses), summed, with the transaction's block time
+   * (unix seconds). Pending while not mined; invalid when it reverted or
+   * moved nothing between them.
+   */
+  async tokenTransfers(params: {
+    contract: string
+    txHash: string
+    from: Set<string>
+    to: Set<string>
+  }): Promise<
+    | { status: 'found'; amount: bigint; blockTime: number }
+    | { status: 'pending' | 'invalid'; reason: string }
+  > {
+    const { txHash } = params
+    const contract = params.contract.toLowerCase()
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      return { status: 'invalid', reason: 'Malformed transaction hash' }
+    }
+    const receipt = await this.call<Receipt | null>(
+      'eth_getTransactionReceipt',
+      [txHash],
+    )
+    if (!receipt) {
+      return { status: 'pending', reason: 'Transaction not mined yet' }
+    }
+    if (receipt.status !== '0x1') {
+      return { status: 'invalid', reason: 'Transaction reverted' }
+    }
+    let amount = 0n
+    for (const log of receipt.logs) {
+      const from = topicAddress(log.topics[1])
+      const to = topicAddress(log.topics[2])
+      if (
+        log.address.toLowerCase() === contract &&
+        log.topics[0] === TRANSFER_TOPIC &&
+        from &&
+        to &&
+        params.from.has(from) &&
+        params.to.has(to)
+      ) {
+        amount += BigInt(log.data)
+      }
+    }
+    if (amount === 0n) {
+      return {
+        status: 'invalid',
+        reason: 'No matching token transfer in transaction',
+      }
+    }
+    return {
+      status: 'found',
+      amount,
+      blockTime: await this.blockTime(receipt.blockNumber),
+    }
   }
 
   /**

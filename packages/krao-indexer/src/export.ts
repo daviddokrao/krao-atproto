@@ -1,6 +1,7 @@
 import { exportCommunityData } from './community.js'
 import type { Database } from './db.js'
 import type { StoredGatedMedia } from './gate.js'
+import { exportMembershipData } from './membership.js'
 import { exportPollData } from './poll.js'
 
 const MAX_ROWS = 10_000
@@ -31,7 +32,7 @@ export function withoutEmpty(value: unknown): unknown {
  * What the indexer holds about an account (its own records, as indexed and
  * checked, plus the gated content it gave this service): linked wallets,
  * tips sent and received, gate rules and gated content, NFT avatar,
- * community records and polls.
+ * community records, polls, membership plans and payments.
  * `mediaUrl` signs links to its gated media.
  */
 export async function exportIndexerData(
@@ -48,6 +49,7 @@ export async function exportIndexerData(
     'amount',
     'txHash',
     'message',
+    'anonymous',
     'status',
     'createdAt',
   ] as const
@@ -107,6 +109,7 @@ export async function exportIndexerData(
     amount: t.amount,
     txHash: t.txHash,
     message: t.message,
+    anonymous: t.anonymous === 1,
     status: t.status,
     createdAt: t.createdAt,
   })
@@ -141,5 +144,6 @@ export async function exportIndexerData(
     nftAvatar: nftAvatar ?? null,
     ...(await exportCommunityData(db, did)),
     ...(await exportPollData(db, did)),
+    ...(await exportMembershipData(db, did)),
   })
 }

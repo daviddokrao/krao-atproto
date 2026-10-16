@@ -54,8 +54,27 @@ import {
   upsertMembership,
   upsertSubmission,
 } from './community.js'
+import {
+  deleteFollowerLossesForDid,
+  pruneFollowerLosses,
+  recordFollowerLoss,
+} from './creator.js'
 import { deleteOrphanedMedia } from './gate-media.js'
 import type { HumanCheck } from './human.js'
+import {
+  PAYMENT_COLLECTION,
+  PLAN_COLLECTION,
+  deleteMembershipDataForDid,
+  deletePayment,
+  deletePlan,
+  getPaymentsByUri,
+  getPendingPayments,
+  paymentRowFromRecord,
+  planRowFromRecord,
+  upsertPayment,
+  upsertPlan,
+  verifyPayment,
+} from './membership.js'
 import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
 import {
   POLL_COLLECTION,
@@ -167,6 +186,8 @@ export class FirehoseIndexer {
         ...COMMUNITY_COLLECTIONS,
         POLL_COLLECTION,
         VOTE_COLLECTION,
+        PLAN_COLLECTION,
+        PAYMENT_COLLECTION,
         ...(feed.did
           ? [
               FEED_GENERATOR_COLLECTION,
@@ -189,8 +210,15 @@ export class FirehoseIndexer {
   private cleanupTimer?: NodeJS.Timeout
   /** Tips indexed since the last round, checked before the backlog */
   private freshTips = new Set<string>()
-  // Separate rounds: slow NFT metadata must not hold up tips, and back
-  private tipRound = new Round('tip', () => this.verifyPendingTips())
+  /** Membership payments indexed since the last round, likewise */
+  private freshPayments = new Set<string>()
+  // Separate rounds: slow NFT metadata must not hold up tips, and back.
+  // Tips and membership payments share one: one transaction backs only one
+  // of them, which checking them one at a time keeps true.
+  private tipRound = new Round('tip', async () => {
+    await this.verifyPendingTips()
+    await this.verifyPendingPayments()
+  })
   private nftRound = new Round('NFT avatar', () => this.recheckNftAvatars())
   private membershipRound = new Round('community membership', () =>
     this.recheckMemberships(),
@@ -208,6 +236,7 @@ export class FirehoseIndexer {
           .then(() => deleteOrphanedMedia(this.db))
           .then(() => purgeMediaTrash(this.db, this.mediaBlobs))
           .then(() => pruneOldDiscoveryData(this.db))
+          .then(() => pruneFollowerLosses(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
           ),
@@ -377,6 +406,23 @@ export class FirehoseIndexer {
           ...(tip.message ? { message: tip.message } : {}),
         })
       }
+    }
+  }
+
+  /** Membership payments, as verifyPendingTips does for tips */
+  async verifyPendingPayments() {
+    const fresh = [...this.freshPayments]
+    this.freshPayments.clear()
+    const rows = [
+      ...(await getPaymentsByUri(this.db, fresh)),
+      ...(await getPendingPayments(this.db)).filter(
+        (p) => !fresh.includes(p.uri),
+      ),
+    ]
+    for (const payment of rows) {
+      await verifyPayment(this.db, this.rpcs, payment).catch((err: unknown) =>
+        console.error('Krao indexer: payment check failed', payment.uri, err),
+      )
     }
   }
 
@@ -551,6 +597,29 @@ export class FirehoseIndexer {
         // Verified by the background worker: a slow RPC must not stall indexing
         this.freshTips.add(row.uri)
         this.tipRound.kick()
+      } else if (evt.collection === PLAN_COLLECTION) {
+        const row = planRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.cid.toString(),
+          evt.record,
+        )
+        if (row) await upsertPlan(this.db, row)
+        else await deletePlan(this.db, evt.uri.toString())
+      } else if (evt.collection === PAYMENT_COLLECTION) {
+        const row = paymentRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+        )
+        if (row) {
+          await upsertPayment(this.db, row)
+          this.freshPayments.add(row.uri)
+          this.tipRound.kick()
+        } else {
+          await deletePayment(this.db, evt.uri.toString())
+        }
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         const row = gateRuleRowFromRecord(
           evt.uri.toString(),
@@ -660,6 +729,10 @@ export class FirehoseIndexer {
         await markNftAvatarStale(this.db, evt.did)
       } else if (evt.collection === TIP_COLLECTION) {
         await deleteTip(this.db, evt.uri.toString())
+      } else if (evt.collection === PLAN_COLLECTION) {
+        await deletePlan(this.db, evt.uri.toString())
+      } else if (evt.collection === PAYMENT_COLLECTION) {
+        await deletePayment(this.db, evt.uri.toString())
       } else if (evt.collection === NFT_AVATAR_COLLECTION) {
         await deleteNftAvatar(this.db, evt.did)
       } else if (evt.collection === GATE_RULE_COLLECTION) {
@@ -681,6 +754,7 @@ export class FirehoseIndexer {
       } else if (evt.collection === VOTE_COLLECTION) {
         await deleteVote(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
+        await recordFollowerLoss(this.db, evt.uri.toString())
         await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
         await deleteStarterPack(this.db, evt.uri.toString())
@@ -726,6 +800,8 @@ export class FirehoseIndexer {
         await deleteDiscoveryDataForDid(this.db, evt.did)
         await deleteCommunityDataForDid(this.db, evt.did)
         await deletePollDataForDid(this.db, evt.did)
+        await deleteMembershipDataForDid(this.db, evt.did)
+        await deleteFollowerLossesForDid(this.db, evt.did)
       }
     }
   }

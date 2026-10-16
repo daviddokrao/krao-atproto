@@ -20,6 +20,7 @@ import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
 import { isCommunityMember } from './community.js'
 import { addCommunityRoutes } from './community-routes.js'
+import { addCreatorRoutes } from './creator-routes.js'
 import type { Database } from './db.js'
 import {
   POPULAR_FEED_RKEY,
@@ -58,6 +59,7 @@ import {
 import { exportIndexerData } from './export.js'
 import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
+import { ChainClock, isActiveMember } from './membership.js'
 import type { HumanCheck } from './human.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
@@ -74,7 +76,7 @@ import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
 import { InvalidDomainError, type SafetyList } from './safety.js'
 import { addStarterPackRoutes } from './starter-packs.js'
-import type { TokenCatalog } from './token.js'
+import { BASE_CHAIN, type TokenCatalog } from './token.js'
 import { addTokenRoutes } from './token-routes.js'
 import {
   listTips,
@@ -156,6 +158,8 @@ export function createApp(
   const trending = cachedValue(cacheMs, () => trendingTags(db, 50))
   const topTags = async (limit = 10) => (await trending()).slice(0, limit)
   const checks = { rpcs, human: opts.human }
+  // Memberships are judged on Base's clock (see membership.ts)
+  const clock = new ChainClock(rpcs.get(BASE_CHAIN))
   const baseUrl = (req: {
     protocol: string
     get(name: string): string | undefined
@@ -222,6 +226,8 @@ export function createApp(
       const eligible = await isEligible(db, rpcs, rule, viewer, {
         isCommunityMember: (community, did) =>
           isCommunityMember(db, checks, community, did),
+        isCreatorMember: async (creator, plan, did) =>
+          isActiveMember(db, creator, did, await clock.now(), plan),
       })
       if (!eligible) {
         throw new ForbiddenError(
@@ -365,6 +371,16 @@ export function createApp(
   })
 
   addCommunityRoutes(server, db, { idResolver, gateDid, checks })
+
+  addCreatorRoutes(server, db, {
+    idResolver,
+    gateDid,
+    clock,
+    resolveDid: async (actor) =>
+      (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
+    appviewUrl,
+    follows: !!feedGenDid,
+  })
 
   if (opts.tokens) {
     addTokenRoutes(server, {
@@ -773,6 +789,9 @@ export function createApp(
   app.use('/xrpc/net.krao.poll.', rateLimit(300))
   // Token pages: cheap reads (prices come from the database, not the chain)
   app.use('/xrpc/net.krao.token.', rateLimit(300))
+  // Memberships and creator numbers: database reads
+  app.use('/xrpc/net.krao.membership.', rateLimit(300))
+  app.use('/xrpc/net.krao.creator.', rateLimit(300))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))

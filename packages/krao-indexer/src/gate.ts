@@ -28,15 +28,29 @@ export type CommunityMemberCondition = {
   community: string
 }
 
+/** Active members of a creator (see membership.ts) */
+export type MembershipCondition = {
+  $type: 'net.krao.gate.defs#membership'
+  creator: string
+  plan?: string
+}
+
 /** Conditions checked on the viewer's wallets */
 export type ChainCondition = TokenBalanceCondition | NftHoldingCondition
 
-export type GateCondition = ChainCondition | CommunityMemberCondition
+export type GateCondition =
+  ChainCondition | CommunityMemberCondition | MembershipCondition
 
 /** What isEligible needs beyond the chain */
 export type EligibilityContext = {
   /** Whether `did` is a member in good standing of the community */
   isCommunityMember?: (community: string, did: string) => Promise<boolean>
+  /** Whether `did` is an active member of the creator (of `plan`, if set) */
+  isCreatorMember?: (
+    creator: string,
+    plan: string | undefined,
+    did: string,
+  ) => Promise<boolean>
 }
 
 /**
@@ -82,6 +96,22 @@ function isCondition(c: unknown): c is GateCondition {
     if (typeof v.community !== 'string') return false
     try {
       return new AtUri(v.community).collection === 'net.krao.community.profile'
+    } catch {
+      return false
+    }
+  }
+  if (v?.$type === 'net.krao.gate.defs#membership') {
+    if (typeof v.creator !== 'string' || !v.creator.startsWith('did:')) {
+      return false
+    }
+    if (v.plan === undefined) return true
+    if (typeof v.plan !== 'string') return false
+    try {
+      const plan = new AtUri(v.plan)
+      return (
+        plan.host === v.creator &&
+        plan.collection === 'net.krao.membership.plan'
+      )
     } catch {
       return false
     }
@@ -260,8 +290,8 @@ const eligibilityCache = new Map<string, number>()
 
 /**
  * Whether `viewer` meets the gate. The author always does. Balances are summed
- * across all of the viewer's verified wallets; community conditions ask
- * `ctx` (without one they are never met).
+ * across all of the viewer's verified wallets; community and membership
+ * conditions ask `ctx` (without one they are never met).
  */
 export async function isEligible(
   db: Database,
@@ -286,6 +316,14 @@ export async function isEligible(
     if (condition.$type === 'net.krao.gate.defs#communityMember') {
       return ctx.isCommunityMember
         ? ctx.isCommunityMember(condition.community, viewer).catch(() => false)
+        : false
+    }
+    if (condition.$type === 'net.krao.gate.defs#membership') {
+      // Never cached (not a chain condition): expiry closes the gate at once
+      return ctx.isCreatorMember
+        ? ctx
+            .isCreatorMember(condition.creator, condition.plan, viewer)
+            .catch(() => false)
         : false
     }
     if (!addresses.length) return false

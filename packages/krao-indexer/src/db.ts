@@ -39,6 +39,8 @@ export interface TipTable {
   fromAccount: string | null
   toAccount: string | null
   message: string | null
+  /** 1: the sender asked to be an anonymous supporter (see creator.ts) */
+  anonymous: number
   status: TipStatus
   /** When a pending tip is checked again (backs off as it ages) */
   nextCheckAt: string | null
@@ -402,7 +404,75 @@ export interface PostCashtagTable {
   indexedAt: string
 }
 
+/** A net.krao.membership.plan record (see membership.ts) */
+export interface MembershipPlanTable {
+  uri: string
+  /** The creator: the repo holding the record */
+  did: string
+  cid: string
+  name: string
+  description: string | null
+  /** USDC base units, decimal */
+  priceUsdc: string
+  /** JSON array of strings */
+  perks: string
+  /** 1: open to new members (and within the 3 active plans an account may have) */
+  active: number
+  createdAt: string
+  indexedAt: string
+}
+
+/** A net.krao.membership.payment record, checked on chain like a tip */
+export interface MembershipPaymentTable {
+  uri: string
+  /** The member: the repo holding the record */
+  did: string
+  creator: string
+  plan: string
+  chain: string
+  /** Lowercase transaction hash */
+  txHash: string
+  status: TipStatus
+  reason: string | null
+  /** USDC base units moved to the creator, once verified */
+  amount: string | null
+  /** Block time of the transaction, once verified */
+  blockTime: string | null
+  /** The 30 days this payment pays for, once verified (see membershipPeriods) */
+  periodStart: string | null
+  periodEnd: string | null
+  nextCheckAt: string | null
+  pendingSince: string | null
+  /** When the record was published (firehose event time): the 24h rule counts from here */
+  publishedAt: string
+  createdAt: string
+  indexedAt: string
+}
+
+/** A member of a creator: the verified payments of one account to another, summed up */
+export interface CreatorMemberTable {
+  creator: string
+  member: string
+  /** Start of the unbroken run of paid periods that ends at expiresAt */
+  since: string
+  expiresAt: string
+  /** Start of the member's first paid period */
+  firstAt: string
+  updatedAt: string
+}
+
+/** A follow by a Krao account that was removed, for follower changes */
+export interface FollowerLossTable {
+  subject: string
+  followedAt: string
+  lostAt: string
+}
+
 export interface DatabaseSchema {
+  membership_plan: MembershipPlanTable
+  membership_payment: MembershipPaymentTable
+  creator_member: CreatorMemberTable
+  follower_loss: FollowerLossTable
   token: TokenTable
   token_price: TokenPriceTable
   post_cashtag: PostCashtagTable
@@ -727,6 +797,101 @@ const migrations = {
         db,
       )
       await sql`create index post_cashtag_did_idx on post_cashtag (did)`.execute(
+        db,
+      )
+    },
+  },
+  '007-memberships': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .alterTable('tip')
+        .addColumn('anonymous', 'integer', (col) => col.notNull().defaultTo(0))
+        .execute()
+      await db.schema
+        .createTable('membership_plan')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('cid', 'varchar', (col) => col.notNull())
+        .addColumn('name', 'varchar', (col) => col.notNull())
+        .addColumn('description', 'varchar')
+        .addColumn('priceUsdc', 'varchar', (col) => col.notNull())
+        .addColumn('perks', 'varchar', (col) => col.notNull())
+        .addColumn('active', 'integer', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index membership_plan_did_idx on membership_plan (did)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('membership_payment')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('creator', 'varchar', (col) => col.notNull())
+        .addColumn('plan', 'varchar', (col) => col.notNull())
+        .addColumn('chain', 'varchar', (col) => col.notNull())
+        .addColumn('txHash', 'varchar', (col) => col.notNull())
+        .addColumn('status', 'varchar', (col) => col.notNull())
+        .addColumn('reason', 'varchar')
+        .addColumn('amount', 'varchar')
+        .addColumn('blockTime', 'varchar')
+        .addColumn('periodStart', 'varchar')
+        .addColumn('periodEnd', 'varchar')
+        .addColumn('nextCheckAt', 'varchar')
+        .addColumn('pendingSince', 'varchar')
+        .addColumn('publishedAt', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      // As for tips: a transaction backs one verified payment
+      await sql`create unique index membership_payment_tx_verified_idx on membership_payment (txHash) where status = 'verified'`.execute(
+        db,
+      )
+      await sql`create index membership_payment_tx_idx on membership_payment (txHash)`.execute(
+        db,
+      )
+      await sql`create index membership_payment_pair_idx on membership_payment (creator, did)`.execute(
+        db,
+      )
+      await sql`create index membership_payment_did_idx on membership_payment (did, indexedAt)`.execute(
+        db,
+      )
+      await sql`create index membership_payment_plan_idx on membership_payment (plan, periodEnd)`.execute(
+        db,
+      )
+      await sql`create index membership_payment_status_idx on membership_payment (status, nextCheckAt)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('creator_member')
+        .addColumn('creator', 'varchar', (col) => col.notNull())
+        .addColumn('member', 'varchar', (col) => col.notNull())
+        .addColumn('since', 'varchar', (col) => col.notNull())
+        .addColumn('expiresAt', 'varchar', (col) => col.notNull())
+        .addColumn('firstAt', 'varchar', (col) => col.notNull())
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('creator_member_pkey', ['creator', 'member'])
+        .execute()
+      await sql`create index creator_member_expiry_idx on creator_member (creator, expiresAt, member)`.execute(
+        db,
+      )
+      await sql`create index creator_member_member_idx on creator_member (member)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('follower_loss')
+        .addColumn('subject', 'varchar', (col) => col.notNull())
+        .addColumn('followedAt', 'varchar', (col) => col.notNull())
+        .addColumn('lostAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index follower_loss_idx on follower_loss (subject, lostAt)`.execute(
+        db,
+      )
+      await sql`create index follower_loss_time_idx on follower_loss (lostAt)`.execute(
+        db,
+      )
+      // Dashboards count recent tips per recipient
+      await sql`create index tip_recipient_time_idx on tip (recipient, createdAt)`.execute(
         db,
       )
     },
