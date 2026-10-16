@@ -91,6 +91,15 @@ check(
   uris(everyone).includes(phrase) && uris(everyone).includes(apart),
   JSON.stringify(uris(everyone)),
 )
+// The app searches through searchPostsV2, with no feature gate service
+const v2 = await xrpc(APPVIEW, 'app.bsky.feed.searchPostsV2', {
+  query: { query: `tien ao ${stamp}`, sort: 'top' },
+})
+check(
+  'searchPostsV2 (what the app calls) finds them',
+  uris(v2).includes(phrase) && uris(v2).includes(apart),
+  v2.data.message ?? JSON.stringify(uris(v2)),
+)
 const recent = await searchPosts('tien ao', { limit: 25 })
 check(
   'a plain "tien ao" search has the new post on its first page',
