@@ -639,7 +639,7 @@ export async function getMembership(
   const verified = payments
     .filter((p) => p.status === 'verified' && p.periodStart && p.periodEnd)
     .sort((a, b) => (a.periodStart as string).localeCompare(b.periodStart!))
-  if (summary && summary.expiresAt > nowIso) {
+  if (summary && summary.expiresAt > nowIso && verified.length) {
     const current =
       verified.find(
         (p) => (p.periodStart as string) <= nowIso && nowIso < p.periodEnd!,
