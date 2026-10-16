@@ -24,6 +24,8 @@ exit non-zero on any failure.
 | `push.mjs`            | M25       | Device tokens through the AppView, pushes for likes, replies, chat, KYC                                                                         |
 | `compliance.mjs`      | M26       | Phone before posts/chat, one number per account, consent, exports, one-level referrals, gate moderation, deletion                               |
 | `safety.mjs`          | M27       | Phishing link checks and admin list, unsafe posts out of Popular, address owners, verification badge, seed phrases refused in chat, human badge |
+| `community.mjs`       | M29       | NFT-gated community, member-only posts, community feed, moderator hides, bans, approvals                                                        |
+| `poll.mjs`            | M29       | One vote per account, verified-only polls, token polls weighted at a snapshot block, deadlines, hidden results                                  |
 
 Posting and chat need a verified phone in the dev-env: `login()` (and the
 groups' sign-up helpers) verify one through the real flow, reading the code
