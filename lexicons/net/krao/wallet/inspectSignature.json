@@ -1,0 +1,86 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.wallet.inspectSignature",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Explain a message or EIP-712 typed data before the wallet signs it: permits (EIP-2612, DAI, Permit2) and the approvals they grant, marketplace orders, EIP-7702 authorizations, Krao wallet proofs asked for by another site, with safety warnings. Requires service auth for the indexer; rate limited per account and per IP.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["chain", "from", "method", "payload"],
+          "properties": {
+            "chain": {
+              "type": "string",
+              "description": "CAIP-2 chain id; only eip155:8453 (Base).",
+              "maxLength": 64
+            },
+            "from": { "type": "string", "maxLength": 42 },
+            "method": {
+              "type": "string",
+              "knownValues": ["personal_sign", "eth_signTypedData_v4"],
+              "maxLength": 32
+            },
+            "payload": {
+              "type": "string",
+              "description": "personal_sign: the message (text, or 0x hex bytes); eth_signTypedData_v4: the typed data as JSON.",
+              "maxLength": 65536
+            },
+            "origin": {
+              "type": "string",
+              "description": "The https origin of the Mini App asking, if any.",
+              "maxLength": 512
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["kind", "approvals", "warnings"],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "knownValues": [
+                "message",
+                "permit",
+                "permit2",
+                "order",
+                "eip7702Authorization",
+                "loginProof",
+                "typedData"
+              ],
+              "maxLength": 32
+            },
+            "summary": { "type": "string", "maxLength": 1000 },
+            "domain": { "type": "ref", "ref": "#domain" },
+            "approvals": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "net.krao.wallet.defs#approval" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "net.krao.wallet.defs#warning" }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "UnsupportedChain" },
+        { "name": "InvalidAddress" },
+        { "name": "InvalidPayload" }
+      ]
+    },
+    "domain": {
+      "type": "object",
+      "description": "The EIP-712 domain of typed data.",
+      "properties": {
+        "name": { "type": "string", "maxLength": 256 },
+        "chainId": { "type": "string", "maxLength": 80 },
+        "verifyingContract": { "type": "string", "maxLength": 42 }
+      }
+    }
+  }
+}

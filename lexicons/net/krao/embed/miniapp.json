@@ -1,0 +1,18 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.embed.miniapp",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "A Mini App in a post (the post's embed). Krao shows a card that opens it when it is approved; other clients ignore it.",
+      "required": ["app"],
+      "properties": {
+        "app": {
+          "type": "ref",
+          "ref": "com.atproto.repo.strongRef",
+          "description": "The net.krao.miniapp.app record."
+        }
+      }
+    }
+  }
+}
