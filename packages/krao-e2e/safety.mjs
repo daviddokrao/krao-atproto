@@ -238,12 +238,18 @@ check(
  * Verification badge from Krao's trusted verifier
  */
 
-const official = await xrpc(APPVIEW, 'app.bsky.actor.getProfile', {
-  query: { actor: 'krao.test' },
-})
 const verifierProfile = await xrpc(APPVIEW, 'app.bsky.actor.getProfile', {
   query: { actor: 'krao-verify.test' },
 })
+// Right after seeding, the AppView may not have the verification record yet
+let official
+for (let i = 0; i < 20; i++) {
+  official = await xrpc(APPVIEW, 'app.bsky.actor.getProfile', {
+    query: { actor: 'krao.test' },
+  })
+  if (official.data.verification?.verifiedStatus === 'valid') break
+  await sleep(500)
+}
 check(
   'krao.test is verified by krao-verify.test',
   official.data.verification?.verifiedStatus === 'valid' &&

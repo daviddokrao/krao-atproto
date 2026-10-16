@@ -239,7 +239,11 @@ const convoId = convo.data.convo?.id
 const sent = await chat(bao, 'chat.bsky.convo.sendMessage', {
   body: { convoId, message: { text: 'Hi Ana, coffee?' } },
 })
-check('Bao messages Ana', sent.ok, JSON.stringify(sent.data))
+check(
+  'Bao messages Ana',
+  sent.ok,
+  JSON.stringify(convoId ? sent.data : convo.data),
+)
 const message = await waitForPush(
   anaToken,
   (m) => m.data.reason === 'chat-message',
