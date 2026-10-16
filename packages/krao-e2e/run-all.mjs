@@ -28,6 +28,7 @@ const ALL = [
   'search',
   'token',
   'growth',
+  'miniapps',
   // Moves the Anvil clock 31 days forward, so it runs last
   'membership',
 ]

@@ -8,6 +8,7 @@ import { KraoPush } from '@krao/push'
 import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
+import { publishKraoPermissionSets, serveMiniAppSample } from './krao-dev.js'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
@@ -17,6 +18,8 @@ const KRAO_VIDEO_PORT = 2591
 const KRAO_CHAT_PORT = 2590
 const KRAO_REWARDS_PORT = 2592
 const KRAO_PUSH_PORT = 2593
+/** Krao's sample Mini App (services/krao/miniapp-sample) */
+const KRAO_MINIAPP_SAMPLE_PORT = 2595
 /** The AppView's courier key and Krao services' push token; dev only */
 const KRAO_PUSH_COURIER_KEY = 'krao-dev-push-courier-key'
 const KRAO_PUSH_TOKEN = 'krao-dev-push-internal-token'
@@ -167,6 +170,8 @@ const run = async () => {
       'eip155:8453': process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
     },
     insecureFetch: true,
+    // Mini Apps may be served from http://localhost (the sample below)
+    devMode: true,
     feedGenDid,
     // Where short links lead: the web app in front of this dev-env
     webUrl: process.env.KRAO_DEV_WEB_URL || 'http://localhost:8081',
@@ -326,6 +331,19 @@ const run = async () => {
   const official = await createKraoAccount(network.pds.url, 'krao')
   kraoIndexer.addOfficialFeedDid(official)
   console.log(`📰 Official feed account krao.test (${official})`)
+  // The sample Mini App (the seed script registers and approves it)
+  await serveMiniAppSample(KRAO_MINIAPP_SAMPLE_PORT)
+  console.log(
+    `🧩 Sample Mini App http://localhost:${KRAO_MINIAPP_SAMPLE_PORT}/`,
+  )
+  // Krao's OAuth permission sets (include:net.krao.authWeb3 and authMiniApp)
+  const sets = await publishKraoPermissionSets(network).catch((err) => {
+    console.warn('⚠️ Krao permission sets not published', err)
+    return { published: [], resolved: [] as string[] }
+  })
+  console.log(
+    `🔑 Krao permission sets resolved by the PDS: ${sets.resolved.join(', ') || 'none'}`,
+  )
   // Like sign-up codes: the mock accounts above posted without a phone
   if (PHONE_REQUIRED) {
     network.pds.ctx.cfg.kraoRewards!.phoneRequired = true
