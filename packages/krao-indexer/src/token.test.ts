@@ -399,6 +399,14 @@ describe('TokenCatalog', () => {
     expect((await catalog.feed('ETH', 10)).uris).toEqual([
       'at://did:a/app.bsky.feed.post/1',
     ])
+    // Unknown cashtags do not use up the per-post cap
+    const junk = Array.from({ length: 12 }, (_, i) => `$JUNK${i}`).join(' ')
+    await catalog.indexPost('at://did:a/app.bsky.feed.post/9', 'did:a', {
+      text: `${junk} $DEGEN`,
+    })
+    expect((await catalog.feed('DEGEN', 10)).uris).toContain(
+      'at://did:a/app.bsky.feed.post/9',
+    )
     // An edit that drops the cashtag drops the post
     await catalog.indexPost('at://did:a/app.bsky.feed.post/1', 'did:a', {
       text: 'no tags',

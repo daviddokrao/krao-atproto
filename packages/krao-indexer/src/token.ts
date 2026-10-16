@@ -159,7 +159,11 @@ export function symbolKey(input: string): string | null {
  * upper-case symbols. Symbols start with a letter, so prices ($5) are not
  * cashtags.
  */
-export function postCashtags(record: unknown): string[] {
+export function postCashtags(
+  record: unknown,
+  /** Keeps only these symbols, before the cap, so unknown ones cannot crowd them out */
+  isKnown: (key: string) => boolean = () => true,
+): string[] {
   const value = (record ?? {}) as {
     text?: unknown
     facets?: { features?: { $type?: string; tag?: unknown }[] }[]
@@ -184,7 +188,7 @@ export function postCashtags(record: unknown): string[] {
       if (key) found.add(key)
     }
   }
-  return [...found].slice(0, MAX_CASHTAGS_PER_POST)
+  return [...found].filter(isKnown).slice(0, MAX_CASHTAGS_PER_POST)
 }
 
 export async function setPostCashtags(
@@ -417,7 +421,7 @@ export class TokenCatalog {
 
   /** Indexes the post's cashtags of catalog tokens (and clears others) */
   async indexPost(uri: string, did: string, record: unknown) {
-    const keys = postCashtags(record).filter((key) => this.keys.has(key))
+    const keys = postCashtags(record, (key) => this.keys.has(key))
     await setPostCashtags(this.db, uri, did, keys)
   }
 
