@@ -68,6 +68,8 @@ async function moveHello(to) {
   })
   const from = res.data.owner
   if (!from || from === to.toLowerCase()) return
+  // The owner may be a fresh wallet from an earlier run, with no gas
+  await rpc('anvil_setBalance', [from, '0x56bc75e2d63100000'])
   await rpc('anvil_impersonateAccount', [from])
   await rpc('eth_sendTransaction', [
     {
