@@ -24,6 +24,7 @@ describe('migrateDb', () => {
       '007-memberships',
       '008-growth',
       '009-rewarded-wallet',
+      '010-onchain-profile',
     ])
     await db.destroy()
   })
@@ -53,6 +54,7 @@ describe('migrateDb', () => {
       '007-memberships',
       '008-growth',
       '009-rewarded-wallet',
+      '010-onchain-profile',
     ])
     await db.destroy()
   })

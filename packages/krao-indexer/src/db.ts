@@ -488,10 +488,17 @@ export interface PrimaryNameTable {
 
 /** Account events for the rewards service (see rewards-events.ts) */
 export interface RewardsOutboxTable {
-  /** `<type>:<did>`: once per account */
+  /** `<type>:<did>`: once per account; `activity.day:<did>:<day>` once a day */
   id: string
-  type: 'wallet.linked' | 'post.first'
+  type:
+    | 'wallet.linked'
+    | 'post.first'
+    | 'community.joined'
+    | 'tip.first'
+    | 'activity.day'
   did: string
+  /** For activity.day: the day (YYYY-MM-DD, Vietnam time) */
+  day: string | null
   createdAt: string
   sentAt: string | null
   attempts: number
@@ -510,7 +517,24 @@ export interface RewardedWalletTable {
   createdAt: string
 }
 
+/**
+ * An NFT collection Krao's admins approved for the on-chain profile tab (see
+ * onchain.ts)
+ */
+export interface NftCollectionTable {
+  /** CAIP-2 chain id */
+  chain: string
+  /** Lowercase contract address */
+  contract: string
+  name: string | null
+  /** What the contract is: 'erc721-enumerable', 'erc721' or 'erc1155' */
+  standard: string
+  addedBy: string
+  addedAt: string
+}
+
 export interface DatabaseSchema {
+  nft_collection: NftCollectionTable
   primary_name: PrimaryNameTable
   rewarded_wallet: RewardedWalletTable
   rewards_outbox: RewardsOutboxTable
@@ -1007,6 +1031,38 @@ const migrations = {
         .addColumn('createdAt', 'varchar', (col) => col.notNull())
         .execute()
       await sql`insert or ignore into rewarded_wallet (wallet, createdAt) select coalesce(w.evmAddress, w.account), o.createdAt from wallet w join rewards_outbox o on o.did = w.did and o.type = 'wallet.linked' where w.status = 'verified'`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Growth, part 2 (M33): activity days in the rewards outbox, approved NFT
+   * collections for the on-chain profile tab, and lookups of an account's
+   * support (tips it sent, payments it received)
+   */
+  '010-onchain-profile': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .alterTable('rewards_outbox')
+        .addColumn('day', 'varchar')
+        .execute()
+      await sql`create index rewards_outbox_sent_idx on rewards_outbox (type, sentAt)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('nft_collection')
+        .addColumn('chain', 'varchar', (col) => col.notNull())
+        .addColumn('contract', 'varchar', (col) => col.notNull())
+        .addColumn('name', 'varchar')
+        .addColumn('standard', 'varchar', (col) => col.notNull())
+        .addColumn('addedBy', 'varchar', (col) => col.notNull())
+        .addColumn('addedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('nft_collection_pkey', ['chain', 'contract'])
+        .execute()
+      await sql`create index tip_sender_time_idx on tip (did, createdAt)`.execute(
+        db,
+      )
+      await sql`create index membership_payment_creator_time_idx on membership_payment (creator, createdAt)`.execute(
         db,
       )
     },

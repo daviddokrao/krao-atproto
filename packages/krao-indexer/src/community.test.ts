@@ -16,6 +16,7 @@ import {
   getPendingMembers,
   getViewerState,
   isCommunityMember,
+  isRewardableJoin,
   listAccountCommunities,
   listCommunities,
   membershipRowFromRecord,
@@ -27,7 +28,7 @@ import {
   upsertSubmission,
 } from './community.js'
 import { type Database, createDb, migrateDb } from './db.js'
-import { isEligible } from './gate.js'
+import { gateRuleRowFromRecord, isEligible, upsertGateRule } from './gate.js'
 import { upsertWallet } from './wallets.js'
 
 const BASE = 'eip155:8453'
@@ -509,5 +510,84 @@ describe('lists and deletion', () => {
     expect(
       await db.selectFrom('community_moderator').selectAll().execute(),
     ).toEqual([])
+  })
+})
+
+describe('community feeds and rewarded joins (M33)', () => {
+  const CAROL = 'did:plc:carol'
+  const DAN = 'did:plc:dan'
+
+  it('rewards a join only into a community with 3 other members', async () => {
+    const uri = await community('small', { mode: 'open' })
+    // Owner + Ana + Bao: Carol would have 3 others, Bao only 2
+    await join(ANA, uri)
+    await join(BAO, uri)
+    expect(await isRewardableJoin(db, uri, BAO)).toBe(false)
+    await join(CAROL, uri)
+    expect(await isRewardableJoin(db, uri, CAROL)).toBe(true)
+    // The owner never, nor accounts that did not join
+    expect(await isRewardableJoin(db, uri, OWNER)).toBe(false)
+    expect(await isRewardableJoin(db, uri, DAN)).toBe(false)
+    // A banned member is not in good standing
+    await act(BAN_COLLECTION, OWNER, { community: uri, subject: CAROL })
+    expect(await isRewardableJoin(db, uri, CAROL)).toBe(false)
+  })
+
+  it('waits for the approval in approval communities', async () => {
+    const uri = await community('approve', { mode: 'approval' })
+    for (const did of [ANA, BAO, CAROL]) {
+      await join(did, uri)
+      await act(APPROVAL_COLLECTION, OWNER, { community: uri, subject: did })
+    }
+    await join(DAN, uri)
+    expect(await isRewardableJoin(db, uri, DAN)).toBe(false)
+    await act(APPROVAL_COLLECTION, OWNER, { community: uri, subject: DAN })
+    expect(await isRewardableJoin(db, uri, DAN)).toBe(true)
+  })
+
+  it('tells about members who meet the requirement when checked', async () => {
+    const uri = await community('verified', { mode: 'verified' })
+    await join(ANA, uri)
+    humans.add(ANA)
+    const seen: string[] = []
+    await recheckMemberships(
+      db,
+      {
+        ...checks(),
+        onEligible: async (c, did) => {
+          seen.push(`${c} ${did}`)
+        },
+      },
+      now(),
+    )
+    expect(seen).toEqual([`${uri} ${ANA}`])
+  })
+
+  it('serves only public posts to the community feed generator', async () => {
+    const uri = await community('public', { mode: 'open' })
+    await join(ANA, uri)
+    const open = await submit(ANA, uri)
+    const gated = await submit(ANA, uri)
+    const hidden = await submit(ANA, uri)
+    const rule = gateRuleRowFromRecord(
+      `at://${ANA}/net.krao.gate.rule/${rkey()}`,
+      ANA,
+      {
+        subject: { uri: gated, cid: 'bafypost' },
+        conditions: [
+          { $type: 'net.krao.gate.defs#communityMember', community: uri },
+        ],
+        service: 'did:web:gate.krao.test',
+        createdAt: now(),
+      },
+    )
+    await upsertGateRule(db, rule!)
+    await act(HIDE_COLLECTION, OWNER, { community: uri, post: hidden })
+    // Members see the gated post; the public feed does not
+    expect(await feedPosts(uri)).toEqual([gated, open])
+    const page = await getCommunityFeed(db, uri, 50, undefined, {
+      publicOnly: true,
+    })
+    expect(page.feed.map((f) => f.post)).toEqual([open])
   })
 })

@@ -37,7 +37,9 @@ import {
 import {
   COMMUNITY_COLLECTION,
   COMMUNITY_COLLECTIONS,
+  APPROVAL_COLLECTION,
   MEMBERSHIP_COLLECTION,
+  MODERATOR_COLLECTION,
   SUBMISSION_COLLECTION,
   actionRowFromRecord,
   communityRowFromRecord,
@@ -46,6 +48,7 @@ import {
   deleteCommunityRecord,
   deleteSubmissionsForPost,
   isActionCollection,
+  isRewardableJoin,
   membershipRowFromRecord,
   recheckMemberships,
   submissionRowFromRecord,
@@ -73,8 +76,11 @@ import {
   type RewardsEventSender,
   deleteAccountEventsForDid,
   deliverAccountEvents,
+  pruneSentActivityDays,
   queueAccountEvent,
+  queueActivityDay,
   queueWalletLinked,
+  vnDay,
 } from './rewards-events.js'
 import {
   PAYMENT_COLLECTION,
@@ -164,6 +170,9 @@ const EVENT_RETRY_DELAYS_MS = [200, 1_000, 5_000]
 
 /** Invalid NFT avatars are re-checked this many times less often */
 const INVALID_NFT_RECHECK_FACTOR = 6
+
+/** Activity days remembered as queued, to spare the database a write */
+const ACTIVITY_MEMORY = 50_000
 
 export type FeedIndexingOptions = {
   /** DID of the feed generator service; posts are only indexed when set */
@@ -259,6 +268,7 @@ export class FirehoseIndexer {
           .then(() => purgeMediaTrash(this.db, this.mediaBlobs))
           .then(() => pruneOldDiscoveryData(this.db))
           .then(() => pruneFollowerLosses(this.db))
+          .then(() => pruneSentActivityDays(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
           ),
@@ -399,9 +409,44 @@ export class FirehoseIndexer {
     if (await queueAccountEvent(this.db, type, did)) this.rewardsRound.kick()
   }
 
+  /** `did:day` of activity days queued lately */
+  private activitySeen = new Set<string>()
+
+  /**
+   * A Krao account created a record at `time` (the firehose event's time):
+   * the day it falls on (Vietnam time) is a day the account was active
+   */
+  private async noteActivity(did: string, time: string) {
+    if (!this.rewardsEvents) return
+    const at = Date.parse(time)
+    const when = isNaN(at) ? Date.now() : at
+    const key = `${did}:${vnDay(when)}`
+    if (this.activitySeen.has(key)) return
+    if (!(await this.isKraoAccount(did))) return
+    if (await queueActivityDay(this.db, did, when)) this.rewardsRound.kick()
+    if (this.activitySeen.size >= ACTIVITY_MEMORY) this.activitySeen.clear()
+    this.activitySeen.add(key)
+  }
+
+  /**
+   * `did` may have just become a member of `community`: its first such
+   * community, if it counts (see isRewardableJoin), is rewarded
+   */
+  private async communityJoined(community: string, did: string) {
+    if (!this.rewardsEvents) return
+    if (!(await isRewardableJoin(this.db, community, did))) return
+    if (!(await this.isKraoAccount(did))) return
+    await this.queueRewardsEvent('community.joined', did)
+  }
+
   /** What community and poll checks need */
   get checks() {
-    return { rpcs: this.rpcs, human: this.human }
+    return {
+      rpcs: this.rpcs,
+      human: this.human,
+      onEligible: (community: string, did: string) =>
+        this.communityJoined(community, did),
+    }
   }
 
   /** New memberships right away, others every `membershipRecheckMs` */
@@ -445,6 +490,12 @@ export class FirehoseIndexer {
           return tip.status
         },
       )
+      // The sender's first verified tip (for the analytics funnel)
+      if (status === 'verified' && tip.status !== 'verified') {
+        if (await this.isKraoAccount(tip.did)) {
+          await this.queueRewardsEvent('tip.first', tip.did)
+        }
+      }
       // Only news: not tips found again when the firehose is replayed
       if (
         status === 'verified' &&
@@ -633,6 +684,8 @@ export class FirehoseIndexer {
   }
 
   private async indexEvent(evt: Event): Promise<void> {
+    // Any record an account creates makes it active that day (M33)
+    if (evt.event === 'create') await this.noteActivity(evt.did, evt.time)
     if (evt.event === 'create' || evt.event === 'update') {
       if (evt.collection === WALLET_COLLECTION) {
         const row = await walletRowFromRecord(
@@ -919,7 +972,9 @@ export class FirehoseIndexer {
       const row = membershipRowFromRecord(uri, did, record)
       if (row) {
         await upsertMembership(this.db, row)
-        // Condition and verified communities: checked by the next round
+        // Open communities: a member now. Condition and verified ones are
+        // checked by the next round (onEligible)
+        await this.communityJoined(row.community, did)
         this.membershipRound.kick()
       } else {
         await deleteCommunityRecord(this.db, collection, uri)
@@ -930,8 +985,18 @@ export class FirehoseIndexer {
       else await deleteCommunityRecord(this.db, collection, uri)
     } else if (isActionCollection(collection)) {
       const row = actionRowFromRecord(collection, uri, did, record)
-      if (row) await upsertAction(this.db, collection, row)
-      else await deleteCommunityRecord(this.db, collection, uri)
+      if (row) {
+        await upsertAction(this.db, collection, row)
+        // Approved, or made a moderator: the subject may be a member now
+        if (
+          collection === APPROVAL_COLLECTION ||
+          collection === MODERATOR_COLLECTION
+        ) {
+          await this.communityJoined(row.community, row.subject)
+        }
+      } else {
+        await deleteCommunityRecord(this.db, collection, uri)
+      }
     }
   }
 

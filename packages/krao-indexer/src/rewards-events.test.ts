@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Database, createDb, migrateDb } from './db.js'
 import {
   type AccountEvent,
+  type OutboxEvent,
   RewardsEventsClient,
   deleteAccountEventsForDid,
   deliverAccountEvents,
+  pruneSentActivityDays,
   queueAccountEvent,
+  queueActivityDay,
   queueWalletLinked,
+  vnDay,
 } from './rewards-events.js'
 
 describe('rewards events outbox', () => {
@@ -105,5 +109,66 @@ describe('rewards events outbox', () => {
     expect(await queueWalletLinked(db, 'did:b', '0xu')).toBe(false)
     // 0xu earned nothing, so another account may still be rewarded for it
     expect(await queueWalletLinked(db, 'did:d', '0xu')).toBe(true)
+  })
+
+  it('queues each active day once, in Vietnam time, and sends the day', async () => {
+    const sent: string[] = []
+    const sender = {
+      send: async (type: OutboxEvent, did: string, day?: string) => {
+        sent.push(`${type}:${did}:${day}`)
+      },
+    }
+    // 23:30 in Vietnam on the 16th, then 00:30 on the 17th
+    expect(
+      await queueActivityDay(db, 'did:a', '2026-10-16T16:30:00.000Z'),
+    ).toBe(true)
+    expect(
+      await queueActivityDay(db, 'did:a', Date.parse('2026-10-16T10:00:00Z')),
+    ).toBe(false)
+    expect(
+      await queueActivityDay(db, 'did:a', '2026-10-16T17:30:00.000Z'),
+    ).toBe(true)
+    await queueAccountEvent(db, 'community.joined', 'did:a')
+    await queueAccountEvent(db, 'tip.first', 'did:a')
+    await deliverAccountEvents(db, sender)
+    expect(sent.sort()).toEqual([
+      'activity.day:did:a:2026-10-16',
+      'activity.day:did:a:2026-10-17',
+      'community.joined:did:a:undefined',
+      'tip.first:did:a:undefined',
+    ])
+    expect(vnDay(Date.parse('2026-10-16T16:59:59Z'))).toBe('2026-10-16')
+  })
+
+  it('drops activity days sent long ago, keeping the once-per-account events', async () => {
+    const sender = { send: async () => {} }
+    await queueActivityDay(db, 'did:a', Date.now())
+    await queueAccountEvent(db, 'post.first', 'did:a')
+    await deliverAccountEvents(db, sender)
+    await pruneSentActivityDays(db, Date.now() + 39 * 24 * 60 * 60 * 1000)
+    expect(
+      await db.selectFrom('rewards_outbox').selectAll().execute(),
+    ).toHaveLength(2)
+    await pruneSentActivityDays(db, Date.now() + 41 * 24 * 60 * 60 * 1000)
+    const left = await db.selectFrom('rewards_outbox').select('type').execute()
+    expect(left).toEqual([{ type: 'post.first' }])
+  })
+
+  it('posts activity days with their day', async () => {
+    const calls: RequestInit[] = []
+    const client = new RewardsEventsClient(
+      'http://rewards.test',
+      'secret',
+      (async (_url: URL, init: RequestInit) => {
+        calls.push(init)
+        return new Response('{}', { status: 200 })
+      }) as unknown as typeof fetch,
+    )
+    await client.send('activity.day', 'did:a', '2026-10-16')
+    expect(JSON.parse(String(calls[0].body))).toEqual({
+      type: 'activity.day',
+      did: 'did:a',
+      day: '2026-10-16',
+    })
   })
 })

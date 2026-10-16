@@ -79,6 +79,11 @@ const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/
 export type CommunityChecks = {
   rpcs: Map<string, EvmRpc>
   human?: HumanCheck
+  /**
+   * Told when a check finds an account meets a 'condition' or 'verified'
+   * community's requirement (it may have just become a member)
+   */
+  onEligible?: (community: string, did: string) => Promise<void>
 }
 
 export type CommunityAccess = {
@@ -600,6 +605,7 @@ export async function checkEligibility(
 /** Stores a check's result on the account's memberships of the community */
 async function recordEligibility(
   db: Database,
+  checks: CommunityChecks,
   community: string,
   did: string,
   result: { eligible: boolean; reason?: string },
@@ -614,6 +620,7 @@ async function recordEligibility(
     .where('community', '=', community)
     .where('did', '=', did)
     .execute()
+  if (result.eligible) await checks.onEligible?.(community, did)
 }
 
 /**
@@ -660,7 +667,7 @@ export async function getViewerState(
         eligible = result.eligible
         reason = result.reason
         if (membership) {
-          await recordEligibility(db, community.uri, did, result)
+          await recordEligibility(db, checks, community.uri, did, result)
         }
       } catch {
         // Fall back to the last check
@@ -720,6 +727,34 @@ export async function isCommunityMember(
   )
 }
 
+/** A community needs this many other members for joining it to be rewarded */
+export const JOIN_REWARD_MIN_OTHERS = 3
+
+/**
+ * Whether `did` joining `community` now counts for community.joined (M33):
+ * it is a member in good standing (as last checked: membership accepted,
+ * approved, or the requirement met) of a community it does not own, which
+ * has at least JOIN_REWARD_MIN_OTHERS other members in good standing, the
+ * owner and moderators included.
+ */
+export async function isRewardableJoin(
+  db: Database,
+  community: string,
+  did: string,
+): Promise<boolean> {
+  const { rows } = await sql<{
+    owner: string
+    member: number
+    count: number
+  }>`select c.did as owner, ${sql.raw(inGoodStanding('v.did'))} as member, ${MEMBER_COUNT} as count
+    from community c, (select ${did} as did) v
+    where c.uri = ${community} and ${sql.raw(notHidden('c.did'))}`.execute(db)
+  const row = rows[0]
+  if (!row || row.owner === did || !row.member) return false
+  // The member count includes the newcomer
+  return Number(row.count) - 1 >= JOIN_REWARD_MIN_OTHERS
+}
+
 /**
  * Checks memberships of 'condition' and 'verified' communities that were
  * never checked or not since `dueBefore`. A member who no longer qualifies
@@ -773,7 +808,7 @@ export async function recheckMemberships(
       ) {
         throw new Error('Chain not answering')
       }
-      await recordEligibility(db, community.uri, row.did, result)
+      await recordEligibility(db, checks, community.uri, row.did, result)
       checked++
     } catch (err) {
       console.error('Krao indexer: membership check failed', key, err)
@@ -921,14 +956,20 @@ export type FeedItemRow = {
 
 /**
  * The community feed, newest first: submissions by members in good standing
- * minus posts hidden by the staff. The cursor is `<indexedAt>::<uri>`.
+ * minus posts hidden by the staff. The cursor is `<indexedAt>::<uri>`. With
+ * `publicOnly` (the community's feed generator), posts with a gate (members
+ * only or any other condition) are left out too.
  */
 export async function getCommunityFeed(
   db: Database,
   community: string,
   limit: number,
   cursor?: string,
+  opts: { publicOnly?: boolean } = {},
 ): Promise<{ feed: FeedItemRow[]; cursor?: string }> {
+  const gated = opts.publicOnly
+    ? sql`and not exists (select 1 from gate_rule g where g.subject = s.post)`
+    : sql``
   let after: RawBuilder<unknown> = sql``
   if (cursor) {
     const [indexedAt, uri] = cursor.split('::')
@@ -942,7 +983,7 @@ export async function getCommunityFeed(
     indexedAt: string
   }>`select s.uri, s.post, s.did, s.indexedAt
     from community_submission s join community c on c.uri = s.community
-    where s.community = ${community} ${after}
+    where s.community = ${community} ${after} ${gated}
       and ${sql.raw(inGoodStanding('s.did'))}
       and not exists (select 1 from community_hide h where h.community = c.uri and h.subject = s.post and ${sql.raw(isStaff('h.did'))})
     order by s.indexedAt desc, s.uri desc limit ${limit}`.execute(db)
