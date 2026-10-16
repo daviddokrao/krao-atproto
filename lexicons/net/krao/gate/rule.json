@@ -21,7 +21,8 @@
               "type": "union",
               "refs": [
                 "net.krao.gate.defs#tokenBalance",
-                "net.krao.gate.defs#nftHolding"
+                "net.krao.gate.defs#nftHolding",
+                "net.krao.gate.defs#communityMember"
               ]
             },
             "minLength": 1,

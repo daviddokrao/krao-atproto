@@ -37,6 +37,18 @@
         }
       }
     },
+    "communityMember": {
+      "type": "object",
+      "description": "Satisfied when the viewer is a member in good standing of the community (net.krao.community.profile): its owner, a moderator, or an account whose membership counts and who is not banned.",
+      "required": ["community"],
+      "properties": {
+        "community": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "URI of the net.krao.community.profile record."
+        }
+      }
+    },
     "media": {
       "type": "object",
       "description": "Media hosted by the gate service, served only to eligible viewers.",
@@ -111,7 +123,7 @@
           "type": "array",
           "items": {
             "type": "union",
-            "refs": ["#tokenBalance", "#nftHolding"]
+            "refs": ["#tokenBalance", "#nftHolding", "#communityMember"]
           }
         },
         "match": {

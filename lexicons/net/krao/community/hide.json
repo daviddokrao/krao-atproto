@@ -1,0 +1,25 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.hide",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Hides a post from a community feed. Counts in the repo of the owner or a current moderator; delete the record to show the post again.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["community", "post", "createdAt"],
+        "properties": {
+          "community": { "type": "string", "format": "at-uri" },
+          "post": { "type": "string", "format": "at-uri" },
+          "reason": {
+            "type": "string",
+            "maxGraphemes": 300,
+            "maxLength": 3000
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

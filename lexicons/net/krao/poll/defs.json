@@ -1,0 +1,87 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.poll.defs",
+  "defs": {
+    "pollView": {
+      "type": "object",
+      "required": [
+        "uri",
+        "post",
+        "options",
+        "endsAt",
+        "mode",
+        "resultsVisibility",
+        "ended",
+        "resultsVisible"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "post": { "type": "string", "format": "at-uri" },
+        "question": { "type": "string", "maxLength": 3000 },
+        "options": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#optionView" }
+        },
+        "endsAt": { "type": "string", "format": "datetime" },
+        "mode": {
+          "type": "string",
+          "knownValues": ["account", "verified", "token"],
+          "maxLength": 32
+        },
+        "asset": { "type": "ref", "ref": "net.krao.chain.defs#assetId" },
+        "snapshotBlock": {
+          "type": "string",
+          "description": "For 'token' polls: the block whose balances weigh the votes, as a decimal string.",
+          "maxLength": 32
+        },
+        "resultsVisibility": {
+          "type": "string",
+          "knownValues": ["always", "afterEnd"],
+          "maxLength": 32
+        },
+        "ended": { "type": "boolean" },
+        "resultsVisible": {
+          "type": "boolean",
+          "description": "False while an 'afterEnd' poll is open: counts are left out."
+        },
+        "totalVotes": { "type": "integer" },
+        "totalWeight": {
+          "type": "string",
+          "description": "For 'token' polls: the sum of the vote weights, in the asset's smallest unit.",
+          "maxLength": 80
+        },
+        "viewer": { "type": "ref", "ref": "#viewerVote" }
+      }
+    },
+    "optionView": {
+      "type": "object",
+      "required": ["index", "text"],
+      "properties": {
+        "index": { "type": "integer" },
+        "text": { "type": "string", "maxLength": 800 },
+        "votes": { "type": "integer" },
+        "weight": {
+          "type": "string",
+          "description": "For 'token' polls: the sum of the weights of the votes for this option.",
+          "maxLength": 80
+        }
+      }
+    },
+    "viewerVote": {
+      "type": "object",
+      "description": "The viewer's vote. 'counted': in the results; 'pending': not checked yet; 'ignored': not counted (reason says why, eg 'NotVerified', 'AfterEnd', 'AlreadyVoted').",
+      "required": ["uri", "option", "status"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "option": { "type": "integer" },
+        "status": {
+          "type": "string",
+          "knownValues": ["counted", "pending", "ignored"],
+          "maxLength": 32
+        },
+        "weight": { "type": "string", "maxLength": 80 },
+        "reason": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }
+}

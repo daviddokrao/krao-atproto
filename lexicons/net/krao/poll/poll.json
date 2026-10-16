@@ -1,0 +1,61 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.poll.poll",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A poll attached to a post. Use the post's record key as this record's key. Polls cannot be changed once indexed: delete and post again. Votes are public records.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["post", "options", "endsAt", "mode", "createdAt"],
+        "properties": {
+          "post": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The post the poll belongs to, in the same repo."
+          },
+          "question": {
+            "type": "string",
+            "maxGraphemes": 300,
+            "maxLength": 3000
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxGraphemes": 80,
+              "maxLength": 800
+            },
+            "minLength": 2,
+            "maxLength": 4
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "At most 30 days after the poll is published."
+          },
+          "mode": {
+            "type": "string",
+            "description": "'account': one vote per account; 'verified': one vote per account that verified a phone number or passed KYC; 'token': each vote weighs the voter's balance of the asset at the snapshot block (the latest block when the indexer first saw the poll), summed over the voter's linked wallets.",
+            "knownValues": ["account", "verified", "token"],
+            "maxLength": 32
+          },
+          "asset": {
+            "type": "ref",
+            "ref": "net.krao.chain.defs#assetId",
+            "description": "For 'token' polls: the token (on a chain Krao indexes)."
+          },
+          "resultsVisibility": {
+            "type": "string",
+            "description": "'always' (default) or 'afterEnd': counts are hidden until the poll ends.",
+            "knownValues": ["always", "afterEnd"],
+            "maxLength": 32
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}
