@@ -120,6 +120,17 @@ describe('rewards HTTP routes', () => {
     await phone.verifyCode(did, '+84912345678', code)
     const after = await internal(`/internal/phone-status?did=${did}`)
     expect(await after.json()).toEqual({ verified: true })
+    // The indexer's question for verified communities and polls
+    const human = await internal(`/internal/human-status?did=${did}`)
+    expect(await human.json()).toEqual({ human: true })
+    const nobody = await internal('/internal/human-status?did=did:plc:nobody')
+    expect(await nobody.json()).toEqual({ human: false })
+    const noAuth = await internal(
+      `/internal/human-status?did=${did}`,
+      {},
+      'wrong',
+    )
+    expect(noAuth.status).toBe(401)
     const guarded = await internal(
       `/internal/phone-status?did=${did}`,
       {},

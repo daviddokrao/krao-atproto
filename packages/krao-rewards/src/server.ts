@@ -29,7 +29,12 @@ import {
   listConsents,
   recordConsent,
 } from './account.js'
-import { getBadgeVisibility, humanDids, setBadgeVisibility } from './badges.js'
+import {
+  getBadgeVisibility,
+  humanDids,
+  isVerifiedHuman,
+  setBadgeVisibility,
+} from './badges.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
 import { PushRequestError } from './push-client.js'
@@ -792,6 +797,16 @@ export function createApp(opts: AppOptions): Express {
     res.json({
       verified: opts.phone ? await opts.phone.isVerified(did) : false,
     })
+  })
+
+  // The indexer: "verified" communities and polls (phone or KYC, not taken down)
+  app.get('/internal/human-status', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({ human: await isVerifiedHuman(service.db, did) })
   })
 
   // Development only (the log SMS driver): the last code sent to an account

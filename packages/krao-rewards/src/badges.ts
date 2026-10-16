@@ -37,6 +37,17 @@ async function eligibleDids(
   return eligible
 }
 
+/**
+ * Whether the account verified a phone or passed KYC and is not taken down,
+ * shown or not: "verified" communities and polls (the indexer asks)
+ */
+export async function isVerifiedHuman(
+  db: Database,
+  did: string,
+): Promise<boolean> {
+  return (await eligibleDids(db, [did])).has(did)
+}
+
 export async function getBadgeVisibility(
   db: Database,
   did: string,

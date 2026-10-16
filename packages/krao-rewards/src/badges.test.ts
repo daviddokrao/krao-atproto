@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getBadgeVisibility, humanDids, setBadgeVisibility } from './badges.js'
+import {
+  getBadgeVisibility,
+  humanDids,
+  isVerifiedHuman,
+  setBadgeVisibility,
+} from './badges.js'
 import { type Database, createDb, migrateDb } from './db.js'
 
 const PHONE = 'did:plc:phone'
@@ -76,5 +81,16 @@ describe('human badge', () => {
       .execute()
     expect(await humanDids(db, [PHONE])).toEqual(new Set())
     expect((await getBadgeVisibility(db, PHONE)).eligible).toBe(false)
+  })
+
+  it('answers the indexer without the opt-in, never for taken down accounts', async () => {
+    expect(await isVerifiedHuman(db, PHONE)).toBe(true)
+    expect(await isVerifiedHuman(db, KYC)).toBe(true)
+    expect(await isVerifiedHuman(db, NOBODY)).toBe(false)
+    await db
+      .insertInto('taken_down')
+      .values({ did: KYC, createdAt: new Date().toISOString() })
+      .execute()
+    expect(await isVerifiedHuman(db, KYC)).toBe(false)
   })
 })
