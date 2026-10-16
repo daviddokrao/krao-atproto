@@ -8,6 +8,7 @@ import {
   InvalidRequestError,
   type MethodAuthContext,
   ResponseType,
+  UpstreamFailureError,
   XRPCError,
   createServer,
   verifyJwt,
@@ -31,6 +32,7 @@ import {
 import { getBadgeVisibility, humanDids, setBadgeVisibility } from './badges.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
+import { PushRequestError } from './push-client.js'
 import {
   type EntryView,
   RewardsError,
@@ -126,6 +128,8 @@ export type AppOptions = {
   phone: PhoneService | null
   /** The push service's device counts, for data exports */
   pushDevices?: (did: string) => Promise<PushDevices>
+  /** Sets the language of an account's pushes at the push service */
+  pushLanguage?: (did: string, language: string) => Promise<string>
 }
 
 export function createApp(opts: AppOptions): Express {
@@ -479,6 +483,25 @@ export function createApp(opts: AppOptions): Express {
           pushDevices ? () => pushDevices(viewer) : undefined,
         ),
       })
+    },
+  })
+
+  // Push language: the push service is not public, so the app sets it here
+  server.add(net.krao.push.setLanguage, {
+    auth: userAuth,
+    handler: async ({ auth, input }) => {
+      if (!opts.pushLanguage) {
+        throw new InvalidRequestError('Push is not set up', 'PushUnavailable')
+      }
+      try {
+        const language = await opts.pushLanguage(did(auth), input.body.language)
+        return json({ language })
+      } catch (err) {
+        if (err instanceof PushRequestError) {
+          throw new InvalidRequestError(err.message, 'InvalidLanguage')
+        }
+        throw new UpstreamFailureError('Could not reach the push service')
+      }
     },
   })
 

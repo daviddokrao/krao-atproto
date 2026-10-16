@@ -46,9 +46,32 @@ export class PushClient {
     return (await res.json()) as {
       count: number
       platforms: Record<string, number>
+      language?: string
     }
   }
+
+  /**
+   * Sets the language of the account's pushes (the push service is not
+   * public, so the app sets it here); returns the language pushes use
+   */
+  async setLanguage(did: string, language: string): Promise<string> {
+    const res = await this.fetchFn(`${this.url}/internal/language`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ did, language }),
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (res.status === 400) throw new PushRequestError('Invalid language')
+    if (!res.ok) throw new Error(`Krao push: language got ${res.status}`)
+    return ((await res.json()) as { language: string }).language
+  }
 }
+
+/** The push service refused the request as malformed */
+export class PushRequestError extends Error {}
 
 /** A client when both settings are there, else none (pushes are off) */
 export function createPushClient(url?: string, token?: string) {

@@ -151,6 +151,26 @@ export function createApp(
       res.json({ delivered })
     },
   )
+  // The language of an account's pushes, from the app through rewards
+  app.post(
+    '/internal/language',
+    express.json({ limit: '4kb' }),
+    async (req, res) => {
+      if (!internal(req, res)) return
+      const { did, language } = (req.body ?? {}) as Record<string, unknown>
+      if (
+        typeof did !== 'string' ||
+        !isDid(did) ||
+        typeof language !== 'string' ||
+        !/^[A-Za-z]{2,3}([-_][A-Za-z0-9]{1,8})*$/.test(language) ||
+        language.length > 35
+      ) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      res.json({ language: await push.setLanguage(did, language) })
+    },
+  )
   // For the rewards service's data exports: devices by platform, no tokens
   app.get('/internal/devices', async (req, res) => {
     if (!internal(req, res)) return

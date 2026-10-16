@@ -139,6 +139,9 @@ export class KraoRewards {
       },
       phone,
       pushDevices: push ? (did) => push.devices(did) : undefined,
+      pushLanguage: push
+        ? (did, language) => push.setLanguage(did, language)
+        : undefined,
     })
     return new KraoRewards(cfg, db, service, phone, admins, app, push)
   }

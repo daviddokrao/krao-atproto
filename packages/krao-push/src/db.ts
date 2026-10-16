@@ -27,10 +27,19 @@ export interface StateTable {
   value: string
 }
 
+/** The language an account's pushes are written in, as the app set it */
+export interface AccountLanguageTable {
+  did: string
+  /** A BCP-47 tag, eg `vi` or `en-US` */
+  language: string
+  updatedAt: string
+}
+
 export interface DatabaseSchema {
   device_token: DeviceTokenTable
   sent: SentTable
   state: StateTable
+  account_language: AccountLanguageTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -78,6 +87,16 @@ const migrations = {
         .createTable('state')
         .addColumn('key', 'varchar', (col) => col.primaryKey())
         .addColumn('value', 'varchar', (col) => col.notNull())
+        .execute()
+    },
+  },
+  '002-account-language': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('account_language')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('language', 'varchar', (col) => col.notNull())
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
         .execute()
     },
   },
