@@ -74,6 +74,8 @@ const run = async () => {
        */
       enableDidDocWithSession: PDS_HOSTNAME === 'localhost',
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      // Smart wallets sign in against the local Anvil fork of Base (8453)
+      kraoEvmRpcUrl: process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
       // Invite codes are Krao referral codes (required once set up, below)
       kraoRewardsUrl: `http://localhost:${KRAO_REWARDS_PORT}`,
       kraoRewardsToken: KRAO_REWARDS_TOKEN,

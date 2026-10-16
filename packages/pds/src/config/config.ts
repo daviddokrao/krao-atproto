@@ -191,7 +191,15 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
   }
 
   const kraoCfg: ServerConfig['krao'] = env.kraoIndexerUrl
-    ? { indexerUrl: env.kraoIndexerUrl }
+    ? {
+        indexerUrl: env.kraoIndexerUrl,
+        evmRpc: env.kraoEvmRpcUrl
+          ? {
+              url: env.kraoEvmRpcUrl,
+              chainId: `eip155:${env.kraoEvmChainId ?? 8453}`,
+            }
+          : undefined,
+      }
     : null
 
   const kraoRewardsCfg: ServerConfig['kraoRewards'] = env.kraoRewardsUrl
@@ -553,6 +561,11 @@ export type RateLimitsConfig =
 
 export type KraoConfig = {
   indexerUrl: string
+  /**
+   * JSON-RPC endpoint of one EVM chain (CAIP-2 id, default Base), to check
+   * signatures of smart contract wallets. Plain wallets need none.
+   */
+  evmRpc?: { url: string; chainId: string }
 }
 
 /**

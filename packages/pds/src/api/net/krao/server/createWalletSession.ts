@@ -1,11 +1,15 @@
 import {
+  type EvmRpcForChain,
   InvalidMessageError,
+  RpcResponseError,
+  RpcTransportError,
   type SignInMessage,
   isPublicTestAddress,
   normalizeAccountId,
   parseSignInMessage,
+  rpcForChains,
   sameAddress,
-  verifySignature,
+  verifyAccountSignature,
   verifyWalletProof,
 } from '@krao/wallet'
 import { MINUTE } from '@atproto/common'
@@ -20,6 +24,7 @@ import {
   AuthRequiredError,
   InvalidRequestError,
   type Server,
+  UpstreamFailureError,
 } from '@atproto/xrpc-server'
 import { formatAccountStatus } from '../../../../account-manager/account-manager.js'
 import type { AppContext } from '../../../../context.js'
@@ -32,6 +37,11 @@ import { parseAccountOrThrow } from './getWalletChallenge.js'
 const WALLET_COLLECTION = 'net.krao.actor.wallet' as NsidString
 
 export default function (server: Server, ctx: AppContext) {
+  // Smart contract wallets sign in on this chain only; plain wallets anywhere
+  const evmRpc = ctx.cfg.krao?.evmRpc
+  const rpc = evmRpc
+    ? rpcForChains({ [evmRpc.chainId]: evmRpc.url })
+    : undefined
   server.add(net.krao.server.createWalletSession, {
     rateLimit: [
       {
@@ -79,7 +89,10 @@ export default function (server: Server, ctx: AppContext) {
           'InvalidSignature',
         )
       }
-      if (!verifySignature(account, body.message, body.signature)) {
+      const valid = await chainCall(() =>
+        verifyAccountSignature(account, body.message, body.signature, { rpc }),
+      )
+      if (!valid) {
         throw new AuthRequiredError('Invalid signature', 'InvalidSignature')
       }
       // Consumed only after the signature checks out, so a bad request
@@ -96,7 +109,7 @@ export default function (server: Server, ctx: AppContext) {
         )
       }
 
-      const did = await findLinkedAccount(ctx, normalized)
+      const did = await findLinkedAccount(ctx, normalized, rpc)
       if (!did) {
         throw new AuthRequiredError(
           'No account on this server has linked this wallet',
@@ -164,6 +177,7 @@ export default function (server: Server, ctx: AppContext) {
 async function findLinkedAccount(
   ctx: AppContext,
   account: string,
+  rpc: EvmRpcForChain | undefined,
 ): Promise<string | null> {
   if (!ctx.cfg.krao) return null
   const url = new URL('/internal/wallet-owners', ctx.cfg.krao.indexerUrl)
@@ -180,7 +194,7 @@ async function findLinkedAccount(
       includeTakenDown: true,
     })
     if (!local) continue
-    if (await hasValidWalletRecord(ctx, did, account)) return did
+    if (await hasValidWalletRecord(ctx, did, account, rpc)) return did
   }
   return null
 }
@@ -189,6 +203,7 @@ async function hasValidWalletRecord(
   ctx: AppContext,
   did: string,
   account: string,
+  rpc: EvmRpcForChain | undefined,
 ): Promise<boolean> {
   let cursor: string | undefined
   do {
@@ -218,7 +233,7 @@ async function hasValidWalletRecord(
       } catch {
         continue
       }
-      const result = verifyWalletProof({
+      const params = {
         did,
         account: record.account,
         proof: {
@@ -226,7 +241,9 @@ async function hasValidWalletRecord(
           message: record.proof.message,
           signature: record.proof.signature,
         },
-      })
+        rpc,
+      }
+      const result = await chainCall(() => verifyWalletProof(params))
       if (result.ok) return true
     }
     cursor =
@@ -247,4 +264,18 @@ function sameWallet(a: string, b: string): boolean {
   return (
     nsA === 'eip155' && nsB === 'eip155' && !!addressA && addressA === addressB
   )
+}
+
+/** A contract wallet check that could not reach the chain fails as upstream */
+async function chainCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (err instanceof RpcTransportError || err instanceof RpcResponseError) {
+      throw new UpstreamFailureError(
+        'Could not reach the chain to check the wallet signature',
+      )
+    }
+    throw err
+  }
 }
