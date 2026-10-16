@@ -130,6 +130,14 @@ import {
   upsertGateRule,
 } from './gate.js'
 import {
+  MINIAPP_COLLECTION,
+  type MiniAppRules,
+  deleteMiniApp,
+  deleteMiniAppsForDid,
+  miniAppRowFromRecord,
+  upsertMiniApp,
+} from './miniapp.js'
+import {
   NFT_AVATAR_COLLECTION,
   deleteNftAvatar,
   getNftAvatarsToRecheck,
@@ -213,6 +221,7 @@ export class FirehoseIndexer {
         VOTE_COLLECTION,
         PLAN_COLLECTION,
         PAYMENT_COLLECTION,
+        MINIAPP_COLLECTION,
         ...(feed.did
           ? [
               FEED_GENERATOR_COLLECTION,
@@ -300,6 +309,8 @@ export class FirehoseIndexer {
   rewardsEvents?: RewardsEventSender
   /** Ethereum mainnet, for ENS names (Basenames use the Base RPC) */
   ensRpc?: NameRpc
+  /** What Mini App records must follow (Krao's web origins, dev mode) */
+  miniAppRules: MiniAppRules = { webOrigins: [] }
 
   private destroyed = false
 
@@ -847,6 +858,17 @@ export class FirehoseIndexer {
           evt.record,
           evt.time,
         )
+      } else if (evt.collection === MINIAPP_COLLECTION) {
+        await upsertMiniApp(
+          this.db,
+          miniAppRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.cid.toString(),
+            evt.record,
+            this.miniAppRules,
+          ),
+        )
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
         if (record.did === this.feed.did) {
@@ -911,6 +933,8 @@ export class FirehoseIndexer {
         await deleteFeedInteraction(this.db, evt.uri.toString())
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         await deleteFeedGenerator(this.db, evt.uri.toString())
+      } else if (evt.collection === MINIAPP_COLLECTION) {
+        await deleteMiniApp(this.db, evt.uri.toString())
       }
     } else if (evt.event === 'account') {
       if (evt.active) {
@@ -960,6 +984,7 @@ export class FirehoseIndexer {
         await deleteFollowerLossesForDid(this.db, evt.did)
         await deletePrimaryName(this.db, evt.did)
         await deleteAccountEventsForDid(this.db, evt.did)
+        await deleteMiniAppsForDid(this.db, evt.did)
       }
     }
   }

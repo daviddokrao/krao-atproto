@@ -68,6 +68,7 @@ import {
   holderFeedKey,
   holderFeedUri,
 } from './holders.js'
+import { addMiniAppIconRoute, addMiniAppRoutes } from './miniapp-routes.js'
 import { addOnchainRoutes } from './onchain-routes.js'
 import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
@@ -91,6 +92,7 @@ import { InvalidDomainError, type SafetyList } from './safety.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import { BASE_CHAIN, type TokenCatalog } from './token.js'
 import { addTokenRoutes } from './token-routes.js'
+import { addWalletRoutes } from './wallet-routes.js'
 import {
   listTips,
   tipTotals,
@@ -162,6 +164,12 @@ export function createApp(
     officialFeedDids?: Set<string>
     /** How long the on-chain tab reuses NFT holdings (default 10 min, 0: off) */
     onchainCacheMs?: number
+    /** Krao's PDS, where Mini App icons are read from */
+    pdsUrl?: string
+    /** Transaction previews: contracts Krao knows beyond its catalogs */
+    knownContracts?: string[]
+    /** Transaction previews: EIP-7702 delegates Krao trusts (none by default) */
+    knownDelegates?: string[]
   },
 ): Express {
   const {
@@ -427,6 +435,26 @@ export function createApp(
       (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
     baseUrl: (req) => baseUrl(req),
     cacheMs: opts.onchainCacheMs,
+  })
+
+  // Mini Apps: reviewed by the safety admins (M34)
+  addMiniAppRoutes(server, db, {
+    idResolver,
+    gateDid,
+    admins: opts.safetyAdmins ?? new Set(),
+    safety: opts.safety,
+    baseUrl: (req) => baseUrl(req),
+  })
+
+  // Transaction and signature previews (M34)
+  addWalletRoutes(server, {
+    db,
+    rpcs,
+    isUnsafe: (url) => !!opts.safety?.check(url).unsafe,
+    knownContracts: (opts.knownContracts ?? []).map((a) => a.toLowerCase()),
+    knownDelegates: (opts.knownDelegates ?? []).map((a) => a.toLowerCase()),
+    serviceAuth: (lxm) => serviceAuth(lxm),
+    webOrigins: [webUrl],
   })
 
   // Operations: the safety admins also run the indexer's admin methods
@@ -885,6 +913,10 @@ export function createApp(
   app.use('/xrpc/net.krao.actor.getOnchainProfile', rateLimit(60))
   app.use('/xrpc/net.krao.actor.getSupportHistory', rateLimit(300))
   app.use('/xrpc/net.krao.nft.', rateLimit(300))
+  // Previews run calls on the node (and 30 a minute per account)
+  app.use('/xrpc/net.krao.wallet.', rateLimit(60))
+  app.use('/xrpc/net.krao.miniapp.', rateLimit(300))
+  app.use('/miniapp-icon', rateLimit(120))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))
@@ -965,6 +997,7 @@ export function createApp(
    */
   addGatedMediaRoute(app, db, mediaSigner, opts.mediaBlobs)
   addGifRoutes(app, klipyApiKey)
+  addMiniAppIconRoute(app, db, { pdsUrl: opts.pdsUrl })
   addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 
   // The feed generator as did:web:<this host>, so production needs no PLC entry

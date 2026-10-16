@@ -84,6 +84,19 @@ const indexer = await KraoIndexer.create({
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean),
+  // Development only: Mini Apps served from http://localhost
+  devMode: process.env.KRAO_DEV_MODE === 'true',
+  // Krao's PDS (Mini App icons); default: KRAO_FIREHOSE_URL as http
+  pdsUrl: process.env.KRAO_PDS_URL || undefined,
+  // Transaction previews: more known contracts, trusted EIP-7702 delegates
+  knownContracts: (process.env.KRAO_KNOWN_CONTRACTS ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean),
+  knownDelegates: (process.env.KRAO_KNOWN_7702_DELEGATES ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean),
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

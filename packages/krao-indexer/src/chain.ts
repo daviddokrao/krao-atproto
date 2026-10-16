@@ -41,6 +41,17 @@ type Transaction = {
   value: string
 }
 
+/** A JSON-RPC error the node answered with (not a transport failure) */
+export class RpcError extends Error {
+  constructor(
+    message: string,
+    public code?: number,
+    public data?: unknown,
+  ) {
+    super(message)
+  }
+}
+
 export class EvmRpc {
   constructor(private url: string) {}
 
@@ -53,10 +64,24 @@ export class EvmRpc {
     })
     const body = (await res.json()) as {
       result?: T
-      error?: { message: string }
+      error?: { message: string; code?: number; data?: unknown }
     }
-    if (body.error) throw new Error(`${method}: ${body.error.message}`)
+    if (body.error) {
+      throw new RpcError(
+        `${method}: ${body.error.message}`,
+        body.error.code,
+        body.error.data,
+      )
+    }
     return body.result as T
+  }
+
+  /**
+   * Any JSON-RPC method (eg debug_traceCall); node errors throw RpcError,
+   * transport failures other errors
+   */
+  request<T>(method: string, params: unknown[]): Promise<T> {
+    return this.call<T>(method, params)
   }
 
   /** Native coin balance at the latest block */

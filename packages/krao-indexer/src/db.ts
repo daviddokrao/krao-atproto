@@ -533,7 +533,38 @@ export interface NftCollectionTable {
   addedAt: string
 }
 
+/**
+ * A Mini App record (net.krao.miniapp.app, see miniapp.ts). Its review is
+ * tied to the CID: an approval counts only while `approvedCid` is the
+ * current `cid`; a revocation holds for every version until approved again.
+ */
+export interface MiniAppTable {
+  uri: string
+  did: string
+  cid: string
+  name: string
+  description: string | null
+  url: string
+  origin: string
+  /** The icon blob's CID and type, when it has a usable one */
+  iconCid: string | null
+  iconMime: string | null
+  /** JSON arrays */
+  permissions: string
+  chains: string | null
+  /** Why the record breaks the rules; null when it is valid */
+  invalidReason: string | null
+  approvedCid: string | null
+  approvedAt: string | null
+  approvedBy: string | null
+  revokedAt: string | null
+  revokedReason: string | null
+  createdAt: string
+  indexedAt: string
+}
+
 export interface DatabaseSchema {
+  miniapp: MiniAppTable
   nft_collection: NftCollectionTable
   primary_name: PrimaryNameTable
   rewarded_wallet: RewardedWalletTable
@@ -1063,6 +1094,40 @@ const migrations = {
         db,
       )
       await sql`create index membership_payment_creator_time_idx on membership_payment (creator, createdAt)`.execute(
+        db,
+      )
+    },
+  },
+  /** M34: Mini Apps and their review */
+  '011-miniapps': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('miniapp')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('cid', 'varchar', (col) => col.notNull())
+        .addColumn('name', 'varchar', (col) => col.notNull())
+        .addColumn('description', 'varchar')
+        .addColumn('url', 'varchar', (col) => col.notNull())
+        .addColumn('origin', 'varchar', (col) => col.notNull())
+        .addColumn('iconCid', 'varchar')
+        .addColumn('iconMime', 'varchar')
+        .addColumn('permissions', 'varchar', (col) => col.notNull())
+        .addColumn('chains', 'varchar')
+        .addColumn('invalidReason', 'varchar')
+        .addColumn('approvedCid', 'varchar')
+        .addColumn('approvedAt', 'varchar')
+        .addColumn('approvedBy', 'varchar')
+        .addColumn('revokedAt', 'varchar')
+        .addColumn('revokedReason', 'varchar')
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('indexedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index miniapp_did_idx on miniapp (did)`.execute(db)
+      await sql`create index miniapp_approved_idx on miniapp (approvedAt, uri)`.execute(
+        db,
+      )
+      await sql`create index miniapp_indexed_idx on miniapp (indexedAt, uri)`.execute(
         db,
       )
     },

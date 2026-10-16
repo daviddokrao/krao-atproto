@@ -30,6 +30,7 @@ export * from './names.js'
 export * from './language.js'
 export * from './onchain.js'
 export * from './holders.js'
+export * from './miniapp.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -120,6 +121,20 @@ export type KraoIndexerConfig = {
    * generators they publish are linked from token pages. Empty: none are.
    */
   officialFeedDids?: string[]
+  /**
+   * Development: Mini Apps may be served from http://localhost (any port).
+   * Never in production.
+   */
+  devMode?: boolean
+  /**
+   * Krao's PDS over http(s), where Mini App icons are read from (default:
+   * the firehose URL as http)
+   */
+  pdsUrl?: string
+  /** Transaction previews: contracts Krao knows beyond its token and NFT catalogs */
+  knownContracts?: string[]
+  /** Transaction previews: EIP-7702 delegate contracts Krao trusts (none by default) */
+  knownDelegates?: string[]
   /** How long the on-chain profile tab reuses NFT holdings (default 10 min, 0: off) */
   onchainCacheMs?: number
 }
@@ -198,6 +213,11 @@ export class KraoIndexer {
       : undefined
     const ensRpcUrl = cfg.ensRpcUrl ?? cfg.rpcUrls?.['eip155:1']
     indexer.ensRpc = ensRpcUrl ? new EvmRpc(ensRpcUrl) : undefined
+    // Mini Apps may not be served from Krao's own web app origin
+    indexer.miniAppRules = {
+      devMode: cfg.devMode,
+      webOrigins: [cfg.webUrl ?? 'https://krao.net'],
+    }
     const tokens = new TokenCatalog(db, {
       rpc: rpcs.get('eip155:8453'),
       factory: cfg.tokens?.factory,
@@ -237,6 +257,9 @@ export class KraoIndexer {
         }),
         officialFeedDids,
         onchainCacheMs: cfg.onchainCacheMs,
+        pdsUrl: cfg.pdsUrl ?? cfg.firehoseUrl.replace(/^ws/, 'http'),
+        knownContracts: cfg.knownContracts,
+        knownDelegates: cfg.knownDelegates,
       }),
       gateModerators,
       safety,
