@@ -13,6 +13,7 @@ Mini App developers: see [miniapps.md](./miniapps.md).
 
 - **net.krao.account**: [`defs`](#netkraoaccountdefs), [`exportData`](#netkraoaccountexportdata), [`getConsent`](#netkraoaccountgetconsent), [`recordConsent`](#netkraoaccountrecordconsent)
 - **net.krao.actor**: [`defs`](#netkraoactordefs), [`getChainProfiles`](#netkraoactorgetchainprofiles), [`getOnchainProfile`](#netkraoactorgetonchainprofile), [`getSupportHistory`](#netkraoactorgetsupporthistory), [`nftAvatar`](#netkraoactornftavatar), [`resolveNft`](#netkraoactorresolvenft), [`wallet`](#netkraoactorwallet)
+- **net.krao.admin**: [`defs`](#netkraoadmindefs), [`getAuditLog`](#netkraoadmingetauditlog), [`getMyRoles`](#netkraoadmingetmyroles), [`listRoles`](#netkraoadminlistroles), [`setRole`](#netkraoadminsetrole)
 - **net.krao.analytics**: [`defs`](#netkraoanalyticsdefs), [`getFunnel`](#netkraoanalyticsgetfunnel), [`getRetention`](#netkraoanalyticsgetretention), [`getSummary`](#netkraoanalyticsgetsummary)
 - **net.krao**: [`authMiniApp`](#netkraoauthminiapp), [`authWeb3`](#netkraoauthweb3)
 - **net.krao.chain**: [`defs`](#netkraochaindefs)
@@ -402,6 +403,139 @@ Links a blockchain wallet to the account. The proof lets anyone verify the walle
 | `label` | string (≤ 64 graphemes) |  | Optional user-chosen name for the wallet. |
 | `showPrimaryName` | boolean |  | Whether the wallet's verified Basename/ENS name may be shown next to the handle. |
 | `createdAt` | string (datetime) | yes |  |
+
+## net.krao.admin
+
+<a id="netkraoadmindefs"></a>
+
+<a id="netkraoadmindefs-role"></a>
+
+### `net.krao.admin.defs#role`
+
+Type: **string**
+
+A Krao admin role. `admin` manages roles and implies every other role.
+
+Schema: string (`admin`, `rewards`, `kyc`, `safety`, `moderator`, `analytics`)
+
+<a id="netkraoadmindefs-rolegrant"></a>
+
+### `net.krao.admin.defs#roleGrant`
+
+Type: **object**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `role` | [`net.krao.admin.defs#role`](#netkraoadmindefs-role) | yes |  |
+| `source` | string (`env`, `db`) | yes | `env`: from the services' configuration, cannot be removed through the API. `db`: granted by an admin. |
+| `grantedBy` | string (did) |  |  |
+| `grantedAt` | string (datetime) |  |  |
+
+<a id="netkraoadmindefs-member"></a>
+
+### `net.krao.admin.defs#member`
+
+Type: **object**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `did` | string (did) | yes |  |
+| `handle` | string (handle) |  |  |
+| `roles` | [`net.krao.admin.defs#roleGrant`](#netkraoadmindefs-rolegrant)[] | yes |  |
+
+<a id="netkraoadmindefs-auditentry"></a>
+
+### `net.krao.admin.defs#auditEntry`
+
+Type: **object**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | integer | yes |  |
+| `service` | string (`rewards`, `indexer`, `chat`, `moderation`) | yes |  |
+| `actor` | string (did) | yes |  |
+| `action` | string | yes |  |
+| `subject` | string |  |  |
+| `details` | unknown |  |  |
+| `createdAt` | string (datetime) | yes |  |
+
+<a id="netkraoadmingetauditlog"></a>
+
+### `net.krao.admin.getAuditLog`
+
+Type: **query**
+
+Admin actions across Krao's services (rewards, indexer, chat, automatic moderation), newest first. Admins only (service auth for the rewards service).
+
+**Parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `service` | string (`rewards`, `indexer`, `chat`, `moderation`) |  |  |
+| `actor` | string (did) |  |  |
+| `limit` | integer (≥ 1, ≤ 100, default 50) |  |  |
+| `cursor` | string |  |  |
+
+**Output** (`application/json`)
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `entries` | [`net.krao.admin.defs#auditEntry`](#netkraoadmindefs-auditentry)[] | yes |  |
+| `cursor` | string |  |  |
+
+<a id="netkraoadmingetmyroles"></a>
+
+### `net.krao.admin.getMyRoles`
+
+Type: **query**
+
+The viewer's Krao admin roles, from the services' configuration and from admins (`admin` comes with every other role). Empty for most accounts. Requires service auth for the rewards service.
+
+**Output** (`application/json`)
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `roles` | [`net.krao.admin.defs#role`](#netkraoadmindefs-role)[] | yes |  |
+
+<a id="netkraoadminlistroles"></a>
+
+### `net.krao.admin.listRoles`
+
+Type: **query**
+
+Every account with a Krao admin role, and where each role comes from. Admins only (service auth for the rewards service).
+
+**Output** (`application/json`)
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `members` | [`net.krao.admin.defs#member`](#netkraoadmindefs-member)[] | yes |  |
+
+<a id="netkraoadminsetrole"></a>
+
+### `net.krao.admin.setRole`
+
+Type: **procedure**
+
+Grant or remove a Krao admin role, logged. Roles from the configuration cannot be removed, and admins cannot remove their own `admin` role. Takes effect at the indexer within a minute. Admins only (service auth for the rewards service).
+
+**Input** (`application/json`)
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `did` | string (did) | yes |  |
+| `role` | [`net.krao.admin.defs#role`](#netkraoadmindefs-role) | yes |  |
+| `enabled` | boolean | yes |  |
+
+**Output** (`application/json`)
+
+Schema: [`net.krao.admin.defs#member`](#netkraoadmindefs-member)
+
+**Errors**
+
+- `UnknownRole`
+- `EnvRole`
+- `OwnAdminRole`
 
 ## net.krao.analytics
 

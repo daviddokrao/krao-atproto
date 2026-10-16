@@ -1,6 +1,7 @@
 import type { IdResolver } from '@atproto/identity'
 import type { AtUriString, DatetimeString, UriString } from '@atproto/syntax'
 import { InvalidRequestError, type Server } from '@atproto/xrpc-server'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
 import { moderatorAuth } from './gate-moderation.js'
 import { net } from './lexicons/index.js'
 import {
@@ -32,7 +33,9 @@ export function addTokenRoutes(
     tokens: TokenCatalog
     idResolver: IdResolver
     gateDid: string
-    admins: Set<string>
+    admins: RoleCheck
+    /** The shared admin log (M35) */
+    audit?: AdminAuditLog
     /** The token's holders-<symbol> feed, when one is published */
     holderFeed?: (key: string) => Promise<string | undefined>
   },
@@ -117,9 +120,16 @@ export function addTokenRoutes(
     handler: async ({ auth, input }) => {
       try {
         const row = await tokens.putToken(input.body)
+        const admin = (auth.credentials as { did: string }).did
         console.info(
-          `Krao indexer: ${(auth.credentials as { did: string }).did} put token ${row.symbol} (${row.address})`,
+          `Krao indexer: ${admin} put token ${row.symbol} (${row.address})`,
         )
+        await opts.audit?.record({
+          actor: admin,
+          action: 'token.put',
+          subject: row.symbol,
+          details: { address: row.address },
+        })
         return {
           encoding: 'application/json' as const,
           body: { token: toView(await tokens.view(row)) },
@@ -138,9 +148,15 @@ export function addTokenRoutes(
     handler: async ({ auth, input }) => {
       const removed = await tokens.removeToken(input.body.symbol)
       if (removed) {
+        const admin = (auth.credentials as { did: string }).did
         console.info(
-          `Krao indexer: ${(auth.credentials as { did: string }).did} removed token ${input.body.symbol}`,
+          `Krao indexer: ${admin} removed token ${input.body.symbol}`,
         )
+        await opts.audit?.record({
+          actor: admin,
+          action: 'token.remove',
+          subject: input.body.symbol,
+        })
       }
       return { encoding: 'application/json' as const, body: { removed } }
     },

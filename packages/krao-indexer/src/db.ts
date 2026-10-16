@@ -563,7 +563,26 @@ export interface MiniAppTable {
   indexedAt: string
 }
 
+/** Admin actions waiting for the rewards service's shared log (M35) */
+export interface AdminAuditOutboxTable {
+  id: Generated<number>
+  /** Sent along: the rewards service keeps each key once */
+  key: string
+  service: string
+  actor: string
+  action: string
+  subject: string | null
+  /** JSON object */
+  details: string | null
+  createdAt: string
+  sentAt: string | null
+  attempts: number
+  nextAttemptAt: string
+  error: string | null
+}
+
 export interface DatabaseSchema {
+  admin_audit_outbox: AdminAuditOutboxTable
   miniapp: MiniAppTable
   nft_collection: NftCollectionTable
   primary_name: PrimaryNameTable
@@ -1128,6 +1147,29 @@ const migrations = {
         db,
       )
       await sql`create index miniapp_indexed_idx on miniapp (indexedAt, uri)`.execute(
+        db,
+      )
+    },
+  },
+  /** M35: admin actions for the shared admin log at the rewards service */
+  '012-admin-audit': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('admin_audit_outbox')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('key', 'varchar', (col) => col.notNull())
+        .addColumn('service', 'varchar', (col) => col.notNull())
+        .addColumn('actor', 'varchar', (col) => col.notNull())
+        .addColumn('action', 'varchar', (col) => col.notNull())
+        .addColumn('subject', 'varchar')
+        .addColumn('details', 'varchar')
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('sentAt', 'varchar')
+        .addColumn('attempts', 'integer', (col) => col.notNull())
+        .addColumn('nextAttemptAt', 'varchar', (col) => col.notNull())
+        .addColumn('error', 'varchar')
+        .execute()
+      await sql`create index admin_audit_outbox_due_idx on admin_audit_outbox (nextAttemptAt) where sentAt is null`.execute(
         db,
       )
     },

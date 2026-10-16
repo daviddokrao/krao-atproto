@@ -2,6 +2,7 @@ import type express from 'express'
 import type { IdResolver } from '@atproto/identity'
 import type { DatetimeString } from '@atproto/syntax'
 import { InvalidRequestError, type Server } from '@atproto/xrpc-server'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import { moderatorAuth } from './gate-moderation.js'
@@ -31,7 +32,9 @@ export type OnchainRouteOptions = {
   idResolver: IdResolver
   gateDid: string
   /** Who may change the approved collections (a live set) */
-  admins: Set<string>
+  admins: RoleCheck
+  /** The shared admin log (M35) */
+  audit?: AdminAuditLog
   /** The time memberships are judged by */
   clock: ChainClock
   /** A handle or DID as a DID; throws when it does not resolve */
@@ -123,6 +126,11 @@ export function addOnchainRoutes(
         console.info(
           `Krao indexer: ${admin} put NFT collection ${row.chain}/${row.contract}`,
         )
+        await opts.audit?.record({
+          actor: admin,
+          action: 'nft.collection.put',
+          subject: `${row.chain}/${row.contract}`,
+        })
         return json({ collection: collectionView(row) })
       } catch (err) {
         if (err instanceof OnchainError) {
@@ -142,9 +150,15 @@ export function addOnchainRoutes(
         input.body.contract,
       )
       if (removed) {
+        const admin = (auth.credentials as { did: string }).did
         console.info(
-          `Krao indexer: ${(auth.credentials as { did: string }).did} removed NFT collection ${input.body.chain}/${input.body.contract}`,
+          `Krao indexer: ${admin} removed NFT collection ${input.body.chain}/${input.body.contract}`,
         )
+        await opts.audit?.record({
+          actor: admin,
+          action: 'nft.collection.remove',
+          subject: `${input.body.chain}/${input.body.contract}`,
+        })
       }
       return json({ removed })
     },

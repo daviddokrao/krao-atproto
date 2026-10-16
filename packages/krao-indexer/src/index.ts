@@ -2,6 +2,12 @@ import { once } from 'node:events'
 import type http from 'node:http'
 import { rpcForChains } from '@krao/wallet'
 import { IdResolver } from '@atproto/identity'
+import {
+  AdminAuditOutbox,
+  RewardsAuditSender,
+  RewardsRoles,
+  roleCheck,
+} from './admin-roles.js'
 import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { HolderFeeds } from './holders.js'
@@ -31,6 +37,7 @@ export * from './language.js'
 export * from './onchain.js'
 export * from './holders.js'
 export * from './miniapp.js'
+export * from './admin-roles.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -95,8 +102,10 @@ export type KraoIndexerConfig = {
   /**
    * Krao's rewards service, asked whether an account verified a phone or
    * passed KYC ("verified" communities and polls), and told about first
-   * wallets and first posts (/internal/events). Unset: nobody counts as
-   * verified, and no events are sent.
+   * wallets and first posts (/internal/events). Also the source of Krao
+   * admin roles (safety, moderator) beyond the DIDs above, and keeper of
+   * the shared admin log (M35). Unset: nobody counts as verified, no
+   * events are sent, only the DIDs above are admins.
    */
   rewards?: { url: string; token: string }
   /**
@@ -141,6 +150,8 @@ export type KraoIndexerConfig = {
 
 export class KraoIndexer {
   private server?: http.Server
+  private auditTimer?: NodeJS.Timeout
+  private auditRunning = false
 
   private constructor(
     public cfg: KraoIndexerConfig,
@@ -152,7 +163,24 @@ export class KraoIndexer {
     private safetyAdmins: Set<string>,
     public tokens: TokenCatalog,
     private officialFeedDids: Set<string>,
-  ) {}
+    public audit: AdminAuditOutbox,
+  ) {
+    audit.onQueued = () => this.deliverAudit()
+  }
+
+  /** Sends queued admin log entries to the rewards service */
+  private deliverAudit() {
+    if (this.auditRunning) return
+    this.auditRunning = true
+    this.audit
+      .deliver()
+      .catch((err: unknown) =>
+        console.error('Krao indexer: admin log delivery failed', err),
+      )
+      .finally(() => {
+        this.auditRunning = false
+      })
+  }
 
   /** Makes an account official for token holder feeds (eg one made at startup) */
   addOfficialFeedDid(did: string) {
@@ -227,6 +255,16 @@ export class KraoIndexer {
     indexer.tokens = tokens
     const gateModerators = new Set(cfg.gateModeratorDids ?? [])
     const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
+    // M35: roles granted in the app (rewards service) count too
+    const roles = cfg.rewards
+      ? new RewardsRoles(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    const audit = new AdminAuditOutbox(
+      db,
+      cfg.rewards
+        ? new RewardsAuditSender(cfg.rewards.url, cfg.rewards.token)
+        : undefined,
+    )
     const officialFeedDids = new Set(cfg.officialFeedDids ?? [])
     return new KraoIndexer(
       cfg,
@@ -243,10 +281,11 @@ export class KraoIndexer {
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
         discoveryCacheMs: cfg.discoveryCacheMs,
-        gateModerators,
+        gateModerators: roleCheck(gateModerators, 'moderator', roles),
         gateModerationAccess: cfg.gateModerationAccess,
         safety,
-        safetyAdmins,
+        safetyAdmins: roleCheck(safetyAdmins, 'safety', roles),
+        audit,
         replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
         human,
         tokens,
@@ -266,6 +305,7 @@ export class KraoIndexer {
       safetyAdmins,
       tokens,
       officialFeedDids,
+      audit,
     )
   }
 
@@ -279,10 +319,14 @@ export class KraoIndexer {
     this.tokens.start()
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
+    // Retries of the admin log (entries are sent as soon as they are queued)
+    this.auditTimer = setInterval(() => this.deliverAudit(), 15_000)
+    this.auditTimer.unref()
     return this.server
   }
 
   async destroy(): Promise<void> {
+    clearInterval(this.auditTimer)
     await this.indexer.destroy()
     await this.safety.destroy()
     await this.tokens.destroy()

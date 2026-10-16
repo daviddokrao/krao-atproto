@@ -2,6 +2,7 @@ import type express from 'express'
 import sharp from 'sharp'
 import type { IdResolver } from '@atproto/identity'
 import { InvalidRequestError, type Server } from '@atproto/xrpc-server'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
 import type { Database, MiniAppTable } from './db.js'
 import { moderatorAuth } from './gate-moderation.js'
 import { net } from './lexicons/index.js'
@@ -28,7 +29,9 @@ export type MiniAppRouteOptions = {
   idResolver: IdResolver
   gateDid: string
   /** Who reviews Mini Apps (a live set): the safety admins */
-  admins: Set<string>
+  admins: RoleCheck
+  /** The shared admin log (M35) */
+  audit?: AdminAuditLog
   /** The unsafe domain list: an app on it counts as revoked */
   safety?: SafetyList
   /** This service's URL, for icon links */
@@ -125,6 +128,12 @@ export function addMiniAppRoutes(
         const admin = (auth.credentials as { did: string }).did
         const row = await approveMiniApp(db, admin, input.body, isUnsafe)
         console.info(`Krao indexer: ${admin} approved Mini App ${row.uri}`)
+        await opts.audit?.record({
+          actor: admin,
+          action: 'miniapp.approve',
+          subject: row.uri,
+          details: { cid: row.cid },
+        })
         const [app] = await views([row], req)
         return json({ app } as never)
       }),
@@ -137,6 +146,14 @@ export function addMiniAppRoutes(
         const admin = (auth.credentials as { did: string }).did
         const row = await revokeMiniApp(db, admin, input.body)
         console.info(`Krao indexer: ${admin} revoked Mini App ${row.uri}`)
+        await opts.audit?.record({
+          actor: admin,
+          action: 'miniapp.revoke',
+          subject: row.uri,
+          ...(row.revokedReason
+            ? { details: { reason: row.revokedReason } }
+            : {}),
+        })
         const [app] = await views([row], req)
         return json({ app } as never)
       }),

@@ -8,6 +8,7 @@ import {
   type Server,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
 import type { Database } from './db.js'
 import { type StoredGatedMedia, getGatedContent } from './gate.js'
 import { net } from './lexicons/index.js'
@@ -23,8 +24,10 @@ export type GateModerationOptions = {
   idResolver: IdResolver
   /** Audience of the tokens (the gate service's DID) */
   gateDid: string
-  /** Moderator accounts and moderation services (a live set) */
-  moderators: Set<string>
+  /** Moderator accounts and moderation services (a live set, M35 roles) */
+  moderators: RoleCheck
+  /** The shared admin log (M35) */
+  audit?: AdminAuditLog
   /** KRAO_GATE_MODERATION_ACCESS: whether moderators may read content */
   enabled: boolean
   /** A signed URL for gated media */
@@ -77,7 +80,7 @@ export function moderatorAuth(
       (iss, forceRefresh) => moderatorKey(opts.idResolver, iss, forceRefresh),
     )
     const did = payload.iss.split('#')[0]
-    if (!opts.moderators.has(did)) {
+    if (!(await opts.moderators.has(did))) {
       throw new ForbiddenError('Only Krao moderators may call this')
     }
     return { credentials: { did } }
@@ -121,6 +124,12 @@ export function addGateModerationRoutes(
         moderatorDid: moderator,
         uri: params.uri,
         reason: params.reason,
+      })
+      await opts.audit?.record({
+        actor: moderator,
+        action: 'gate.getContent',
+        subject: params.uri,
+        ...(params.reason ? { details: { reason: params.reason } } : {}),
       })
       if (!content) {
         throw new InvalidRequestError(

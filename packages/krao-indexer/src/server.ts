@@ -16,6 +16,7 @@ import {
   verifyJwt,
 } from '@atproto/xrpc-server'
 import { utf8Prefix } from './abi-decode.js'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
 import { InvalidAddressError, checkAddresses } from './address-check.js'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
@@ -140,14 +141,16 @@ export function createApp(
     mediaBlobs?: MediaBlobStore
     /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
     discoveryCacheMs?: number
-    /** Moderators who may read gated content (a live set) */
-    gateModerators?: Set<string>
+    /** Moderators who may read gated content (a live set, M35 roles) */
+    gateModerators?: RoleCheck
     /** Whether they may (KRAO_GATE_MODERATION_ACCESS, default true) */
     gateModerationAccess?: boolean
     /** The unsafe domain list (checkLinks, its admin methods) */
     safety?: SafetyList
-    /** Who may change the unsafe domain list (a live set) */
-    safetyAdmins?: Set<string>
+    /** Who may change the unsafe domain list (a live set, M35 roles) */
+    safetyAdmins?: RoleCheck
+    /** The shared admin log at the rewards service (M35) */
+    audit?: AdminAuditLog
     /** Indexes the failed firehose events again (for the safety admins) */
     replayFailedEvents?: (
       limit: number,
@@ -391,6 +394,7 @@ export function createApp(
     idResolver,
     gateDid,
     moderators: opts.gateModerators ?? new Set(),
+    audit: opts.audit,
     enabled: opts.gateModerationAccess ?? true,
     mediaUrl: (req, id) => mediaSigner.url(baseUrl(req), id),
   })
@@ -400,6 +404,7 @@ export function createApp(
     gateDid,
     safety: opts.safety,
     admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
   })
 
   addCommunityRoutes(server, db, { idResolver, gateDid, checks, feedGenDid })
@@ -420,6 +425,7 @@ export function createApp(
       idResolver,
       gateDid,
       admins: opts.safetyAdmins ?? new Set(),
+      audit: opts.audit,
       holderFeed: feedGenDid
         ? (key) => holderFeedUri(db, key, opts.officialFeedDids ?? new Set())
         : undefined,
@@ -431,6 +437,7 @@ export function createApp(
     idResolver,
     gateDid,
     admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
     clock,
     resolveDid: async (actor) =>
       (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
@@ -443,6 +450,7 @@ export function createApp(
     idResolver,
     gateDid,
     admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
     safety: opts.safety,
     baseUrl: (req) => baseUrl(req),
   })
@@ -468,14 +476,17 @@ export function createApp(
       },
       net.krao.indexer.admin.replayFailedEvents.$lxm,
     ),
-    handler: async ({ input }) => {
+    handler: async ({ auth, input }) => {
       if (!opts.replayFailedEvents) {
         throw new InvalidRequestError('Replay is not available')
       }
-      return {
-        encoding: 'application/json' as const,
-        body: await opts.replayFailedEvents(input.body.limit ?? 100),
-      }
+      const result = await opts.replayFailedEvents(input.body.limit ?? 100)
+      await opts.audit?.record({
+        actor: (auth.credentials as { did: string }).did,
+        action: 'indexer.replayFailedEvents',
+        details: result,
+      })
+      return { encoding: 'application/json' as const, body: result }
     },
   })
 
@@ -1097,7 +1108,8 @@ function addSafetyRoutes(
     idResolver: IdResolver
     gateDid: string
     safety?: SafetyList
-    admins: Set<string>
+    admins: RoleCheck
+    audit?: AdminAuditLog
   },
 ) {
   const safety = net.krao.safety
@@ -1182,6 +1194,12 @@ function addSafetyRoutes(
           input.body.reason,
           input.body.mode === 'allow' ? 'allow' : 'block',
         )
+        await opts.audit?.record({
+          actor: did(auth),
+          action: input.body.mode === 'allow' ? 'domain.allow' : 'domain.add',
+          subject: row.domain,
+          ...(row.reason ? { details: { reason: row.reason } } : {}),
+        })
         return { encoding: 'application/json' as const, body: domainView(row) }
       } catch (err) {
         if (err instanceof InvalidDomainError) {
@@ -1194,12 +1212,17 @@ function addSafetyRoutes(
 
   server.add(safety.admin.removeDomain, {
     auth: adminAuth(safety.admin.removeDomain.$lxm),
-    handler: async ({ auth, input }) => ({
-      encoding: 'application/json' as const,
-      body: {
-        removed: await list().removeDomain(did(auth), input.body.domain),
-      },
-    }),
+    handler: async ({ auth, input }) => {
+      const removed = await list().removeDomain(did(auth), input.body.domain)
+      if (removed) {
+        await opts.audit?.record({
+          actor: did(auth),
+          action: 'domain.remove',
+          subject: input.body.domain,
+        })
+      }
+      return { encoding: 'application/json' as const, body: { removed } }
+    },
   })
 
   server.add(safety.admin.listDomains, {
