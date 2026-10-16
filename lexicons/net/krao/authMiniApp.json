@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.authMiniApp",
+  "defs": {
+    "main": {
+      "type": "permission-set",
+      "title": "Krao Mini App",
+      "title:lang": { "vi": "Mini App Krao" },
+      "detail": "Know who you are on Krao, and vote in polls and send tips as you. Nothing else in your account.",
+      "detail:lang": {
+        "vi": "Biết bạn là ai trên Krao, bỏ phiếu bình chọn và gửi tip thay bạn. Không gì khác trong tài khoản."
+      },
+      "permissions": [
+        {
+          "type": "permission",
+          "resource": "repo",
+          "collection": ["net.krao.poll.vote", "net.krao.feed.tip"],
+          "action": ["create"]
+        }
+      ]
+    }
+  }
+}

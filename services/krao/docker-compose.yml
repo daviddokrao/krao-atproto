@@ -228,6 +228,11 @@ services:
       KRAO_HOLDER_FEED_MIN_USD: ${KRAO_HOLDER_FEED_MIN_USD:-}
       # Official accounts: token pages link only their holders-<symbol> feeds
       KRAO_OFFICIAL_FEED_DIDS: ${KRAO_OFFICIAL_FEED_DIDS:-}
+      # Transaction previews (net.krao.wallet.simulate): more known contracts
+      # and trusted EIP-7702 delegates. Previews trace with debug_traceCall on
+      # KRAO_RPC_URLS' Base node when it allows it, else decode the calldata.
+      KRAO_KNOWN_CONTRACTS: ${KRAO_KNOWN_CONTRACTS:-}
+      KRAO_KNOWN_7702_DELEGATES: ${KRAO_KNOWN_7702_DELEGATES:-}
 
   chat:
     <<: *backend

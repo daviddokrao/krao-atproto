@@ -1,0 +1,78 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.authWeb3",
+  "defs": {
+    "main": {
+      "type": "permission-set",
+      "title": "Krao web3",
+      "title:lang": { "vi": "Krao web3" },
+      "detail": "Manage your linked wallets, NFT avatar, tips, memberships, polls, gated posts, communities and Mini Apps on Krao, and use Krao's wallet, rewards and account services for you.",
+      "detail:lang": {
+        "vi": "Quản lý ví đã liên kết, avatar NFT, tip, hội viên, bình chọn, bài giới hạn, cộng đồng và Mini App của bạn trên Krao, và dùng các dịch vụ ví, phần thưởng, tài khoản của Krao thay bạn."
+      },
+      "permissions": [
+        {
+          "type": "permission",
+          "resource": "repo",
+          "collection": [
+            "net.krao.actor.wallet",
+            "net.krao.actor.nftAvatar",
+            "net.krao.feed.tip",
+            "net.krao.membership.payment",
+            "net.krao.membership.plan",
+            "net.krao.poll.poll",
+            "net.krao.poll.vote",
+            "net.krao.gate.rule",
+            "net.krao.community.profile",
+            "net.krao.community.membership",
+            "net.krao.community.moderator",
+            "net.krao.community.approval",
+            "net.krao.community.ban",
+            "net.krao.community.hide",
+            "net.krao.community.submission",
+            "net.krao.miniapp.app"
+          ]
+        },
+        {
+          "type": "permission",
+          "resource": "rpc",
+          "inheritAud": true,
+          "lxm": [
+            "net.krao.account.exportData",
+            "net.krao.account.getConsent",
+            "net.krao.account.recordConsent",
+            "net.krao.community.getCommunity",
+            "net.krao.community.getPendingMembers",
+            "net.krao.community.listMyCommunities",
+            "net.krao.creator.getStats",
+            "net.krao.gate.getContent",
+            "net.krao.gate.putContent",
+            "net.krao.gate.uploadMedia",
+            "net.krao.kyc.getBadgeVisibility",
+            "net.krao.kyc.getStatus",
+            "net.krao.kyc.setBadgeVisibility",
+            "net.krao.kyc.startVerification",
+            "net.krao.membership.getPlans",
+            "net.krao.membership.getStatus",
+            "net.krao.membership.listMembers",
+            "net.krao.membership.listMyMemberships",
+            "net.krao.phone.getStatus",
+            "net.krao.phone.requestCode",
+            "net.krao.phone.verifyCode",
+            "net.krao.points.getBalance",
+            "net.krao.points.listEntries",
+            "net.krao.points.setLeaderboardOptIn",
+            "net.krao.poll.getPolls",
+            "net.krao.poll.getResults",
+            "net.krao.push.setLanguage",
+            "net.krao.referral.getOverview",
+            "net.krao.referral.listReferrals",
+            "net.krao.rewards.getRoles",
+            "net.krao.wallet.inspectSignature",
+            "net.krao.wallet.simulate"
+          ]
+        }
+      ]
+    }
+  }
+}

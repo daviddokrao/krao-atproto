@@ -64,10 +64,16 @@ Postgres ones too. Updates are `git pull` then `up -d --build`.
    screen and `docker compose up -d`.
 2. **Feeds.** From a Krao account, create the `app.bsky.feed.generator`
    records `latest` and `popular` with `did: did:web:idx.<domain>` (as
-   `deploy/seed-local.mjs` does for the demo).
-3. **Moderation.** Publish the labeler record for Ozone's DID and add the
+   `deploy/seed-local.mjs` does for the demo). Put that account's DID in
+   `KRAO_OFFICIAL_FEED_DIDS`: token pages link only its `holders-<symbol>`
+   feeds.
+3. **Lexicons.** Publish `lexicons/net/krao` in the same account and add
+   the `_lexicon` TXT records (`deploy/dns-lexicon.md`), so OAuth clients
+   can ask for `include:net.krao.authWeb3` / `authMiniApp`. Mini Apps are
+   reviewed by the safety admins (`docs/krao/miniapps.md`).
+4. **Moderation.** Publish the labeler record for Ozone's DID and add the
    moderators, following Ozone's own setup guide.
-4. **The app** builds against these settings (`krao-app/.env`):
+5. **The app** builds against these settings (`krao-app/.env`):
 
    ```
    EXPO_PUBLIC_DEFAULT_SERVICE=https://pds.<domain>
