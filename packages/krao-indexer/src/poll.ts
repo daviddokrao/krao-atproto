@@ -130,11 +130,13 @@ export function pollRowFromRecord(
 /**
  * Indexes a poll the first time it is seen (later versions are ignored).
  * Token polls take the latest block as their snapshot; when the chain does
- * not answer this throws, so the event is retried.
+ * not answer this throws, so the event is retried. Votes that came before
+ * the poll (kept as 'UnknownPoll') are then counted, in the order they were
+ * published.
  */
 export async function indexPoll(
   db: Database,
-  rpcs: Map<string, EvmRpc>,
+  checks: PollChecks,
   row: Omit<PollTable, 'snapshotBlock'>,
 ) {
   const existing = await db
@@ -142,19 +144,51 @@ export async function indexPoll(
     .select('uri')
     .where('uri', '=', row.uri)
     .executeTakeFirst()
-  if (existing) return
-  let snapshotBlock: string | null = null
-  if (row.mode === 'token' && row.asset) {
-    const asset = parseAssetId(row.asset)
-    const rpc = asset && rpcs.get(asset.chainId)
-    if (!rpc) return
-    snapshotBlock = (await rpc.blockNumber()).toString()
+  if (!existing) {
+    let snapshotBlock: string | null = null
+    if (row.mode === 'token' && row.asset) {
+      const asset = parseAssetId(row.asset)
+      const rpc = asset && checks.rpcs.get(asset.chainId)
+      if (!rpc) return
+      snapshotBlock = (await rpc.blockNumber()).toString()
+    }
+    await db
+      .insertInto('poll')
+      .values({ ...row, snapshotBlock })
+      .onConflict((oc) => oc.column('uri').doNothing())
+      .execute()
   }
-  await db
-    .insertInto('poll')
-    .values({ ...row, snapshotBlock })
-    .onConflict((oc) => oc.column('uri').doNothing())
+  // Also when the poll is known: a retried event finishes the job
+  await evaluateEarlyVotes(db, checks, row.uri)
+}
+
+/** Counts (or ignores with a reason) the votes that came before their poll */
+async function evaluateEarlyVotes(
+  db: Database,
+  checks: PollChecks,
+  pollUri: string,
+) {
+  const poll = await db
+    .selectFrom('poll')
+    .selectAll()
+    .where('uri', '=', pollUri)
+    .executeTakeFirst()
+  if (!poll) return
+  const early = await db
+    .selectFrom('poll_vote')
+    .selectAll()
+    .where('poll', '=', pollUri)
+    .where('status', '=', 'ignored')
+    .where('reason', '=', 'UnknownPoll')
+    .orderBy('votedAt', 'asc')
+    .orderBy('uri', 'asc')
+    .limit(10_000)
     .execute()
+  for (const vote of early) {
+    const row: PollVoteTable = { ...vote, reason: null }
+    const wallets = await decideVote(db, checks, poll, row)
+    await storeVote(db, row, wallets, true)
+  }
 }
 
 /** A deleted poll takes its votes with it */
@@ -225,22 +259,40 @@ export async function indexVote(
     votedAt,
     indexedAt: new Date().toISOString(),
   }
-  let wallets: string[] = []
   const poll = await db
     .selectFrom('poll')
     .selectAll()
     .where('uri', '=', vote.poll)
     .executeTakeFirst()
+  // Not indexed yet: kept until the poll comes (see indexPoll)
+  const wallets = poll ? await decideVote(db, checks, poll, row) : []
+  if (!poll) row.reason = 'UnknownPoll'
+  await storeVote(db, row, wallets, false)
+  // The poll came while this vote was looked at: count it now
+  if (!poll) await evaluateEarlyVotes(db, checks, row.poll)
+}
+
+/**
+ * Sets the status, weight and reason of a vote in `poll` (status 'ignored'
+ * and weight '0' on entry) and returns the wallets that weigh it. Throws when
+ * the rewards service or the chain cannot answer.
+ */
+async function decideVote(
+  db: Database,
+  checks: PollChecks,
+  poll: PollTable,
+  row: PollVoteTable,
+): Promise<string[]> {
+  const { did } = row
+  let wallets: string[] = []
   const ignore = (reason: string) => {
     row.reason = reason
   }
-  if (!poll) {
-    ignore('UnknownPoll')
-  } else if (votedAt > poll.endsAt) {
+  if (row.votedAt > poll.endsAt) {
     ignore('AfterEnd')
   } else if (
-    vote.option < 0 ||
-    vote.option >= (JSON.parse(poll.options) as string[]).length
+    row.option < 0 ||
+    row.option >= (JSON.parse(poll.options) as string[]).length
   ) {
     ignore('InvalidOption')
   } else if (await hasVoted(db, poll.uri, did)) {
@@ -288,9 +340,31 @@ export async function indexVote(
     row.status = 'counted'
     row.weight = '1'
   }
+  return wallets
+}
+
+/**
+ * Stores a decided vote: inserted, or with `early` updated in place (a vote
+ * that came before its poll)
+ */
+async function storeVote(
+  db: Database,
+  row: PollVoteTable,
+  wallets: string[],
+  early: boolean,
+) {
+  const { did, uri } = row
   try {
     await db.transaction().execute(async (tx) => {
-      await tx.insertInto('poll_vote').values(row).execute()
+      if (early) {
+        await tx
+          .updateTable('poll_vote')
+          .set({ status: row.status, weight: row.weight, reason: row.reason })
+          .where('uri', '=', uri)
+          .execute()
+      } else {
+        await tx.insertInto('poll_vote').values(row).execute()
+      }
       if (row.status === 'counted' && wallets.length) {
         await tx
           .insertInto('poll_vote_wallet')
@@ -306,16 +380,24 @@ export async function indexVote(
     if (row.status !== 'counted' || !(await hasVoted(db, row.poll, did))) {
       throw err
     }
-    await db
-      .insertInto('poll_vote')
-      .values({
-        ...row,
-        status: 'ignored',
-        weight: '0',
-        reason: 'AlreadyVoted',
-      })
-      .onConflict((oc) => oc.column('uri').doNothing())
-      .execute()
+    const ignored: Pick<PollVoteTable, 'status' | 'weight' | 'reason'> = {
+      status: 'ignored',
+      weight: '0',
+      reason: 'AlreadyVoted',
+    }
+    if (early) {
+      await db
+        .updateTable('poll_vote')
+        .set(ignored)
+        .where('uri', '=', uri)
+        .execute()
+    } else {
+      await db
+        .insertInto('poll_vote')
+        .values({ ...row, ...ignored })
+        .onConflict((oc) => oc.column('uri').doNothing())
+        .execute()
+    }
   }
 }
 

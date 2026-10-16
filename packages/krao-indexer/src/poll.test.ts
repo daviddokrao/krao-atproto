@@ -49,7 +49,7 @@ const checks = (): PollChecks => ({
 let n = 0
 const rkey = () => `3k${String(++n).padStart(11, 'a')}`
 
-async function poll(record: Record<string, unknown> = {}, start = Date.now()) {
+function pollRow(record: Record<string, unknown> = {}, start = Date.now()) {
   const key = rkey()
   const uri = `at://${AUTHOR}/net.krao.poll.poll/${key}`
   const row = pollRowFromRecord(
@@ -67,8 +67,13 @@ async function poll(record: Record<string, unknown> = {}, start = Date.now()) {
     rpcs,
   )
   if (!row) throw new Error('invalid poll')
-  await indexPoll(db, rpcs, row)
-  return uri
+  return row
+}
+
+async function poll(record: Record<string, unknown> = {}, start = Date.now()) {
+  const row = pollRow(record, start)
+  await indexPoll(db, checks(), row)
+  return row.uri
 }
 
 async function vote(
@@ -215,6 +220,39 @@ describe('account polls', () => {
       status: 'ignored',
       reason: 'Deleted',
     })
+  })
+
+  it('counts votes that came before their poll, in order', async () => {
+    const start = Date.now() - 2 * HOUR
+    const row = pollRow({ endsAt: iso(start + HOUR) }, start)
+    await vote(ANA, row.uri, 1, start + 60_000)
+    await vote(ANA, row.uri, 0, start + 2 * 60_000)
+    await vote(BAO, row.uri, 0, start + 2 * HOUR)
+    expect(
+      (await db.selectFrom('poll_vote').select('reason').execute()).map(
+        (r) => r.reason,
+      ),
+    ).toEqual(['UnknownPoll', 'UnknownPoll', 'UnknownPoll'])
+    // The poll comes: the first vote counts, the second is a repeat
+    await indexPoll(db, checks(), row)
+    const v = await view(row.uri, ANA)
+    expect(v.options.map((o) => o.votes)).toEqual([0, 1, 0])
+    expect(v.viewer).toMatchObject({ option: 1, status: 'counted' })
+    expect((await view(row.uri, BAO)).viewer?.reason).toBe('AfterEnd')
+    // Indexed again (a retried event): nothing changes
+    await indexPoll(db, checks(), row)
+    expect((await view(row.uri)).totalVotes).toBe(1)
+  })
+
+  it('keeps early votes waiting while the rewards service is down', async () => {
+    const row = pollRow({ mode: 'verified' })
+    humans.add(ANA)
+    await vote(ANA, row.uri, 0)
+    humanDown = true
+    await expect(indexPoll(db, checks(), row)).rejects.toThrow()
+    humanDown = false
+    await indexPoll(db, checks(), row)
+    expect((await view(row.uri, ANA)).viewer?.status).toBe('counted')
   })
 
   it('hides counts of afterEnd polls until they end', async () => {

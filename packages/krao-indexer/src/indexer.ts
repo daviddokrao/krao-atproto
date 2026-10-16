@@ -624,7 +624,7 @@ export class FirehoseIndexer {
           evt.time,
           this.rpcs,
         )
-        if (row) await indexPoll(this.db, this.rpcs, row)
+        if (row) await indexPoll(this.db, this.checks, row)
       } else if (evt.collection === VOTE_COLLECTION) {
         await indexVote(
           this.db,
