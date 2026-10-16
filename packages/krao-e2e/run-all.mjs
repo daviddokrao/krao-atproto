@@ -27,6 +27,7 @@ const ALL = [
   'poll',
   'search',
   'token',
+  'growth',
   // Moves the Anvil clock 31 days forward, so it runs last
   'membership',
 ]

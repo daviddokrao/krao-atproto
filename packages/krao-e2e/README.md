@@ -28,6 +28,7 @@ exit non-zero on any failure.
 | `poll.mjs`            | M29       | One vote per account, verified-only polls, token polls weighted at a snapshot block, deadlines, hidden results                                  |
 | `search.mjs`          | M30       | Accent-insensitive search: "tien ao" finds "tiền ảo", đ as d, phrase ranked first, accounts by display name                                     |
 | `token.mjs`           | M30       | Token catalog, ETH price from a Uniswap v3 pool on the fork, price history, $ETH cashtag feed, NotFound, admin put/remove                       |
+| `growth.mjs`          | M32       | First wallet and first post rewarded once, opt-in weekly leaderboard, verified Basename (forward + reverse on the fork), Tiếng Việt feed        |
 | `membership.mjs`      | M31       | Plans, USDC payment on the fork, membership gate open/closed after 31 days (runs last), reused tx, top supporters, stats                        |
 
 Posting and chat need a verified phone in the dev-env: `login()` (and the
