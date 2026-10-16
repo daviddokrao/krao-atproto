@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.creator.getStats",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The caller's creator dashboard: verified tips received and members over the last 30 days, followers, and one entry per UTC day for the last 30 days (the oldest first, today last). Requires service auth for the indexer (the gate service DID).",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["tips30d", "members", "followers", "daily"],
+          "properties": {
+            "tips30d": {
+              "type": "ref",
+              "ref": "net.krao.creator.defs#usdTotal"
+            },
+            "members": {
+              "type": "ref",
+              "ref": "net.krao.creator.defs#memberStats"
+            },
+            "followers": {
+              "type": "ref",
+              "ref": "net.krao.creator.defs#followerStats"
+            },
+            "daily": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.creator.defs#dailyStats"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

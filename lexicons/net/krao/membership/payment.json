@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.payment",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Records a membership payment: a USDC transfer on Base from a wallet linked to the member (this repo) to a wallet linked to the creator, of at least the plan's price. The indexer checks the transaction; a verified payment makes the member active for 30 days from the transaction's block time, or extends a membership that is still active by 30 days from its current expiry.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["plan", "creator", "chain", "txHash", "createdAt"],
+        "properties": {
+          "plan": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The creator's net.krao.membership.plan record."
+          },
+          "creator": {
+            "type": "string",
+            "format": "did",
+            "description": "The account offering the plan; the repo of the plan record."
+          },
+          "chain": {
+            "type": "string",
+            "description": "CAIP-2 chain of the transaction. Only Base ('eip155:8453') is accepted.",
+            "knownValues": ["eip155:8453"],
+            "maxLength": 128
+          },
+          "txHash": {
+            "type": "string",
+            "description": "Hash of the transaction holding the USDC transfer. One transaction backs one payment or tip only, and it must be at most 24 hours older than this record.",
+            "maxLength": 128
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

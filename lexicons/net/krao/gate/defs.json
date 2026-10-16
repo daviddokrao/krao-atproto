@@ -49,6 +49,22 @@
         }
       }
     },
+    "membership": {
+      "type": "object",
+      "description": "Satisfied when the viewer is an active member of the creator (a verified net.krao.membership.payment whose 30-day period has not run out), and, when plan is set, paid for that plan. Checked on every read, so the gate closes when the membership expires.",
+      "required": ["creator"],
+      "properties": {
+        "creator": {
+          "type": "string",
+          "format": "did"
+        },
+        "plan": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "A net.krao.membership.plan record of the creator."
+        }
+      }
+    },
     "media": {
       "type": "object",
       "description": "Media hosted by the gate service, served only to eligible viewers.",
@@ -123,7 +139,12 @@
           "type": "array",
           "items": {
             "type": "union",
-            "refs": ["#tokenBalance", "#nftHolding", "#communityMember"]
+            "refs": [
+              "#tokenBalance",
+              "#nftHolding",
+              "#communityMember",
+              "#membership"
+            ]
           }
         },
         "match": {

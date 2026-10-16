@@ -22,7 +22,8 @@
               "refs": [
                 "net.krao.gate.defs#tokenBalance",
                 "net.krao.gate.defs#nftHolding",
-                "net.krao.gate.defs#communityMember"
+                "net.krao.gate.defs#communityMember",
+                "net.krao.gate.defs#membership"
               ]
             },
             "minLength": 1,
