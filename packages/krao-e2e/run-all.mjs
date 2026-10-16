@@ -27,6 +27,8 @@ const ALL = [
   'poll',
   'search',
   'token',
+  // Moves the Anvil clock 31 days forward, so it runs last
+  'membership',
 ]
 const selected = process.argv.slice(2)
 const unknown = selected.filter((name) => !ALL.includes(name))
