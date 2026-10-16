@@ -361,7 +361,10 @@ check(
 const otherStats = await query('net.krao.creator.getStats', {})
 check('getStats needs auth', otherStats.status === 401, `${otherStats.status}`)
 
-// 7. 31 days later on the chain: the membership has run out
+// 7. 31 days later on the chain: the membership has run out. The fork's
+// clock is put back at the end, or names like hello.base.eth expire on it
+// after a few runs and the nft and community groups fail.
+const beforeTimeTravel = await rpc('evm_snapshot', [])
 await rpc('evm_increaseTime', [31 * 24 * 60 * 60])
 await rpc('evm_mine', [])
 await sleep(6000) // the indexer reads the chain's clock every 5s
@@ -425,4 +428,7 @@ const renewed = await waitFor(
 )
 check('a new payment renews the membership', renewed?.status === 'active')
 check('and opens the gate again', (await getContent(member, forMembers.uri)).ok)
+
+await rpc('evm_revert', [beforeTimeTravel])
+await rpc('evm_mine', [])
 done()
