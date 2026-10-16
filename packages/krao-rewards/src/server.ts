@@ -15,7 +15,12 @@ import {
 } from '@atproto/xrpc-server'
 import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
-import type { CodeKind, KycStatus } from './db.js'
+import {
+  ACCOUNT_EVENTS,
+  type CodeKind,
+  type KycStatus,
+  type RewardEvent,
+} from './db.js'
 import {
   type KycProvider,
   type ManualReviewConfig,
@@ -35,6 +40,7 @@ import {
   isVerifiedHuman,
   setBadgeVisibility,
 } from './badges.js'
+import { getLeaderboard, setOptIn } from './leaderboard.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
 import { PushRequestError } from './push-client.js'
@@ -144,6 +150,7 @@ export function createApp(opts: AppOptions): Express {
     opts.adminDids.has(did) || opts.kycReviewerDids.has(did)
   const checkCodeLimit = rateLimiter(30)
   const getBadgesLimit = rateLimiter(120)
+  const getLeaderboardLimit = rateLimiter(60)
   // Each start is a call (and a cost) at the KYC provider
   const kycStartLimit = rateLimiter(5, 60 * 60_000)
   const server = createServer([], {})
@@ -177,6 +184,12 @@ export function createApp(opts: AppOptions): Express {
       }
       return result
     }
+  /** Service auth when a token is sent, else anonymous (credentials null) */
+  const optionalUserAuth = async (ctx: MethodAuthContext) =>
+    ctx.req.headers.authorization
+      ? userAuth(ctx)
+      : { credentials: null as { did: string } | null }
+
   const adminAuth = roleAuth(isAdmin)
   const reviewerAuth = roleAuth(isReviewer)
 
@@ -297,6 +310,43 @@ export function createApp(opts: AppOptions): Express {
   server.add(net.krao.points.getBalance, {
     auth: userAuth,
     handler: async ({ auth }) => json(await service.balance(did(auth))),
+  })
+
+  // The weekly leaderboard: public, with the viewer's standing when signed in
+  server.add(net.krao.points.getLeaderboard, {
+    auth: optionalUserAuth,
+    handler: async ({ auth, params, req }) => {
+      if (!getLeaderboardLimit(req.ip ?? 'unknown')) {
+        throw new XRPCError(
+          ResponseType.RateLimitExceeded,
+          'Too many leaderboard requests, try again in a minute',
+        )
+      }
+      if (params.period && params.period !== 'week') {
+        throw new InvalidRequestError(
+          'Only the weekly leaderboard exists',
+          'UnknownPeriod',
+        )
+      }
+      const viewer = (auth.credentials as { did: string } | null)?.did
+      const board = await getLeaderboard(service.db, {
+        limit: params.limit ?? 25,
+        viewer,
+      })
+      return json(
+        clean({
+          period: board.period,
+          entries: board.entries,
+          viewer: board.viewer && clean(board.viewer),
+        }),
+      )
+    },
+  })
+
+  server.add(net.krao.points.setLeaderboardOptIn, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      json(await setOptIn(service.db, did(auth), input.body.optIn)),
   })
 
   server.add(net.krao.points.listEntries, {
@@ -808,6 +858,31 @@ export function createApp(opts: AppOptions): Express {
     }
     res.json({ human: await isVerifiedHuman(service.db, did) })
   })
+
+  /*
+   * The indexer: account events it saw (first verified wallet, first post),
+   * from its outbox. Rewarded once per account, so retries are harmless.
+   */
+  app.post(
+    '/internal/events',
+    internalAuth,
+    jsonBody({ limit: '10kb' }),
+    (req, res, next) => {
+      const { type, did } = req.body ?? {}
+      if (
+        typeof did !== 'string' ||
+        !did.startsWith('did:') ||
+        !ACCOUNT_EVENTS.includes(type as RewardEvent)
+      ) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      service
+        .recordAccountEvent(type as RewardEvent, did)
+        .then(() => res.json({ ok: true }))
+        .catch(next)
+    },
+  )
 
   // Development only (the log SMS driver): the last code sent to an account
   const devCodes = opts.phone?.devCodes

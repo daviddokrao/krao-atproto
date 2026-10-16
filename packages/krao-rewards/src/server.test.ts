@@ -139,6 +139,38 @@ describe('rewards HTTP routes', () => {
     expect(guarded.status).toBe(401)
   })
 
+  it('takes account events from the indexer, once per account', async () => {
+    const did = 'did:plc:alice'
+    const post = (body: unknown, token = TOKEN) =>
+      internal(
+        '/internal/events',
+        { method: 'POST', body: JSON.stringify(body) },
+        token,
+      )
+    expect((await post({ type: 'wallet.linked', did })).status).toBe(200)
+    expect((await post({ type: 'wallet.linked', did })).status).toBe(200)
+    expect((await post({ type: 'post.first', did })).status).toBe(200)
+    expect(await service.balance(did)).toEqual({ pending: 30, approved: 0 })
+    expect((await post({ type: 'account.created', did })).status).toBe(400)
+    expect((await post({ type: 'post.first', did: 'bob' })).status).toBe(400)
+    expect((await post({ type: 'post.first', did }, 'wrong')).status).toBe(401)
+  })
+
+  it('answers the leaderboard without auth, with no viewer block', async () => {
+    const res = await fetch(`${base}/xrpc/net.krao.points.getLeaderboard`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.entries).toEqual([])
+    expect(body.viewer).toBeUndefined()
+    expect(body.period).toMatchObject({
+      start: expect.stringMatching(/T17:00:00\.000Z$/),
+    })
+    const bad = await fetch(
+      `${base}/xrpc/net.krao.points.getLeaderboard?period=month`,
+    )
+    expect(bad.status).toBe(400)
+  })
+
   it('answers malformed JSON with a 400, not a 500', async () => {
     const res = await internal('/internal/takedowns', {
       method: 'POST',

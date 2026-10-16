@@ -13,7 +13,12 @@ import type {
   RewardRuleTable,
   Vesting,
 } from './db.js'
-import { DEFAULT_INVITER_CAP_PER_DAY } from './db.js'
+import {
+  ACCOUNT_EVENTS,
+  DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  DEFAULT_INVITER_CAP_PER_DAY,
+  REWARD_EVENTS,
+} from './db.js'
 
 type Db = Database | Transaction<DatabaseSchema>
 
@@ -109,6 +114,71 @@ export const DEFAULT_RULES: RuleInput[] = [
     validUntil: null,
     capPerBeneficiary: null,
     capPerDay: null,
+  },
+  /*
+   * Growth (M32): the account's first verified wallet and first post, once
+   * per account, vesting on its KYC like the referral rewards. The referrer
+   * rules start disabled; admins turn them on (one level, with a daily cap).
+   */
+  {
+    id: 'growth.wallet-linked',
+    enabled: true,
+    description: 'Linking a first verified wallet',
+    event: 'wallet.linked',
+    beneficiary: 'actor',
+    amount: 20,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: null,
+  },
+  {
+    id: 'growth.wallet-linked.referrer',
+    enabled: false,
+    description: 'Someone you invited linked a first wallet',
+    event: 'wallet.linked',
+    beneficiary: 'referrer',
+    amount: 10,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  {
+    id: 'growth.first-post',
+    enabled: true,
+    description: 'Posting for the first time',
+    event: 'post.first',
+    beneficiary: 'actor',
+    amount: 10,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: null,
+  },
+  {
+    id: 'growth.first-post.referrer',
+    enabled: false,
+    description: 'Someone you invited posted for the first time',
+    event: 'post.first',
+    beneficiary: 'referrer',
+    amount: 5,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
   },
 ]
 
@@ -350,14 +420,20 @@ export class RewardsService {
   // Rules
   // -----
 
-  /** Adds the default rules to an empty rule table */
+  /**
+   * Adds the default rules that are missing (rules are never deleted, only
+   * disabled, so a missing one is new): all of them to an empty table, and
+   * defaults added later (eg the growth rules) to an existing one
+   */
   async seedRules() {
-    const any = await this.db
-      .selectFrom('reward_rule')
-      .select('id')
-      .executeTakeFirst()
-    if (any) return
-    for (const rule of DEFAULT_RULES) await this.upsertRule('system', rule)
+    const existing = new Set(
+      (await this.db.selectFrom('reward_rule').select('id').execute()).map(
+        (r) => r.id,
+      ),
+    )
+    for (const rule of DEFAULT_RULES) {
+      if (!existing.has(rule.id)) await this.upsertRule('system', rule)
+    }
   }
 
   async listRules() {
@@ -395,6 +471,12 @@ export class RewardsService {
       throw new RewardsError(
         'MultiLevelReferral',
         'Referral rewards are one level only: the beneficiary must be the actor or its referrer',
+      )
+    }
+    if (!REWARD_EVENTS.includes(input.event)) {
+      throw new RewardsError(
+        'InvalidRequest',
+        `The event must be one of: ${REWARD_EVENTS.join(', ')}`,
       )
     }
     return this.db.transaction().execute(async (tx) => {
@@ -706,6 +788,7 @@ export class RewardsService {
             eb('eventId', 'in', [
               `account.created:${did}`,
               `kyc.approved:${did}`,
+              ...ACCOUNT_EVENTS.map((type) => `${type}:${did}`),
             ]),
           ]),
         )
@@ -825,26 +908,50 @@ export class RewardsService {
       await tx.deleteFrom('phone_verification').where('did', '=', did).execute()
       await tx.deleteFrom('phone_otp').where('did', '=', did).execute()
       await tx.deleteFrom('badge_pref').where('did', '=', did).execute()
+      await tx.deleteFrom('leaderboard_pref').where('did', '=', did).execute()
       await this.audit(tx, 'system', 'account.deleted', did)
     })
   }
 
   /** Runs the kyc.approved rules for `did` (once per account) */
   private async runKycApproved(tx: Db, did: string) {
+    await this.runAccountEvent(tx, 'kyc.approved', did)
+  }
+
+  /**
+   * Runs the rules of an event that happens once per account, with the
+   * account's referral (for referrer rules); the event id is `<type>:<did>`
+   */
+  private async runAccountEvent(tx: Db, type: RewardEvent, did: string) {
     const referral = await tx
       .selectFrom('referral')
       .selectAll()
       .where('did', '=', did)
       .executeTakeFirst()
     await this.handleEvent(tx, {
-      id: `kyc.approved:${did}`,
-      type: 'kyc.approved',
+      id: `${type}:${did}`,
+      type,
       actorDid: did,
       referrerDid: referral?.referrerDid ?? null,
       codeKind: referral?.codeKind ?? null,
       campaignId: referral?.campaignId ?? null,
       createdAt: now(),
     })
+  }
+
+  /**
+   * An account event reported by the indexer (its first verified wallet,
+   * its first post). Rewarded once per account, whatever happens to the
+   * wallet or post later: the event id is the account's. Reports for
+   * accounts that are taken down or deleted are dropped.
+   */
+  async recordAccountEvent(type: RewardEvent, did: string) {
+    if (!ACCOUNT_EVENTS.includes(type)) {
+      throw new RewardsError('InvalidRequest', `Unknown event: ${type}`)
+    }
+    await this.db
+      .transaction()
+      .execute((tx) => this.runAccountEvent(tx, type, did))
   }
 
   // KYC

@@ -67,7 +67,8 @@ export type PushDevices = { count: number; platforms: Record<string, number> }
 /**
  * Everything the rewards service holds about an account: its code and who
  * invited it, whom it invited (DIDs), its points, its KYC outcome (no
- * documents: they stay with the provider), its phone (masked) and consents.
+ * documents: they stay with the provider), its phone (masked), consents,
+ * badge and leaderboard choices.
  */
 export async function exportRewardsData(
   service: RewardsService,
@@ -85,6 +86,7 @@ export async function exportRewardsData(
     phoneStatus,
     consents,
     badges,
+    leaderboard,
   ] = await Promise.all([
     db
       .selectFrom('referral_code')
@@ -124,6 +126,11 @@ export async function exportRewardsData(
     phone ? phone.status(did) : Promise.resolve(null),
     listConsents(db, did),
     getBadgeVisibility(db, did),
+    db
+      .selectFrom('leaderboard_pref')
+      .select(['optIn', 'updatedAt'])
+      .where('did', '=', did)
+      .executeTakeFirst(),
   ])
   return withoutEmpty({
     referralCode: code?.code ?? null,
@@ -145,6 +152,10 @@ export async function exportRewardsData(
     phone: phoneStatus ?? { verified: false },
     consents,
     badges: { human: badges.human },
+    leaderboard: {
+      optIn: !!leaderboard?.optIn,
+      updatedAt: leaderboard?.updatedAt ?? null,
+    },
     pushDevices: pushDevices ? await pushDevices().catch(() => null) : null,
   })
 }

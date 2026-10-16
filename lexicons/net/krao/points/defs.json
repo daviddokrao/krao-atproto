@@ -64,6 +64,43 @@
         }
       },
       "description": "A line of the viewer's points ledger."
+    },
+    "leaderboardPeriod": {
+      "type": "object",
+      "description": "The week a leaderboard covers: from start (included) to end (excluded).",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "datetime" },
+        "end": { "type": "string", "format": "datetime" }
+      }
+    },
+    "leaderboardEntry": {
+      "type": "object",
+      "required": ["did", "points", "rank"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "points": {
+          "type": "integer",
+          "description": "Points earned during the period (not the account's balance)."
+        },
+        "rank": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "leaderboardViewer": {
+      "type": "object",
+      "required": ["optedIn", "points"],
+      "properties": {
+        "optedIn": { "type": "boolean" },
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Only when the viewer opted in and earned points during the period."
+        },
+        "points": {
+          "type": "integer",
+          "description": "Points the viewer earned during the period."
+        }
+      }
     }
   }
 }

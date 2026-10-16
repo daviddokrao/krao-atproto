@@ -7,7 +7,21 @@ export type KycStatus = 'none' | 'pending' | 'retry' | 'approved' | 'rejected'
 export type EntryStatus = 'pending' | 'approved' | 'void'
 /** Conditions for a ledger entry to be approved */
 export type Vesting = 'kyc:self' | 'kyc:related'
-export type RewardEvent = 'account.created' | 'kyc.approved'
+export type RewardEvent =
+  | 'account.created'
+  | 'kyc.approved'
+  /** The account's first verified wallet (reported by the indexer) */
+  | 'wallet.linked'
+  /** The account's first post (reported by the indexer) */
+  | 'post.first'
+export const REWARD_EVENTS: RewardEvent[] = [
+  'account.created',
+  'kyc.approved',
+  'wallet.linked',
+  'post.first',
+]
+/** Events the indexer reports at /internal/events, once per account */
+export const ACCOUNT_EVENTS: RewardEvent[] = ['wallet.linked', 'post.first']
 /** Referral rewards are one level only (no referrer's referrer) */
 export type Beneficiary = 'actor' | 'referrer'
 
@@ -177,6 +191,13 @@ export interface BadgePrefTable {
   updatedAt: string
 }
 
+/** Whether an account appears on the weekly leaderboard (see leaderboard.ts) */
+export interface LeaderboardPrefTable {
+  did: string
+  optIn: number
+  updatedAt: string
+}
+
 export interface DatabaseSchema {
   referral_code: ReferralCodeTable
   referral: ReferralTable
@@ -192,6 +213,7 @@ export interface DatabaseSchema {
   phone_send_log: PhoneSendLogTable
   consent_record: ConsentRecordTable
   badge_pref: BadgePrefTable
+  leaderboard_pref: LeaderboardPrefTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -328,10 +350,31 @@ const migrations = {
         .execute()
     },
   },
+  /*
+   * The weekly leaderboard: opt-in per account, and points per account by
+   * time. The growth rules (wallet.linked, post.first) are added by
+   * seedRules, which fills in missing default rules on every start.
+   */
+  '006-leaderboard': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('leaderboard_pref')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('optIn', 'integer', (col) => col.notNull())
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index points_entry_did_time_idx on points_entry (did, createdAt)`.execute(
+        db,
+      )
+    },
+  },
 }
 
 /** Daily cap of the default inviter rule: 20 sign-ups, 2,000 points */
 export const DEFAULT_INVITER_CAP_PER_DAY = 20
+
+/** Daily cap of the (disabled by default) growth referrer rules */
+export const DEFAULT_GROWTH_REFERRER_CAP_PER_DAY = 20
 
 export async function migrateDb(db: Database): Promise<void> {
   await runMigrations(db, migrations)

@@ -51,8 +51,28 @@ have no monetary value; they may be converted to a token later.
 - Defaults (seeded into an empty table): `referral.inviter` +100 to the
   referrer (at most 20 a day: 2,000 points) and `referral.invitee` +50 to
   the new account, both vesting on `kyc:self` and `kyc:related`.
+- Growth defaults: `growth.wallet-linked` +20 (`wallet.linked`, the
+  account's first verified wallet) and `growth.first-post` +10
+  (`post.first`), vesting on `kyc:self`; their `.referrer` twins start
+  disabled (one level, 20 a day). The indexer reports these events to
+  `POST /internal/events` (`{type, did}`, internal token) from its outbox.
+  The event id is `<type>:<did>`, so each is rewarded once per account,
+  whatever happens to the wallet or post later.
+- Missing default rules are added on every start (rules are never deleted,
+  only disabled); existing rules keep their settings.
 - Points have no monetary value.
 - Events are stored in `reward_event`, once per id.
+
+## Weekly leaderboard
+
+- `net.krao.points.getLeaderboard` (auth optional) and
+  `net.krao.points.setLeaderboardOptIn` (off by default). Only accounts that
+  opted in are listed and ranked, by the points they earned this week (not
+  their balance): non-void entries created in the week, reversals
+  subtracting. Equal points share a rank.
+- Weeks are ISO weeks in Vietnam's time: Monday 00:00 UTC+7 (Sunday 17:00
+  UTC) to the next Monday.
+- The choice is in the data export and is deleted with the account.
 
 ## KYC
 
