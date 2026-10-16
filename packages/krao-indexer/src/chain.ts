@@ -75,6 +75,19 @@ export class EvmRpc {
     }
   }
 
+  /**
+   * eth_call against the latest block: null when the call reverts, throws
+   * when the node cannot answer (so callers keep what they knew)
+   */
+  async tryCall(to: string, data: string): Promise<string | null> {
+    try {
+      return await this.call<string>('eth_call', [{ to, data }, 'latest'])
+    } catch (err) {
+      if (/revert|invalid opcode|out of gas/i.test(String(err))) return null
+      throw err
+    }
+  }
+
   /** The latest block number */
   async blockNumber(): Promise<bigint> {
     return BigInt(await this.call<string>('eth_blockNumber', []))

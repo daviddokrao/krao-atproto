@@ -6,6 +6,7 @@ import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { FirehoseIndexer } from './indexer.js'
 import { RewardsHumanCheck } from './human.js'
+import { RewardsEventsClient } from './rewards-events.js'
 import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
 import { createPushClient } from './push-client.js'
@@ -24,6 +25,8 @@ export * from './feed.js'
 export * from './safety.js'
 export * from './address-check.js'
 export * from './token.js'
+export * from './names.js'
+export * from './language.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -87,10 +90,16 @@ export type KraoIndexerConfig = {
   safetyAdminDids?: string[]
   /**
    * Krao's rewards service, asked whether an account verified a phone or
-   * passed KYC ("verified" communities and polls). Unset: nobody counts as
-   * verified.
+   * passed KYC ("verified" communities and polls), and told about first
+   * wallets and first posts (/internal/events). Unset: nobody counts as
+   * verified, and no events are sent.
    */
   rewards?: { url: string; token: string }
+  /**
+   * Ethereum mainnet JSON-RPC, for verified ENS names next to handles
+   * (default: rpcUrls['eip155:1']). Unset: Basenames only.
+   */
+  ensRpcUrl?: string
   /**
    * Token catalog prices: the Uniswap v3 factory on Base whose pools price
    * the tokens (default Uniswap's), and how often prices are read (default
@@ -161,6 +170,12 @@ export class KraoIndexer {
       ? new RewardsHumanCheck(cfg.rewards.url, cfg.rewards.token)
       : undefined
     indexer.human = human
+    // First verified wallet and first post, rewarded by the rewards service
+    indexer.rewardsEvents = cfg.rewards
+      ? new RewardsEventsClient(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    const ensRpcUrl = cfg.ensRpcUrl ?? cfg.rpcUrls?.['eip155:1']
+    indexer.ensRpc = ensRpcUrl ? new EvmRpc(ensRpcUrl) : undefined
     const tokens = new TokenCatalog(db, {
       rpc: rpcs.get('eip155:8453'),
       factory: cfg.tokens?.factory,

@@ -110,6 +110,7 @@ async function linkWallet(did: string, address: string, at = '1') {
     label: null,
     status: 'verified',
     reason: null,
+    showPrimaryName: 1,
     createdAt: at,
     indexedAt: at,
   })

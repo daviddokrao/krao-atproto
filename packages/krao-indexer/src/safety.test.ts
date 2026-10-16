@@ -214,7 +214,14 @@ describe('SafetyList', () => {
     const at = new Date().toISOString()
     await db
       .insertInto('feed_post')
-      .values({ uri, cid: uri, did: 'did:a', indexedAt: at, createdAt: at })
+      .values({
+        uri,
+        cid: uri,
+        did: 'did:a',
+        indexedAt: at,
+        createdAt: at,
+        vi: 0,
+      })
       .execute()
     await setPostTags(db, uri, 'did:a', ['airdrop'])
     await setPostLinks(db, uri, 'did:a', hosts, safety.matcher)

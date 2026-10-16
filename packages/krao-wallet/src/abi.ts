@@ -27,6 +27,10 @@ export function bytesToHex(bytes: Uint8Array): string {
   return '0x' + ui8.toString(bytes, 'base16')
 }
 
+export function keccak256(data: Uint8Array): Uint8Array {
+  return keccak_256(data)
+}
+
 /** The 4 byte selector of a function signature, eg `transfer(address,uint256)` */
 export function functionSelector(signature: string): Uint8Array {
   return keccak_256(ui8.fromString(signature, 'utf8')).slice(0, 4)

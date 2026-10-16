@@ -30,7 +30,8 @@ export function withoutEmpty(value: unknown): unknown {
 
 /**
  * What the indexer holds about an account (its own records, as indexed and
- * checked, plus the gated content it gave this service): linked wallets,
+ * checked, plus the gated content it gave this service): linked wallets
+ * and their verified Basename/ENS name,
  * tips sent and received, gate rules and gated content, NFT avatar,
  * community records, polls, membership plans and payments.
  * `mediaUrl` signs links to its gated media.
@@ -53,53 +54,73 @@ export async function exportIndexerData(
     'status',
     'createdAt',
   ] as const
-  const [wallets, tipsSent, tipsReceived, rules, content, nftAvatar] =
-    await Promise.all([
-      db
-        .selectFrom('wallet')
-        .select(['uri', 'accountRaw', 'label', 'status', 'createdAt'])
-        .where('did', '=', did)
-        .execute(),
-      db
-        .selectFrom('tip')
-        .select(tipColumns)
-        .where('did', '=', did)
-        .orderBy('createdAt', 'desc')
-        .limit(MAX_ROWS)
-        .execute(),
-      db
-        .selectFrom('tip')
-        .select(tipColumns)
-        .where('recipient', '=', did)
-        .orderBy('createdAt', 'desc')
-        .limit(MAX_ROWS)
-        .execute(),
-      db
-        .selectFrom('gate_rule')
-        .select(['uri', 'subject', 'conditions', 'match', 'createdAt'])
-        .where('did', '=', did)
-        .limit(MAX_ROWS)
-        .execute(),
-      db
-        .selectFrom('gated_content')
-        .select(['subject', 'text', 'facets', 'media', 'updatedAt'])
-        .where('did', '=', did)
-        .limit(MAX_ROWS)
-        .execute(),
-      db
-        .selectFrom('nft_avatar')
-        .select([
-          'uri',
-          'chain',
-          'contract',
-          'tokenId',
-          'wallet',
-          'status',
-          'collectionName',
-        ])
-        .where('did', '=', did)
-        .executeTakeFirst(),
-    ])
+  const [
+    wallets,
+    tipsSent,
+    tipsReceived,
+    rules,
+    content,
+    nftAvatar,
+    primaryName,
+  ] = await Promise.all([
+    db
+      .selectFrom('wallet')
+      .select([
+        'uri',
+        'accountRaw',
+        'label',
+        'status',
+        'showPrimaryName',
+        'createdAt',
+      ])
+      .where('did', '=', did)
+      .execute(),
+    db
+      .selectFrom('tip')
+      .select(tipColumns)
+      .where('did', '=', did)
+      .orderBy('createdAt', 'desc')
+      .limit(MAX_ROWS)
+      .execute(),
+    db
+      .selectFrom('tip')
+      .select(tipColumns)
+      .where('recipient', '=', did)
+      .orderBy('createdAt', 'desc')
+      .limit(MAX_ROWS)
+      .execute(),
+    db
+      .selectFrom('gate_rule')
+      .select(['uri', 'subject', 'conditions', 'match', 'createdAt'])
+      .where('did', '=', did)
+      .limit(MAX_ROWS)
+      .execute(),
+    db
+      .selectFrom('gated_content')
+      .select(['subject', 'text', 'facets', 'media', 'updatedAt'])
+      .where('did', '=', did)
+      .limit(MAX_ROWS)
+      .execute(),
+    db
+      .selectFrom('nft_avatar')
+      .select([
+        'uri',
+        'chain',
+        'contract',
+        'tokenId',
+        'wallet',
+        'status',
+        'collectionName',
+      ])
+      .where('did', '=', did)
+      .executeTakeFirst(),
+    db
+      .selectFrom('primary_name')
+      .select(['name', 'source', 'address', 'checkedAt'])
+      .where('did', '=', did)
+      .where('name', 'is not', null)
+      .executeTakeFirst(),
+  ])
   const tipView = (t: (typeof tipsSent)[number]) => ({
     uri: t.uri,
     sender: t.did,
@@ -119,8 +140,10 @@ export async function exportIndexerData(
       account: w.accountRaw,
       label: w.label,
       status: w.status,
+      showPrimaryName: w.showPrimaryName !== 0,
       createdAt: w.createdAt,
     })),
+    primaryName: primaryName ?? null,
     tipsSent: tipsSent.map(tipView),
     tipsReceived: tipsReceived.map(tipView),
     gateRules: rules.map((r) => ({

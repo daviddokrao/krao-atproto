@@ -22,6 +22,7 @@ describe('migrateDb', () => {
       '005-communities-polls',
       '006-tokens',
       '007-memberships',
+      '008-growth',
     ])
     await db.destroy()
   })
@@ -49,6 +50,7 @@ describe('migrateDb', () => {
       '005-communities-polls',
       '006-tokens',
       '007-memberships',
+      '008-growth',
     ])
     await db.destroy()
   })

@@ -24,6 +24,7 @@ import { addCreatorRoutes } from './creator-routes.js'
 import type { Database } from './db.js'
 import {
   POPULAR_FEED_RKEY,
+  VIETNAMESE_FEED_RKEY,
   getLatestPosts,
   getPopularPosts,
   rankPopularPosts,
@@ -63,6 +64,7 @@ import { ChainClock, isActiveMember } from './membership.js'
 import type { HumanCheck } from './human.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
+import { getPrimaryNames, nameAddresses } from './names.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
   erc1155BalanceOf,
@@ -96,6 +98,7 @@ import type { MediaBlobStore } from './media-store.js'
 type ChainProfileView = net.krao.actor.defs.ChainProfileView
 type WalletView = net.krao.actor.defs.WalletView
 type NftAvatarView = net.krao.actor.defs.NftAvatarView
+type PrimaryNameView = net.krao.actor.defs.PrimaryNameView
 type Badge = net.krao.actor.defs.Badge
 type TipView = net.krao.feed.defs.TipView
 type RuleView = net.krao.gate.defs.RuleView
@@ -437,13 +440,16 @@ export function createApp(
       params.actors,
       handleResolverUrl,
     )
-    const [rows, tipCounts, sentCounts, nftAvatars, owned] = await Promise.all([
-      getWalletsForDids(db, dids).then(uniqueWallets),
-      verifiedTipCounts(db, dids),
-      verifiedTipsSentCounts(db, dids),
-      getNftAvatarsForDids(db, dids),
-      Promise.all(dids.map((did) => ownedEvmAddresses(db, did))),
-    ])
+    const [allRows, tipCounts, sentCounts, nftAvatars, owned, names] =
+      await Promise.all([
+        getWalletsForDids(db, dids),
+        verifiedTipCounts(db, dids),
+        verifiedTipsSentCounts(db, dids),
+        getNftAvatarsForDids(db, dids),
+        Promise.all(dids.map((did) => ownedEvmAddresses(db, did))),
+        getPrimaryNames(db, dids),
+      ])
+    const rows = uniqueWallets(allRows)
     const profiles = dids
       .map((did, i) => {
         const wallets = rows
@@ -466,6 +472,7 @@ export function createApp(
                     ? utf8Prefix(row.reason, 300)
                     : undefined
                   : undefined,
+              showPrimaryName: row.showPrimaryName === 0 ? false : undefined,
               createdAt: row.createdAt as WalletView['createdAt'],
             }
           })
@@ -492,10 +499,21 @@ export function createApp(
         if (nft?.status === 'verified') badges.push({ id: 'nft-avatar' })
         if (sent > 0) badges.push({ id: 'tipper', count: sent })
         if (received > 0) badges.push({ id: 'supported', count: received })
+        // As last checked, while its wallet is still linked, owned and shown
+        const name = names.get(did)
+        const primaryName: PrimaryNameView | undefined =
+          name &&
+          nameAddresses(
+            allRows.filter((row) => row.did === did),
+            owned[i],
+          ).includes(name.address)
+            ? { name: name.name, source: name.source, address: name.address }
+            : undefined
         return {
           did: did as ChainProfileView['did'],
           wallets,
           nftAvatar,
+          primaryName,
           tipsReceivedCount: received,
           badges,
         }
@@ -602,7 +620,7 @@ export function createApp(
   })
 
   /*
-   * Feed generator for Krao's "latest" and "popular" feeds. AppViews call it with service
+   * Feed generator for Krao's "latest", "popular" and "vietnamese" feeds. AppViews call it with service
    * auth, but the feed is the same for everyone so the token is not checked.
    */
   if (feedGenDid) {
@@ -621,10 +639,12 @@ export function createApp(
       if (!feeds.includes(params.feed)) {
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
-      // The record's rkey picks the ranking: "popular", else newest first
+      // The record's rkey picks the ranking: "popular", "vietnamese" (newest
+      // Vietnamese posts), else newest first
       const limit = params.limit ?? 50
+      const rkey = params.feed.split('/').pop()
       const page =
-        params.feed.split('/').pop() === POPULAR_FEED_RKEY
+        rkey === POPULAR_FEED_RKEY
           ? getPopularPosts(
               db,
               limit,
@@ -632,7 +652,9 @@ export function createApp(
               undefined,
               await popularRanking(),
             )
-          : getLatestPosts(db, limit, params.cursor)
+          : getLatestPosts(db, limit, params.cursor, {
+              vietnamese: rkey === VIETNAMESE_FEED_RKEY,
+            })
       const { posts, cursor } = await page.catch(() => {
         throw new InvalidRequestError('Malformed cursor')
       })

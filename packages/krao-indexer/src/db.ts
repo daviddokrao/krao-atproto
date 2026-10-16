@@ -17,6 +17,8 @@ export interface WalletTable {
   status: WalletStatus
   /** Why verification failed, for debugging. */
   reason: string | null
+  /** 0 when the record says not to show the wallet's Basename/ENS name */
+  showPrimaryName: number
   createdAt: string
   indexedAt: string
 }
@@ -144,6 +146,8 @@ export interface FeedPostTable {
   indexedAt: string
   /** The record's own createdAt, if valid; null for rows from before it was kept */
   createdAt: string | null
+  /** 1 when the post is in Vietnamese (see language.ts), for "Tiếng Việt" */
+  vi: number
 }
 
 /** A like or repost of a post, counted by the "popular" feed */
@@ -468,7 +472,36 @@ export interface FollowerLossTable {
   lostAt: string
 }
 
+/** An account's verified Basename/ENS name, as last checked (see names.ts) */
+export interface PrimaryNameTable {
+  did: string
+  name: string | null
+  source: string | null
+  address: string | null
+  /** Last check that got an answer */
+  checkedAt: string | null
+  /** Last check, answered or not */
+  attemptedAt: string | null
+  /** 1 when the account's wallets changed since */
+  stale: number
+}
+
+/** Account events for the rewards service (see rewards-events.ts) */
+export interface RewardsOutboxTable {
+  /** `<type>:<did>`: once per account */
+  id: string
+  type: 'wallet.linked' | 'post.first'
+  did: string
+  createdAt: string
+  sentAt: string | null
+  attempts: number
+  nextAttemptAt: string
+  error: string | null
+}
+
 export interface DatabaseSchema {
+  primary_name: PrimaryNameTable
+  rewards_outbox: RewardsOutboxTable
   membership_plan: MembershipPlanTable
   membership_payment: MembershipPaymentTable
   creator_member: CreatorMemberTable
@@ -892,6 +925,59 @@ const migrations = {
       )
       // Dashboards count recent tips per recipient
       await sql`create index tip_recipient_time_idx on tip (recipient, createdAt)`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Growth (M32): Basename/ENS names of accounts (every account with a
+   * verified EVM wallet is checked once), the rewards outbox, and Vietnamese
+   * posts for the "Tiếng Việt" feed (posts indexed before stay out: their
+   * text is not kept).
+   */
+  '008-growth': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .alterTable('wallet')
+        .addColumn('showPrimaryName', 'integer', (col) =>
+          col.notNull().defaultTo(1),
+        )
+        .execute()
+      await db.schema
+        .alterTable('feed_post')
+        .addColumn('vi', 'integer', (col) => col.notNull().defaultTo(0))
+        .execute()
+      await sql`create index feed_post_vi_idx on feed_post (indexedAt, cid) where vi = 1`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('primary_name')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('name', 'varchar')
+        .addColumn('source', 'varchar')
+        .addColumn('address', 'varchar')
+        .addColumn('checkedAt', 'varchar')
+        .addColumn('attemptedAt', 'varchar')
+        .addColumn('stale', 'integer', (col) => col.notNull())
+        .execute()
+      await sql`insert into primary_name (did, stale) select distinct did, 1 from wallet where status = 'verified' and evmAddress is not null`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('rewards_outbox')
+        .addColumn('id', 'varchar', (col) => col.primaryKey())
+        .addColumn('type', 'varchar', (col) => col.notNull())
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('sentAt', 'varchar')
+        .addColumn('attempts', 'integer', (col) => col.notNull())
+        .addColumn('nextAttemptAt', 'varchar', (col) => col.notNull())
+        .addColumn('error', 'varchar')
+        .execute()
+      await sql`create index rewards_outbox_due_idx on rewards_outbox (nextAttemptAt) where sentAt is null`.execute(
+        db,
+      )
+      await sql`create index rewards_outbox_did_idx on rewards_outbox (did)`.execute(
         db,
       )
     },

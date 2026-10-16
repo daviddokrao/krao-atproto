@@ -5,6 +5,7 @@ import {
   type FeedPostTable,
   visibleDid,
 } from './db.js'
+import { isVietnamesePost } from './language.js'
 
 export const POST_COLLECTION = 'app.bsky.feed.post'
 export const FEED_GENERATOR_COLLECTION = 'app.bsky.feed.generator'
@@ -13,6 +14,8 @@ export const REPOST_COLLECTION = 'app.bsky.feed.repost'
 
 /** The rkey of the feed generator record that serves the "popular" feed */
 export const POPULAR_FEED_RKEY = 'popular'
+/** The rkey of the feed generator record that serves "Tiếng Việt" */
+export const VIETNAMESE_FEED_RKEY = 'vietnamese'
 
 /**
  * Posts for the "latest" feed: top-level posts only, since replies make no
@@ -30,7 +33,14 @@ export function feedPostRowFromRecord(
     typeof value.createdAt === 'string' && !isNaN(Date.parse(value.createdAt))
       ? new Date(value.createdAt).toISOString()
       : null
-  return { uri, cid, did, indexedAt: new Date().toISOString(), createdAt }
+  return {
+    uri,
+    cid,
+    did,
+    indexedAt: new Date().toISOString(),
+    createdAt,
+    vi: isVietnamesePost(value) ? 1 : 0,
+  }
 }
 
 export async function upsertFeedPost(db: Database, row: FeedPostTable) {
@@ -38,7 +48,11 @@ export async function upsertFeedPost(db: Database, row: FeedPostTable) {
     .insertInto('feed_post')
     .values(row)
     .onConflict((oc) =>
-      oc.column('uri').doUpdateSet({ cid: row.cid, createdAt: row.createdAt }),
+      oc.column('uri').doUpdateSet({
+        cid: row.cid,
+        createdAt: row.createdAt,
+        vi: row.vi,
+      }),
     )
     .execute()
 }
@@ -112,11 +126,16 @@ export async function listFeedGenerators(db: Database): Promise<string[]> {
   return rows.map((r) => r.uri)
 }
 
-/** Newest posts first. The cursor is `<indexedAt>::<cid>`. */
+/**
+ * Newest posts first. The cursor is `<indexedAt>::<cid>`. With
+ * `vietnamese`, only Vietnamese posts (see language.ts) and, as in Popular,
+ * none that link to unsafe domains: the "Tiếng Việt" feed.
+ */
 export async function getLatestPosts(
   db: Database,
   limit: number,
   cursor?: string,
+  opts: { vietnamese?: boolean } = {},
 ) {
   let qb = db
     .selectFrom('feed_post')
@@ -125,6 +144,13 @@ export async function getLatestPosts(
     .orderBy('indexedAt', 'desc')
     .orderBy('cid', 'desc')
     .limit(limit)
+  if (opts.vietnamese) {
+    qb = qb
+      .where('vi', '=', 1)
+      .where('uri', 'not in', (eb) =>
+        eb.selectFrom('unsafe_post').select('uri'),
+      )
+  }
   if (cursor) {
     const [indexedAt, cid] = cursor.split('::')
     if (!indexedAt || !cid) throw new Error('Malformed cursor')

@@ -43,13 +43,16 @@ const indexer = await KraoIndexer.create({
         token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
       }
     : undefined,
-  // Verified communities and polls ask the rewards service (phone or KYC)
+  // Verified communities and polls ask the rewards service (phone or KYC);
+  // first wallets and first posts are reported to it
   rewards: process.env.KRAO_REWARDS_URL
     ? {
         url: process.env.KRAO_REWARDS_URL,
         token: process.env.KRAO_REWARDS_INTERNAL_TOKEN ?? '',
       }
     : undefined,
+  // Ethereum mainnet, for verified ENS names (Basenames need only Base)
+  ensRpcUrl: process.env.KRAO_ENS_RPC_URL || undefined,
   // Moderators (accounts, or Ozone's service DID) who may read gated content
   gateModeratorDids: (process.env.KRAO_GATE_MODERATOR_DIDS ?? '')
     .split(',')

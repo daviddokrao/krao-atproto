@@ -68,6 +68,7 @@ async function linkWallet(did: string, address: string) {
     label: null,
     status: 'verified',
     reason: null,
+    showPrimaryName: 1,
     createdAt: now,
     indexedAt: now,
   })

@@ -218,9 +218,12 @@ services:
       # Token prices (cashtags): Uniswap v3 pools on Base, read through KRAO_RPC_URLS
       KRAO_UNISWAP_V3_FACTORY: ${KRAO_UNISWAP_V3_FACTORY:-}
       KRAO_TOKEN_PRICE_INTERVAL_MS: ${KRAO_TOKEN_PRICE_INTERVAL_MS:-}
-      # Verified communities and polls: phone or KYC, asked of rewards
+      # Verified communities and polls: phone or KYC, asked of rewards; first
+      # wallets and first posts are reported to it (points)
       KRAO_REWARDS_URL: http://rewards:2592
       KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
+      # Verified ENS names next to handles (Basenames use KRAO_RPC_URLS' Base)
+      KRAO_ENS_RPC_URL: ${KRAO_ENS_RPC_URL:-}
 
   chat:
     <<: *backend

@@ -29,6 +29,10 @@
           "maxLength": 300,
           "description": "Why the wallet does not count, when its status is invalid (for example: another account linked it first)."
         },
+        "showPrimaryName": {
+          "type": "boolean",
+          "description": "False when the owner chose not to show this wallet's Basename/ENS name (the record's showPrimaryName). Absent means shown."
+        },
         "createdAt": {
           "type": "string",
           "format": "datetime"
@@ -87,6 +91,10 @@
           "type": "ref",
           "ref": "#nftAvatarView"
         },
+        "primaryName": {
+          "type": "ref",
+          "ref": "#primaryNameView"
+        },
         "tipsReceivedCount": {
           "type": "integer",
           "description": "Number of verified tips this account has received."
@@ -98,6 +106,27 @@
             "type": "ref",
             "ref": "#badge"
           }
+        }
+      }
+    },
+    "primaryNameView": {
+      "type": "object",
+      "description": "A verified Basename or ENS name of one of the account's verified wallets: the wallet's reverse record names it, and the name resolves to the same address. At most one per account, Basenames first.",
+      "required": ["name", "source", "address"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Lowercase ASCII name, eg alice.base.eth."
+        },
+        "source": {
+          "type": "string",
+          "knownValues": ["basename", "ens"]
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 42,
+          "description": "The wallet address (lowercase 0x hex) the name belongs to."
         }
       }
     },

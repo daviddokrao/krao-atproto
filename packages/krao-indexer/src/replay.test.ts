@@ -104,6 +104,7 @@ describe('replayFailedEvents', () => {
         label: null,
         status: 'verified',
         reason: null,
+        showPrimaryName: 1,
         createdAt: '2026-10-15T00:00:00.000Z',
         indexedAt: '2026-10-15T00:00:00.000Z',
       })

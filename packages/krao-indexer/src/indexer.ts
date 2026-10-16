@@ -62,6 +62,19 @@ import {
 import { deleteOrphanedMedia } from './gate-media.js'
 import type { HumanCheck } from './human.js'
 import {
+  type NameRpc,
+  deletePrimaryName,
+  markPrimaryNameStale,
+  refreshPrimaryNames,
+} from './names.js'
+import {
+  type AccountEvent,
+  type RewardsEventSender,
+  deleteAccountEventsForDid,
+  deliverAccountEvents,
+  queueAccountEvent,
+} from './rewards-events.js'
+import {
   PAYMENT_COLLECTION,
   PLAN_COLLECTION,
   deleteMembershipDataForDid,
@@ -131,6 +144,7 @@ import {
   WALLET_COLLECTION,
   deleteWallet,
   deleteWalletsForDid,
+  getWalletOwners,
   upsertWallet,
   walletRowFromRecord,
 } from './wallets.js'
@@ -223,6 +237,12 @@ export class FirehoseIndexer {
   private membershipRound = new Round('community membership', () =>
     this.recheckMemberships(),
   )
+  private nameRound = new Round('primary name', () =>
+    this.refreshPrimaryNames(),
+  )
+  private rewardsRound = new Round('rewards event', () =>
+    this.deliverRewardsEvents(),
+  )
 
   start() {
     void this.firehose.start()
@@ -261,6 +281,13 @@ export class FirehoseIndexer {
   human?: HumanCheck
   /** How often memberships of condition and verified communities are re-checked */
   membershipRecheckMs = 10 * 60 * 1000
+  /**
+   * Where account events (first verified wallet, first post) go: the
+   * rewards service. Unset, none are queued.
+   */
+  rewardsEvents?: RewardsEventSender
+  /** Ethereum mainnet, for ENS names (Basenames use the Base RPC) */
+  ensRpc?: NameRpc
 
   private destroyed = false
 
@@ -334,6 +361,8 @@ export class FirehoseIndexer {
     this.tipRound.kick()
     this.nftRound.kick()
     this.membershipRound.kick()
+    this.nameRound.kick()
+    this.rewardsRound.kick()
   }
 
   /** Resolves once the current verification rounds, if any, are done */
@@ -342,7 +371,30 @@ export class FirehoseIndexer {
       this.tipRound.idle(),
       this.nftRound.idle(),
       this.membershipRound.idle(),
+      this.nameRound.idle(),
+      this.rewardsRound.idle(),
     ])
+  }
+
+  /** Basename/ENS names of accounts whose wallets changed, and daily */
+  async refreshPrimaryNames() {
+    await refreshPrimaryNames(this.db, {
+      base: this.rpcs.get('eip155:8453'),
+      ens: this.ensRpc,
+    })
+  }
+
+  /** Sends queued account events to the rewards service */
+  async deliverRewardsEvents() {
+    if (this.rewardsEvents) {
+      await deliverAccountEvents(this.db, this.rewardsEvents)
+    }
+  }
+
+  /** Queues an account event for the rewards service (once per account) */
+  private async queueRewardsEvent(type: AccountEvent, did: string) {
+    if (!this.rewardsEvents) return
+    if (await queueAccountEvent(this.db, type, did)) this.rewardsRound.kick()
   }
 
   /** What community and poll checks need */
@@ -581,16 +633,25 @@ export class FirehoseIndexer {
   private async indexEvent(evt: Event): Promise<void> {
     if (evt.event === 'create' || evt.event === 'update') {
       if (evt.collection === WALLET_COLLECTION) {
-        await upsertWallet(
-          this.db,
-          await walletRowFromRecord(
-            evt.uri.toString(),
-            evt.did,
-            evt.record,
-            this.walletRpc,
-          ),
+        const row = await walletRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          this.walletRpc,
         )
+        await upsertWallet(this.db, row)
         await markNftAvatarStale(this.db, evt.did)
+        await markPrimaryNameStale(this.db, evt.did)
+        this.nameRound.kick()
+        // The account's first verified wallet, unless another account
+        // linked it first (one wallet cannot earn for many accounts)
+        if (
+          row.status === 'verified' &&
+          (await this.isKraoAccount(evt.did)) &&
+          (await getWalletOwners(this.db, row.account)).includes(evt.did)
+        ) {
+          await this.queueRewardsEvent('wallet.linked', evt.did)
+        }
       } else if (evt.collection === TIP_COLLECTION) {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)
         await upsertTip(this.db, row)
@@ -637,6 +698,10 @@ export class FirehoseIndexer {
         await upsertNftAvatar(this.db, row)
         this.nftRound.kick()
       } else if (evt.collection === POST_COLLECTION) {
+        // Any post (replies too) of a Krao account: its first one is rewarded
+        if (await this.isKraoAccount(evt.did)) {
+          await this.queueRewardsEvent('post.first', evt.did)
+        }
         if (await this.isFeedAuthor(evt.did)) {
           const row = feedPostRowFromRecord(
             evt.uri.toString(),
@@ -727,6 +792,8 @@ export class FirehoseIndexer {
       if (evt.collection === WALLET_COLLECTION) {
         await deleteWallet(this.db, evt.uri.toString())
         await markNftAvatarStale(this.db, evt.did)
+        await markPrimaryNameStale(this.db, evt.did)
+        this.nameRound.kick()
       } else if (evt.collection === TIP_COLLECTION) {
         await deleteTip(this.db, evt.uri.toString())
       } else if (evt.collection === PLAN_COLLECTION) {
@@ -802,6 +869,8 @@ export class FirehoseIndexer {
         await deletePollDataForDid(this.db, evt.did)
         await deleteMembershipDataForDid(this.db, evt.did)
         await deleteFollowerLossesForDid(this.db, evt.did)
+        await deletePrimaryName(this.db, evt.did)
+        await deleteAccountEventsForDid(this.db, evt.did)
       }
     }
   }
@@ -841,6 +910,14 @@ export class FirehoseIndexer {
   /** Whether the account's posts belong in the feed (see FeedIndexingOptions) */
   private async isFeedAuthor(did: string): Promise<boolean> {
     if (!this.feed.did) return false
+    return this.isKraoAccount(did)
+  }
+
+  /**
+   * Whether the account is hosted on Krao's PDS (FeedIndexingOptions.pdsUrl);
+   * every account counts when it is not set (the firehose is Krao's PDS)
+   */
+  private async isKraoAccount(did: string): Promise<boolean> {
     if (!this.feed.pdsUrl) return true
     if (!this.pdsByDid.has(did)) {
       const data = await this.idResolver.did

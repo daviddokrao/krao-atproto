@@ -41,6 +41,7 @@ describe('checkAddresses', () => {
         label: null,
         status,
         reason: null,
+        showPrimaryName: 1,
         createdAt: at,
         indexedAt: at,
       })

@@ -29,6 +29,8 @@ export async function walletRowFromRecord(
   const proof = value.proof as Record<string, unknown> | undefined
   const createdAt = typeof value.createdAt === 'string' ? value.createdAt : now
   const label = typeof value.label === 'string' ? value.label : null
+  // Shown unless the record says otherwise (see names.ts)
+  const showPrimaryName = value.showPrimaryName === false ? 0 : 1
 
   let account = accountRaw
   let result: { ok: true } | { ok: false; reason: string }
@@ -65,6 +67,7 @@ export async function walletRowFromRecord(
     label,
     status: result.ok ? 'verified' : 'invalid',
     reason: result.ok ? null : result.reason,
+    showPrimaryName,
     createdAt,
     indexedAt: now,
   }
