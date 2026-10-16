@@ -336,6 +336,23 @@ export async function deleteCommunityRecord(
   }
 }
 
+/**
+ * A deleted community: its memberships, approvals and feed go with it, so a
+ * community created again at the same slug starts empty. Moderators, bans and
+ * hides stay (records the staff still hold in their repos; a ban must not
+ * lapse because the community was re-created).
+ */
+export async function deleteCommunity(db: Database, uri: string) {
+  await db.deleteFrom('community').where('uri', '=', uri).execute()
+  for (const table of [
+    'community_membership',
+    'community_submission',
+    'community_approval',
+  ] as const) {
+    await db.deleteFrom(table).where('community', '=', uri).execute()
+  }
+}
+
 /** A deleted post leaves every community feed */
 export async function deleteSubmissionsForPost(db: Database, post: string) {
   await db.deleteFrom('community_submission').where('post', '=', post).execute()
@@ -377,9 +394,12 @@ export async function deleteCommunityDataForDid(db: Database, did: string) {
 const MODS = `select mo.subject from community_moderator mo where mo.community = c.uri and mo.did = c.did`
 const notHidden = (col: string) =>
   `${col} not in (select did from hidden_actor)`
-const isStaff = (col: string) => `(${col} = c.did or ${col} in (${MODS}))`
+/** Moderators whose approvals, bans and hides count: not hidden, not banned by the owner */
+const ACTIVE_MODS = `${MODS} and ${notHidden('mo.subject')} and not exists (select 1 from community_ban ob where ob.community = c.uri and ob.subject = mo.subject and ob.did = c.did)`
+const isStaff = (col: string) =>
+  `(${col} = c.did or ${col} in (${ACTIVE_MODS}))`
 const isBanned = (col: string) =>
-  `exists (select 1 from community_ban b where b.community = c.uri and b.subject = ${col} and ${col} != c.did and (b.did = c.did or (b.did in (${MODS}) and ${col} not in (${MODS}))))`
+  `exists (select 1 from community_ban b where b.community = c.uri and b.subject = ${col} and ${col} != c.did and (b.did = c.did or (b.did in (${ACTIVE_MODS}) and ${col} not in (${MODS}))))`
 const isApproved = (col: string) =>
   `exists (select 1 from community_approval a where a.community = c.uri and a.subject = ${col} and ${isStaff('a.did')})`
 const validMembership = (m: string) =>

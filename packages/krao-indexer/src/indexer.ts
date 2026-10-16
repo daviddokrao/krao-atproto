@@ -41,6 +41,7 @@ import {
   SUBMISSION_COLLECTION,
   actionRowFromRecord,
   communityRowFromRecord,
+  deleteCommunity,
   deleteCommunityDataForDid,
   deleteCommunityRecord,
   deleteSubmissionsForPost,
@@ -662,6 +663,8 @@ export class FirehoseIndexer {
         await deleteGateDataForSubject(this.db, evt.uri.toString())
         await deleteSubmissionsForPost(this.db, evt.uri.toString())
         await deletePollsForPost(this.db, evt.uri.toString())
+      } else if (evt.collection === COMMUNITY_COLLECTION) {
+        await deleteCommunity(this.db, evt.uri.toString())
       } else if (COMMUNITY_COLLECTIONS.includes(evt.collection)) {
         await deleteCommunityRecord(this.db, evt.collection, evt.uri.toString())
       } else if (evt.collection === POLL_COLLECTION) {

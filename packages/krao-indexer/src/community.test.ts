@@ -8,6 +8,7 @@ import {
   MODERATOR_COLLECTION,
   actionRowFromRecord,
   communityRowFromRecord,
+  deleteCommunity,
   deleteCommunityDataForDid,
   getCommunity,
   getCommunityFeed,
@@ -279,6 +280,35 @@ describe('open communities', () => {
       .where('uri', '=', appointed!.uri)
       .execute()
     expect(await feedPosts(uri)).toContain(post)
+  })
+
+  it('ignores hides and bans of a moderator the owner banned', async () => {
+    const uri = await community('rogue', { mode: 'open' })
+    await act(MODERATOR_COLLECTION, OWNER, { community: uri, subject: MOD })
+    await join(ANA, uri)
+    const post = await submit(ANA, uri)
+    await act(BAN_COLLECTION, OWNER, { community: uri, subject: MOD })
+    await act(HIDE_COLLECTION, MOD, { community: uri, post })
+    await act(BAN_COLLECTION, MOD, { community: uri, subject: ANA })
+    expect(await feedPosts(uri)).toContain(post)
+    expect((await state(uri, ANA)).state).toBe('member')
+  })
+
+  it('starts a community created again at the same slug empty', async () => {
+    const uri = await community('again', { mode: 'approval' })
+    await act(BAN_COLLECTION, OWNER, { community: uri, subject: BAO })
+    await join(ANA, uri)
+    await act(APPROVAL_COLLECTION, OWNER, { community: uri, subject: ANA })
+    const post = await submit(ANA, uri)
+    expect((await state(uri, ANA)).state).toBe('member')
+    await deleteCommunity(db, uri)
+    await community('again', { mode: 'approval' })
+    expect((await state(uri, ANA)).state).toBe('none')
+    expect(await feedPosts(uri)).not.toContain(post)
+    expect((await getCommunity(db, uri))?.memberCount).toBe(1)
+    // The ban stays
+    await join(BAO, uri)
+    expect((await state(uri, BAO)).state).toBe('banned')
   })
 
   it('hides communities of hidden owners and drops hidden members', async () => {
