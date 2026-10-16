@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.token.listTokens",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every token in Krao's catalog, by symbol, with its last price.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["tokens"],
+          "properties": {
+            "tokens": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "net.krao.token.defs#tokenView" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.token.defs",
+  "description": "Krao's curated token catalog: tokens people can mention as cashtags ($ETH), with prices read from on-chain DEX pools. Information only; Krao does not buy, sell or swap anything.",
+  "defs": {
+    "tokenView": {
+      "type": "object",
+      "required": ["id", "symbol", "name", "decimals", "chain", "address"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "CAIP-19 asset ID, eg 'eip155:8453/erc20:0x4200000000000000000000000000000000000006'.",
+          "maxLength": 256
+        },
+        "symbol": {
+          "type": "string",
+          "description": "The cashtag symbol without '$', as the catalog spells it (eg 'ETH', 'cbBTC'). Lookups ignore case.",
+          "maxLength": 16
+        },
+        "name": { "type": "string", "maxLength": 100 },
+        "decimals": { "type": "integer", "minimum": 0, "maximum": 36 },
+        "chain": {
+          "type": "string",
+          "description": "CAIP-2 chain ID, eg 'eip155:8453' (Base).",
+          "maxLength": 128
+        },
+        "address": {
+          "type": "string",
+          "description": "Token contract address. For ETH, the wrapped ether (WETH) contract its price is read from.",
+          "maxLength": 128
+        },
+        "logo": { "type": "string", "format": "uri" },
+        "priceUsd": {
+          "type": "string",
+          "description": "Last price in US dollars, as a decimal string. Absent until the first price is read.",
+          "maxLength": 64
+        },
+        "change24h": {
+          "type": "string",
+          "description": "Price change over the last 24 hours in percent, as a decimal string (eg '-2.35'). Absent without a price from about 24 hours ago.",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the price was read."
+        }
+      }
+    },
+    "pricePoint": {
+      "type": "object",
+      "required": ["t", "priceUsd"],
+      "properties": {
+        "t": { "type": "string", "format": "datetime" },
+        "priceUsd": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "feedItem": {
+      "type": "object",
+      "required": ["post"],
+      "properties": {
+        "post": { "type": "string", "format": "at-uri" }
+      }
+    }
+  }
+}
