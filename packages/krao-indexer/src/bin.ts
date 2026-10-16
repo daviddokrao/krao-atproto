@@ -79,6 +79,11 @@ const indexer = await KraoIndexer.create({
       ? Number(process.env.KRAO_HOLDER_FEED_MIN_USD)
       : undefined,
   },
+  // Official accounts whose holders-<symbol> feeds token pages link to
+  officialFeedDids: (process.env.KRAO_OFFICIAL_FEED_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

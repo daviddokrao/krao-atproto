@@ -155,6 +155,11 @@ export function createApp(
     tokens?: TokenCatalog
     /** The holders-<symbol> feeds; empty without it */
     holderFeeds?: HolderFeeds
+    /**
+     * Krao's official accounts (a live set): only their holders-<symbol>
+     * generators are linked from token pages
+     */
+    officialFeedDids?: Set<string>
     /** How long the on-chain tab reuses NFT holdings (default 10 min, 0: off) */
     onchainCacheMs?: number
   },
@@ -406,7 +411,9 @@ export function createApp(
       idResolver,
       gateDid,
       admins: opts.safetyAdmins ?? new Set(),
-      holderFeed: feedGenDid ? (key) => holderFeedUri(db, key) : undefined,
+      holderFeed: feedGenDid
+        ? (key) => holderFeedUri(db, key, opts.officialFeedDids ?? new Set())
+        : undefined,
     })
   }
 

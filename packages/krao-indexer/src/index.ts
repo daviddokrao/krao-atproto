@@ -115,6 +115,11 @@ export type KraoIndexerConfig = {
    * minutes, 0: off)
    */
   holderFeed?: { minUsd?: number; cacheMs?: number }
+  /**
+   * Krao's official accounts (eg krao.net's): only holders-<symbol> feed
+   * generators they publish are linked from token pages. Empty: none are.
+   */
+  officialFeedDids?: string[]
   /** How long the on-chain profile tab reuses NFT holdings (default 10 min, 0: off) */
   onchainCacheMs?: number
 }
@@ -131,7 +136,13 @@ export class KraoIndexer {
     public safety: SafetyList,
     private safetyAdmins: Set<string>,
     public tokens: TokenCatalog,
+    private officialFeedDids: Set<string>,
   ) {}
+
+  /** Makes an account official for token holder feeds (eg one made at startup) */
+  addOfficialFeedDid(did: string) {
+    this.officialFeedDids.add(did)
+  }
 
   /** Lets an account read gated content as a moderator (eg one made at startup) */
   addGateModerator(did: string) {
@@ -196,6 +207,7 @@ export class KraoIndexer {
     indexer.tokens = tokens
     const gateModerators = new Set(cfg.gateModeratorDids ?? [])
     const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
+    const officialFeedDids = new Set(cfg.officialFeedDids ?? [])
     return new KraoIndexer(
       cfg,
       db,
@@ -223,12 +235,14 @@ export class KraoIndexer {
           minUsd: cfg.holderFeed?.minUsd,
           cacheMs: cfg.holderFeed?.cacheMs,
         }),
+        officialFeedDids,
         onchainCacheMs: cfg.onchainCacheMs,
       }),
       gateModerators,
       safety,
       safetyAdmins,
       tokens,
+      officialFeedDids,
     )
   }
 

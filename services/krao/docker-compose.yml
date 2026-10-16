@@ -226,6 +226,8 @@ services:
       KRAO_ENS_RPC_URL: ${KRAO_ENS_RPC_URL:-}
       # "Holders of $X" feeds: the value (USD) a holder's wallets must hold
       KRAO_HOLDER_FEED_MIN_USD: ${KRAO_HOLDER_FEED_MIN_USD:-}
+      # Official accounts: token pages link only their holders-<symbol> feeds
+      KRAO_OFFICIAL_FEED_DIDS: ${KRAO_OFFICIAL_FEED_DIDS:-}
 
   chat:
     <<: *backend

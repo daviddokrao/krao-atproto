@@ -207,9 +207,10 @@ describe('holder feeds', () => {
       uri: `at://${BOB}/app.bsky.feed.generator/holders-usdc`,
       did: BOB,
     })
+    const officials = new Set([ALICE, BOB])
     // The first one indexed, not a later copy
-    expect(await holderFeedUri(db, 'USDC')).toBe(official)
-    expect(await holderFeedUri(db, 'ETH')).toBeUndefined()
+    expect(await holderFeedUri(db, 'USDC', officials)).toBe(official)
+    expect(await holderFeedUri(db, 'ETH', officials)).toBeUndefined()
     const community = `at://${BOB}/app.bsky.feed.generator/community-krao`
     await upsertFeedGenerator(db, { uri: community, did: BOB })
     expect(await communityFeedUri(db, { did: BOB, slug: 'krao' })).toBe(
@@ -218,5 +219,23 @@ describe('holder feeds', () => {
     expect(
       await communityFeedUri(db, { did: ALICE, slug: 'krao' }),
     ).toBeUndefined()
+  })
+
+  it('takes the official holders feed only from official accounts', async () => {
+    // A squatter publishes first, the official account later
+    const squat = `at://${BOB}/app.bsky.feed.generator/holders-usdc`
+    const official = `at://${ALICE}/app.bsky.feed.generator/holders-usdc`
+    await upsertFeedGenerator(db, { uri: squat, did: BOB })
+    await upsertFeedGenerator(db, { uri: official, did: ALICE })
+    expect(await holderFeedUri(db, 'USDC', new Set([ALICE]))).toBe(official)
+    expect(await holderFeedUri(db, 'USDC', new Set([CAROL]))).toBeUndefined()
+    // No official accounts configured: no official feed at all
+    expect(await holderFeedUri(db, 'USDC', new Set())).toBeUndefined()
+    // A hidden official account's generator does not count either
+    await db
+      .insertInto('hidden_actor')
+      .values({ did: ALICE, status: 'takendown', since: 'x' })
+      .execute()
+    expect(await holderFeedUri(db, 'USDC', new Set([ALICE]))).toBeUndefined()
   })
 })

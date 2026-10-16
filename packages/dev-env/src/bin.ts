@@ -319,6 +319,13 @@ const run = async () => {
       .execute()
   }
   console.log(`☑️ Trusted verifier krao-verify.test (${verifier})`)
+  /*
+   * The official account (the seed script fills it in): token pages link only
+   * the holders-<symbol> feeds it publishes (KRAO_OFFICIAL_FEED_DIDS)
+   */
+  const official = await createKraoAccount(network.pds.url, 'krao')
+  kraoIndexer.addOfficialFeedDid(official)
+  console.log(`📰 Official feed account krao.test (${official})`)
   // Like sign-up codes: the mock accounts above posted without a phone
   if (PHONE_REQUIRED) {
     network.pds.ctx.cfg.kraoRewards!.phoneRequired = true

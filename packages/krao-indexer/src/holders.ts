@@ -190,18 +190,24 @@ export function communityFeedSlug(rkey: string): string | null {
 }
 
 /**
- * The holders feed of the token, when a generator for it names this
- * service: the first one indexed, so a later copy cannot take its place
+ * The official holders feed of the token (shown on its token page): a
+ * generator for it that names this service, published by one of Krao's
+ * official accounts (`officialDids`, eg krao.net's), the first one indexed.
+ * Generators in other repos still serve the feed but are never official, so
+ * nobody can squat the token page's link. No official accounts: no link.
  */
 export async function holderFeedUri(
   db: Database,
   key: string,
+  officialDids: ReadonlySet<string>,
 ): Promise<string | undefined> {
+  if (!officialDids.size) return undefined
   const rkey = `${HOLDER_FEED_PREFIX}${key.toLowerCase()}`
   const row = await db
     .selectFrom('feed_generator')
     .select('uri')
     .where('uri', 'like', `at://%/${FEED_GENERATOR_COLLECTION}/${rkey}`)
+    .where('did', 'in', [...officialDids])
     .where(visibleDid('did'))
     .orderBy(sql`rowid`)
     .executeTakeFirst()
