@@ -1,17 +1,26 @@
 // Growth (M32): points for the first verified wallet and the first post
 // (once per account), the opt-in weekly leaderboard, verified Basenames next
 // to the handle (reverse and forward records on the Anvil Base fork), and
-// the "Tiếng Việt" feed. Needs the dev-env (rewards-admin.test), the seed
-// script's data and the Anvil fork.
+// the "Tiếng Việt" feed. M33: the analytics funnel, retention and summary
+// (as differences: the dev-env has seed data), points for active days in
+// the first month (simulated with the dev routes) and for a first community,
+// community and token holder feeds, and the on-chain profile tab. Needs the
+// dev-env (rewards-admin.test), the seed script's data and the Anvil fork.
 import { keccak256 } from '@krao/wallet'
 import {
   ACCOUNTS,
+  ETH_ASSET,
+  GATE,
+  GATE_DID,
   INDEXER,
   PDS,
   REWARDS,
+  REWARDS_TOKEN,
   SIGNUP_CODE,
+  USDC,
   checker,
   createRecord,
+  dealErc20,
   deleteRecord,
   linkWallet,
   login,
@@ -19,6 +28,7 @@ import {
   putRecord,
   rewardsCall,
   rpc,
+  serviceAuth,
   sleep,
   verifyPhone,
   wallet,
@@ -420,6 +430,579 @@ check(
 check(
   'a post tagged langs vi is in the feed whatever its text',
   !!viPosts && viPosts.includes(viTagged.data.uri),
+)
+
+/*
+ * M33 helpers: the rewards service's internal routes (dev-env token), and
+ * days in Vietnam's time
+ */
+
+const internal = (path, body) =>
+  fetch(new URL(path, REWARDS), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${REWARDS_TOKEN}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+const VN_MS = 7 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+const vnDay = (ms) => new Date(ms + VN_MS).toISOString().slice(0, 10)
+const addDays = (day, n) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS)
+    .toISOString()
+    .slice(0, 10)
+/** The Monday (Vietnam time) of the week holding `ms` */
+const weekOf = (ms) => {
+  const day = vnDay(ms)
+  const dow = (new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7
+  return addDays(day, -dow)
+}
+const steps = (funnel) =>
+  Object.fromEntries((funnel.steps ?? []).map((s) => [s.id, s.count]))
+const analytics = async (method, query) =>
+  (await rewardsCall(admin, `net.krao.analytics.${method}`, { query })).data
+/** Moves the account's sign-up back; waits for the PDS to report it first */
+const backdate = async (did, days) => {
+  const at = await waitFor(async () => {
+    const res = await internal('/internal/dev/backdate-account', {
+      did,
+      days: 0,
+    })
+    return res.ok && (await res.json()).createdAt
+  })
+  if (!at) return undefined
+  const res = await internal('/internal/dev/backdate-account', { did, days })
+  return res.ok ? (await res.json()).createdAt : undefined
+}
+const activeDay = (did, day) =>
+  internal('/internal/events', { type: 'activity.day', did, day })
+
+/*
+ * 5. Analytics: the funnel and the summary count new accounts (admins only)
+ */
+
+const denied = await rewardsCall(ana, 'net.krao.analytics.getSummary')
+check(
+  'analytics are for rewards admins only',
+  denied.status === 403,
+  `${denied.status}`,
+)
+// Let deliveries from the sections above settle first
+await sleep(3_000)
+const funnelBefore = steps(await analytics('getFunnel'))
+const summaryBefore = await analytics('getSummary')
+check(
+  'the funnel lists its five steps',
+  Object.keys(funnelBefore).join() ===
+    'registered,phoneVerified,kycApproved,walletLinked,firstTip',
+  JSON.stringify(funnelBefore),
+)
+const fa = await signUp('funnela')
+const fb = await signUp('funnelb')
+await verifyPhone(fa)
+await linkWallet(fa, wallet())
+const kyc = await rewardsCall(admin, 'net.krao.rewards.admin.reviewKyc', {
+  body: {
+    did: fb.did,
+    decision: 'approve',
+    reasonCode: 'other',
+    note: 'Analytics e2e',
+  },
+})
+check('admin approves a KYC', kyc.ok, kyc.data.message)
+const expected = {
+  ...funnelBefore,
+  registered: funnelBefore.registered + 2,
+  phoneVerified: funnelBefore.phoneVerified + 1,
+  kycApproved: funnelBefore.kycApproved + 1,
+  walletLinked: funnelBefore.walletLinked + 1,
+}
+const funnelAfter = await waitFor(async () => {
+  const now = steps(await analytics('getFunnel'))
+  return now.walletLinked >= expected.walletLinked &&
+    now.registered >= expected.registered
+    ? now
+    : undefined
+})
+check(
+  'the funnel counts the new accounts at each step',
+  JSON.stringify(funnelAfter) === JSON.stringify(expected),
+  `${JSON.stringify(funnelBefore)} -> ${JSON.stringify(funnelAfter)}`,
+)
+const summaryAfter = await waitFor(async () => {
+  const now = await analytics('getSummary')
+  return now.accounts >= summaryBefore.accounts + 2 &&
+    now.activeToday >= summaryBefore.activeToday + 1
+    ? now
+    : undefined
+})
+check(
+  'the summary counts the accounts and today’s activity (a wallet link)',
+  summaryAfter?.accounts === summaryBefore.accounts + 2 &&
+    summaryAfter?.activeToday >= summaryBefore.activeToday + 1 &&
+    summaryAfter?.active30d >= summaryAfter?.active7d &&
+    summaryAfter?.active7d >= summaryAfter?.activeToday,
+  `${JSON.stringify(summaryBefore)} -> ${JSON.stringify(summaryAfter)}`,
+)
+
+/*
+ * 6. Active 20 of the first 30 days: +50 once (sign-ups moved 40 days back
+ * with the dev route); 19 days earn nothing. Retention counts them.
+ */
+
+const retentionOf = async (week) =>
+  (await analytics('getRetention', { weeks: 8 })).cohorts?.find(
+    (c) => c.week === week,
+  ) ?? { size: 0, d1: 0, d7: 0, d30: 0 }
+const cohortWeek = weekOf(Date.now() - 40 * DAY_MS)
+const retentionBefore = await retentionOf(cohortWeek)
+
+const active20 = await signUp('activea')
+const active19 = await signUp('activeb')
+const created20 = await backdate(active20.did, 40)
+const created19 = await backdate(active19.did, 40)
+check(
+  'the dev route moves sign-ups back 40 days',
+  !!created20 &&
+    !!created19 &&
+    Date.now() - Date.parse(created20) > 39 * DAY_MS,
+  created20,
+)
+const playDays = async (did, createdAt, count) => {
+  const first = vnDay(Date.parse(createdAt))
+  for (let i = 0; i < count; i++) {
+    await activeDay(did, addDays(first, i))
+  }
+}
+await playDays(active19.did, created19, 19)
+await playDays(active20.did, created20, 20)
+const activePoints = await waitFor(async () =>
+  byRule(await entries(active20), 'growth.active-30d').at(0),
+)
+check(
+  '20 active days of the first 30 earn points (pending until KYC)',
+  activePoints?.amount === 50 && activePoints?.status === 'pending',
+  JSON.stringify(activePoints),
+)
+check(
+  '19 days earn nothing',
+  byRule(await entries(active19), 'growth.active-30d').length === 0,
+)
+await playDays(active20.did, created20, 25)
+check(
+  'more days do not earn it again',
+  byRule(await entries(active20), 'growth.active-30d').length === 1,
+)
+const retentionAfter = await retentionOf(cohortWeek)
+check(
+  'retention: the cohort of 40 days ago grows by 2, both active on day 1 and in days 6-8, none in days 28-32',
+  retentionAfter.size === retentionBefore.size + 2 &&
+    retentionAfter.d1 === (retentionBefore.d1 ?? 0) + 2 &&
+    retentionAfter.d7 === (retentionBefore.d7 ?? 0) + 2 &&
+    retentionAfter.d30 === (retentionBefore.d30 ?? 0),
+  `${JSON.stringify(retentionBefore)} -> ${JSON.stringify(retentionAfter)}`,
+)
+
+/*
+ * 7. A first community: +10 once, only into one with 3 other members
+ */
+
+const communityQuery = async (method, params, session) =>
+  xrpc(INDEXER, method, {
+    token: session ? await serviceAuth(session, method) : undefined,
+    query: params,
+  })
+const newCommunity = async (session, slug, name) =>
+  putRecord(session, 'net.krao.community.profile', slug, {
+    name,
+    access: { mode: 'open' },
+    rules: [],
+    createdAt: now(),
+  })
+const joinCommunity = (session, subject) =>
+  createRecord(session, 'net.krao.community.membership', {
+    subject,
+    createdAt: now(),
+  })
+
+const cOwner = await signUp('cowner')
+const bigSlug = `big-${stamp}`
+const big = await newCommunity(cOwner, bigSlug, `Cộng đồng lớn ${stamp}`)
+const small = await newCommunity(cOwner, `small-${stamp}`, `Nhỏ ${stamp}`)
+check('the communities are created', big.ok && small.ok, big.data.message)
+const early = [
+  await signUp('cmone'),
+  await signUp('cmtwo'),
+  await signUp('cmthree'),
+]
+for (const session of early) await joinCommunity(session, big.data.uri)
+const joiner = await signUp('joiner')
+await joinCommunity(joiner, small.data.uri)
+await waitFor(async () => {
+  const res = await communityQuery(
+    'net.krao.community.getCommunity',
+    { uri: big.data.uri },
+    joiner,
+  )
+  return res.data.community?.memberCount === 4
+})
+await sleep(2_000)
+check(
+  'joining a community with fewer than 3 other members earns nothing',
+  byRule(await entries(joiner), 'growth.community-joined').length === 0,
+)
+await joinCommunity(joiner, big.data.uri)
+const joinPoints = await waitFor(async () =>
+  byRule(await entries(joiner), 'growth.community-joined').at(0),
+)
+check(
+  'joining a community with 3 other members earns points',
+  joinPoints?.amount === 10 && joinPoints?.status === 'pending',
+  JSON.stringify(joinPoints),
+)
+const big2 = await newCommunity(cOwner, `big2-${stamp}`, `Lớn nữa ${stamp}`)
+for (const session of early) await joinCommunity(session, big2.data.uri)
+await joinCommunity(joiner, big2.data.uri)
+await sleep(3_000)
+check(
+  'a second community earns nothing more',
+  byRule(await entries(joiner), 'growth.community-joined').length === 1,
+)
+
+/*
+ * 8. The community's feed generator: public posts only
+ */
+
+const feedGen = (await xrpc(INDEXER, 'app.bsky.feed.describeFeedGenerator'))
+  .data.did
+const communityFeed = await putRecord(
+  cOwner,
+  'app.bsky.feed.generator',
+  `community-${bigSlug}`,
+  {
+    did: feedGen,
+    displayName: `Cộng đồng lớn ${stamp}`,
+    createdAt: now(),
+  },
+)
+check('the owner publishes the community feed', communityFeed.ok)
+const withFeed = await waitFor(async () => {
+  const res = await communityQuery('net.krao.community.getCommunity', {
+    uri: big.data.uri,
+  })
+  return res.data.community?.feed && res.data
+})
+check(
+  'getCommunity names the feed and the DID it must point at',
+  withFeed?.community?.feed === communityFeed.data.uri &&
+    withFeed?.feedGeneratorDid === feedGen,
+  JSON.stringify(withFeed && { ...withFeed, community: undefined }),
+)
+const member = early[0]
+await verifyPhone(member)
+await verifyPhone(cOwner)
+const postAndSubmit = async (session, text) => {
+  const p = (
+    await createRecord(session, 'app.bsky.feed.post', {
+      text,
+      createdAt: now(),
+    })
+  ).data
+  await createRecord(session, 'net.krao.community.submission', {
+    community: big.data.uri,
+    post: { uri: p.uri, cid: p.cid },
+    createdAt: now(),
+  })
+  return p
+}
+const publicPost = await postAndSubmit(member, `Bài công khai ${stamp}`)
+const hiddenPost = await postAndSubmit(member, `Bài lạc đề ${stamp}`)
+await createRecord(cOwner, 'net.krao.community.hide', {
+  community: big.data.uri,
+  post: hiddenPost.uri,
+  createdAt: now(),
+})
+const gatedPost = await postAndSubmit(cOwner, '🔒 Bài cho thành viên')
+await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(cOwner, 'net.krao.gate.putContent'),
+  body: { uri: gatedPost.uri, text: `Chỉ thành viên ${stamp}` },
+})
+await createRecord(cOwner, 'net.krao.gate.rule', {
+  subject: { uri: gatedPost.uri, cid: gatedPost.cid },
+  conditions: [
+    { $type: 'net.krao.gate.defs#communityMember', community: big.data.uri },
+  ],
+  service: GATE_DID,
+  createdAt: now(),
+})
+const communityPosts = await waitFor(async () => {
+  const members = (
+    await communityQuery('net.krao.community.getFeed', {
+      community: big.data.uri,
+    })
+  ).data.feed?.map((f) => f.post)
+  // The members' feed has the gated post once its rule is indexed
+  if (!members?.includes(gatedPost.uri)) return undefined
+  const posts = await feedPosts(communityFeed.data.uri)
+  return posts.includes(publicPost.uri) && posts
+})
+check('the community feed generator serves a public post', !!communityPosts)
+check(
+  'but not a post the owner hid, nor a members-only post',
+  !!communityPosts &&
+    !communityPosts.includes(hiddenPost.uri) &&
+    !communityPosts.includes(gatedPost.uri),
+  JSON.stringify(communityPosts),
+)
+const fake = await putRecord(
+  early[1],
+  'app.bsky.feed.generator',
+  `community-${bigSlug}`,
+  { did: feedGen, displayName: 'Giả mạo', createdAt: now() },
+)
+await waitFor(async () =>
+  (await xrpc(INDEXER, 'app.bsky.feed.describeFeedGenerator')).data.feeds?.some(
+    (f) => f.uri === fake.data.uri,
+  ),
+)
+check(
+  'a community feed published by someone else is empty',
+  (await feedPosts(fake.data.uri)).length === 0,
+)
+
+/*
+ * 9. "Holders of $USDC": posts of accounts whose wallets hold USDC
+ */
+
+const usdcFeed = `at://${krao.did}/app.bsky.feed.generator/holders-usdc`
+const feeds = (await xrpc(INDEXER, 'app.bsky.feed.describeFeedGenerator')).data
+  .feeds
+if (!feeds?.some((f) => f.uri === usdcFeed)) {
+  // Normally published by scripts/seed-local.mjs
+  await putRecord(krao, 'app.bsky.feed.generator', 'holders-usdc', {
+    did: feedGen,
+    displayName: 'Người giữ $USDC',
+    createdAt: now(),
+  })
+}
+const holderUsdc = await waitFor(async () => {
+  const token = (
+    await xrpc(INDEXER, 'net.krao.token.getToken', {
+      query: { symbol: 'usdc' },
+    })
+  ).data.token
+  return token?.holderFeed && token
+})
+check(
+  'the USDC token names its holders feed',
+  !!holderUsdc?.holderFeed?.endsWith('/app.bsky.feed.generator/holders-usdc'),
+  holderUsdc?.holderFeed,
+)
+const holder = await signUp('holder')
+const notHolder = await signUp('notholder')
+await verifyPhone(holder)
+await verifyPhone(notHolder)
+const holderWallet = wallet()
+const notHolderWallet = wallet()
+await linkWallet(holder, holderWallet)
+await linkWallet(notHolder, notHolderWallet)
+await dealErc20(holderWallet.address, USDC, 5_000_000n)
+await dealErc20(notHolderWallet.address, USDC, 0n)
+const holderPost = await createRecord(holder, 'app.bsky.feed.post', {
+  text: `Mình giữ USDC ${stamp}`,
+  createdAt: now(),
+})
+const notHolderPost = await createRecord(notHolder, 'app.bsky.feed.post', {
+  text: `Mình không giữ gì ${stamp}`,
+  createdAt: now(),
+})
+const holderPosts = await waitFor(async () => {
+  const posts = await feedPosts(usdcFeed)
+  return posts.includes(holderPost.data.uri) && posts
+})
+check('a USDC holder’s post is in the holders feed', !!holderPosts)
+check(
+  'an account without USDC is not',
+  !!holderPosts && !holderPosts.includes(notHolderPost.data.uri),
+)
+
+/*
+ * 10. The on-chain tab: an approved NFT collection, the NFT avatar, and
+ * support without anonymous tips
+ */
+
+const BASENAMES = '0x03c4738ee98ae44591e1a4a4f3cab6641d95dd9a'
+const HELLO_ID = BigInt(
+  '0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8',
+)
+const put = await xrpc(INDEXER, 'net.krao.nft.admin.putCollection', {
+  token: await serviceAuth(admin, 'net.krao.nft.admin.putCollection'),
+  body: { chain: 'eip155:8453', contract: BASENAMES },
+})
+check(
+  'a safety admin approves the Basenames collection',
+  put.ok && put.data.collection?.contract === BASENAMES,
+  JSON.stringify(put.data),
+)
+const notAdmin = await xrpc(INDEXER, 'net.krao.nft.admin.putCollection', {
+  token: await serviceAuth(ana, 'net.krao.nft.admin.putCollection'),
+  body: { chain: 'eip155:8453', contract: BASENAMES },
+})
+check('others may not', notAdmin.status === 403, `${notAdmin.status}`)
+const approved = await xrpc(INDEXER, 'net.krao.nft.listCollections')
+check(
+  'the collection is listed publicly',
+  approved.data.collections?.some((c) => c.contract === BASENAMES),
+)
+
+const collector = await signUp('collector')
+const collectorWallet = wallet()
+await linkWallet(collector, collectorWallet)
+// The NFT test token (hello.base.eth) moves to the collector's wallet
+const helloOwner = (
+  await xrpc(INDEXER, 'net.krao.actor.resolveNft', {
+    query: {
+      chain: 'eip155:8453',
+      contract: BASENAMES,
+      tokenId: HELLO_ID.toString(),
+    },
+  })
+).data.owner
+const collectorAddress = collectorWallet.address.toLowerCase()
+if (helloOwner && helloOwner !== collectorAddress) {
+  await sendAs(
+    helloOwner,
+    BASENAMES,
+    '0x23b872dd' +
+      pad32(helloOwner) +
+      pad32(collectorAddress) +
+      pad32(HELLO_ID.toString(16)),
+  )
+}
+// The avatar is checked against linked wallets: link first
+await waitFor(async () =>
+  (await profileOf(collector.did))?.wallets?.some(
+    (w) => w.status === 'verified',
+  ),
+)
+await putRecord(collector, 'net.krao.actor.nftAvatar', 'self', {
+  nft: {
+    chain: 'eip155:8453',
+    contract: BASENAMES,
+    tokenId: HELLO_ID.toString(),
+    standard: 'erc721',
+  },
+  wallet: collectorWallet.account,
+  createdAt: now(),
+})
+const onchain = async (did) =>
+  xrpc(INDEXER, 'net.krao.actor.getOnchainProfile', { query: { actor: did } })
+const tab = await waitFor(async () => {
+  const res = await onchain(collector.did)
+  return res.data.nfts?.some((n) => n.isAvatar) && res.data
+})
+check(
+  'the on-chain tab lists the owned wallet',
+  tab?.wallets?.some((w) => w.address === collectorAddress),
+  JSON.stringify(tab?.wallets),
+)
+const avatarNft = tab?.nfts?.find((n) => n.isAvatar)
+check(
+  'the e2e NFT is there, as the avatar, with an image through the indexer',
+  avatarNft?.contract === BASENAMES &&
+    avatarNft?.tokenId === HELLO_ID.toString() &&
+    avatarNft?.image?.startsWith(`${INDEXER}/nft-image?`),
+  JSON.stringify(tab?.nfts),
+)
+
+// Tips from the collector: one public, one anonymous
+const fan = await signUp('fan')
+const fanWallet = wallet()
+await linkWallet(fan, fanWallet)
+await waitFor(async () =>
+  (await profileOf(fan.did))?.wallets?.some((w) => w.status === 'verified'),
+)
+const sendEth = async (amount) => {
+  await rpc('anvil_setBalance', [collectorAddress, '0x56bc75e2d63100000'])
+  await rpc('anvil_impersonateAccount', [collectorAddress])
+  const hash = await rpc('eth_sendTransaction', [
+    {
+      from: collectorAddress,
+      to: fanWallet.address,
+      value: '0x' + amount.toString(16),
+    },
+  ])
+  await rpc('anvil_stopImpersonatingAccount', [collectorAddress])
+  return hash
+}
+const tipRecord = async (amount, anonymous) =>
+  createRecord(collector, 'net.krao.feed.tip', {
+    recipient: fan.did,
+    asset: ETH_ASSET,
+    amount: amount.toString(),
+    txHash: await sendEth(amount),
+    from: collectorWallet.account,
+    to: fanWallet.account,
+    ...(anonymous ? { anonymous: true } : {}),
+    createdAt: now(),
+  })
+const publicTip = await tipRecord(10n ** 15n, false)
+const anonymousTip = await tipRecord(2n * 10n ** 15n, true)
+check('the tips are written', publicTip.ok && anonymousTip.ok)
+await waitFor(async () => {
+  const tips = (
+    await xrpc(INDEXER, 'net.krao.feed.getTips', {
+      query: { recipient: fan.did },
+    })
+  ).data.tips
+  return tips?.filter((t) => t.status === 'verified').length === 2 && tips
+}, 30_000)
+const support = (await onchain(collector.did)).data.support
+check(
+  'support counts the public tip only',
+  support?.tipsSent === 1,
+  JSON.stringify(support),
+)
+const sentHistory = (
+  await xrpc(INDEXER, 'net.krao.actor.getSupportHistory', {
+    query: { actor: collector.did, direction: 'sent' },
+  })
+).data.items
+const receivedHistory = (
+  await xrpc(INDEXER, 'net.krao.actor.getSupportHistory', {
+    query: { actor: fan.did, direction: 'received' },
+  })
+).data.items
+check(
+  'the support history has the public tip, never the anonymous one',
+  sentHistory?.some((i) => i.uri === publicTip.data.uri) &&
+    !sentHistory?.some((i) => i.uri === anonymousTip.data.uri) &&
+    receivedHistory?.some((i) => i.uri === publicTip.data.uri) &&
+    !receivedHistory?.some((i) => i.uri === anonymousTip.data.uri),
+  JSON.stringify(sentHistory),
+)
+check(
+  'history items carry the asset and amount',
+  sentHistory?.[0]?.asset?.symbol === 'ETH' &&
+    sentHistory?.[0]?.amount === (10n ** 15n).toString(),
+  JSON.stringify(sentHistory?.[0]),
+)
+const funnelTips = await waitFor(async () => {
+  const now = steps(await analytics('getFunnel'))
+  return now.firstTip > funnelBefore.firstTip && now
+})
+check(
+  'the first verified tip shows in the funnel',
+  !!funnelTips,
+  `${funnelBefore.firstTip} -> ${funnelTips?.firstTip}`,
+)
+const missing = await onchain('did:plc:doesnotexist0000000000')
+check(
+  'an unknown account has an empty tab (no wallets, nothing held)',
+  missing.ok && missing.data.wallets?.length === 0,
+  JSON.stringify(missing.data),
 )
 
 done()
