@@ -1,5 +1,8 @@
+import type { EvmRpcForChain } from '@krao/wallet'
 import type { IdResolver } from '@atproto/identity'
+import { type Cid, type LexMap, lexParse } from '@atproto/lex'
 import { type Event, Firehose } from '@atproto/sync'
+import { AtUri } from '@atproto/syntax'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
@@ -175,6 +178,8 @@ export class FirehoseIndexer {
   push?: PushClient
   /** Flags posts that link to unsafe domains when set */
   safety?: SafetyList
+  /** Checks smart contract wallet links on chain when set */
+  walletRpc?: EvmRpcForChain
 
   private destroyed = false
 
@@ -329,6 +334,121 @@ export class FirehoseIndexer {
     await this.setCursor(evt.seq)
   }
 
+  /**
+   * Indexes the events in `failed_event` again, oldest first, from the
+   * current state of the PDS this indexer follows: a record that still exists
+   * is indexed as an update, one that is gone as a delete, and an account
+   * event from the account's current status. Rows that index are removed;
+   * rows that fail again keep their place with the new error.
+   */
+  async replayFailedEvents(
+    limit = 100,
+  ): Promise<{ replayed: number; failed: number; remaining: number }> {
+    const rows = await this.db
+      .selectFrom('failed_event')
+      .selectAll()
+      .orderBy('id', 'asc')
+      .limit(limit)
+      .execute()
+    let replayed = 0
+    let failed = 0
+    for (const row of rows) {
+      try {
+        const evt = await this.currentEvent(row)
+        if (evt) await this.indexEvent(evt)
+        await this.db
+          .deleteFrom('failed_event')
+          .where('id', '=', row.id)
+          .execute()
+        replayed++
+      } catch (err) {
+        await this.db
+          .updateTable('failed_event')
+          .set({
+            error: String((err as Error)?.message ?? err).slice(0, 1000),
+            failedAt: new Date().toISOString(),
+          })
+          .where('id', '=', row.id)
+          .execute()
+        failed++
+      }
+    }
+    const left = await this.db
+      .selectFrom('failed_event')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .executeTakeFirst()
+    // Still in the table, including the rows that failed again
+    return { replayed, failed, remaining: Number(left?.count ?? 0) }
+  }
+
+  /** The event to index now in place of a failed one (undefined: nothing) */
+  private async currentEvent(row: {
+    seq: number
+    did: string
+    event: string
+    uri: string | null
+  }): Promise<Event | undefined> {
+    const base = this.service.replace(/^ws/, 'http')
+    const time = new Date().toISOString()
+    if (row.event === 'account') {
+      const url = new URL('/xrpc/com.atproto.sync.getRepoStatus', base)
+      url.searchParams.set('did', row.did)
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+      const body = (await res.json().catch(() => ({}))) as {
+        active?: boolean
+        status?: string
+        error?: string
+      }
+      if (!res.ok && body.error !== 'RepoNotFound') {
+        throw new Error(`getRepoStatus: HTTP ${res.status}`)
+      }
+      return {
+        seq: row.seq,
+        time,
+        event: 'account',
+        did: row.did,
+        active: res.ok ? body.active !== false : false,
+        status: res.ok ? body.status : 'deleted',
+      } as Event
+    }
+    if (!row.uri) return undefined
+    const uri = new AtUri(row.uri)
+    const url = new URL('/xrpc/com.atproto.repo.getRecord', base)
+    url.searchParams.set('repo', uri.host)
+    url.searchParams.set('collection', uri.collection)
+    url.searchParams.set('rkey', uri.rkey)
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    const body = (await res.json().catch(() => ({}))) as {
+      cid?: string
+      value?: unknown
+      error?: string
+    }
+    const meta = {
+      seq: row.seq,
+      time,
+      uri,
+      did: row.did,
+      collection: uri.collection,
+      rkey: uri.rkey,
+    }
+    if (!res.ok) {
+      if (body.error === 'RecordNotFound' || body.error === 'RepoNotFound') {
+        return { ...meta, event: 'delete' } as unknown as Event
+      }
+      throw new Error(`getRecord: HTTP ${res.status}`)
+    }
+    // As the firehose has it: CIDs and bytes as objects, not JSON
+    const parsed = lexParse<{ value: LexMap; cid: Cid }>(
+      JSON.stringify({ value: body.value, cid: { $link: body.cid } }),
+    )
+    return {
+      ...meta,
+      event: 'update',
+      record: parsed.value,
+      cid: parsed.cid,
+    } as unknown as Event
+  }
+
   private async recordFailedEvent(evt: Event, err: unknown) {
     const uri = 'uri' in evt ? evt.uri.toString() : null
     await this.db
@@ -349,7 +469,12 @@ export class FirehoseIndexer {
       if (evt.collection === WALLET_COLLECTION) {
         await upsertWallet(
           this.db,
-          walletRowFromRecord(evt.uri.toString(), evt.did, evt.record),
+          await walletRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.record,
+            this.walletRpc,
+          ),
         )
         await markNftAvatarStale(this.db, evt.did)
       } else if (evt.collection === TIP_COLLECTION) {

@@ -1,5 +1,6 @@
 import { once } from 'node:events'
 import type http from 'node:http'
+import { rpcForChains } from '@krao/wallet'
 import { IdResolver } from '@atproto/identity'
 import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
@@ -33,7 +34,10 @@ export type KraoIndexerConfig = {
   handleResolverUrl?: string
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
-  /** JSON-RPC endpoints by CAIP-2 chain id, used to verify tips */
+  /**
+   * JSON-RPC endpoints by CAIP-2 chain id, used to verify tips and smart
+   * contract wallet links
+   */
   rpcUrls?: Record<string, string>
   /** AppView used to hydrate tip senders' profiles */
   appviewUrl?: string
@@ -128,6 +132,7 @@ export class KraoIndexer {
       : undefined
     indexer.mediaBlobs = mediaBlobs
     indexer.push = createPushClient(cfg.push?.url, cfg.push?.token)
+    indexer.walletRpc = rpcForChains(cfg.rpcUrls ?? {})
     const safety = new SafetyList(db, {
       listUrl: cfg.phishingListUrl,
       allowHttp: cfg.insecureFetch,
@@ -155,6 +160,7 @@ export class KraoIndexer {
         gateModerationAccess: cfg.gateModerationAccess,
         safety,
         safetyAdmins,
+        replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
       }),
       gateModerators,
       safety,

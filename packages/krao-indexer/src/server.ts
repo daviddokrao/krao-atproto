@@ -124,6 +124,10 @@ export function createApp(
     safety?: SafetyList
     /** Who may change the unsafe domain list (a live set) */
     safetyAdmins?: Set<string>
+    /** Indexes the failed firehose events again (for the safety admins) */
+    replayFailedEvents?: (
+      limit: number,
+    ) => Promise<{ replayed: number; failed: number; remaining: number }>
   },
 ): Express {
   const {
@@ -344,6 +348,27 @@ export function createApp(
     gateDid,
     safety: opts.safety,
     admins: opts.safetyAdmins ?? new Set(),
+  })
+
+  // Operations: the safety admins also run the indexer's admin methods
+  server.add(net.krao.indexer.admin.replayFailedEvents, {
+    auth: moderatorAuth(
+      {
+        idResolver,
+        gateDid,
+        moderators: opts.safetyAdmins ?? new Set(),
+      },
+      net.krao.indexer.admin.replayFailedEvents.$lxm,
+    ),
+    handler: async ({ input }) => {
+      if (!opts.replayFailedEvents) {
+        throw new InvalidRequestError('Replay is not available')
+      }
+      return {
+        encoding: 'application/json' as const,
+        body: await opts.replayFailedEvents(input.body.limit ?? 100),
+      }
+    },
   })
 
   // Krao: a copy of what the indexer holds about the account (Decree 13)

@@ -1,4 +1,8 @@
-import { normalizeAccountId, verifyWalletProof } from '@krao/wallet'
+import {
+  type EvmRpcForChain,
+  normalizeAccountId,
+  verifyWalletProof,
+} from '@krao/wallet'
 import { type Database, type WalletTable, visibleDid } from './db.js'
 
 export const WALLET_COLLECTION = 'net.krao.actor.wallet'
@@ -7,12 +11,18 @@ export const WALLET_COLLECTION = 'net.krao.actor.wallet'
  * Turn an net.krao.actor.wallet record into a row, verifying its proof. Records
  * that are malformed are still stored (as invalid) so clients can show the
  * user why a link is not working.
+ *
+ * Smart contract wallets (ERC-1271/6492) are checked on chain through `rpc`;
+ * when the chain cannot be reached this throws, so the event is retried (and
+ * lands in `failed_event` for a later replay) instead of marking a good link
+ * invalid.
  */
-export function walletRowFromRecord(
+export async function walletRowFromRecord(
   uri: string,
   did: string,
   record: unknown,
-): WalletTable {
+  rpc?: EvmRpcForChain,
+): Promise<WalletTable> {
   const now = new Date().toISOString()
   const value = (record ?? {}) as Record<string, unknown>
   const accountRaw = typeof value.account === 'string' ? value.account : ''
@@ -30,7 +40,7 @@ export function walletRowFromRecord(
   ) {
     result = { ok: false, reason: 'Missing or malformed proof' }
   } else {
-    result = verifyWalletProof({
+    result = await verifyWalletProof({
       did,
       account: accountRaw,
       proof: {
@@ -38,6 +48,7 @@ export function walletRowFromRecord(
         message: proof.message,
         signature: proof.signature,
       },
+      rpc,
     })
     if (result.ok) account = normalizeAccountId(accountRaw)
   }
