@@ -1,9 +1,10 @@
-import { sql } from 'kysely'
+import { type ExpressionBuilder, sql } from 'kysely'
 import { AtUri } from '@atproto/syntax'
 import type { EvmRpc } from './chain.js'
 import {
   type CreatorMemberTable,
   type Database,
+  type DatabaseSchema,
   type MembershipPaymentTable,
   type MembershipPlanTable,
   visibleDid,
@@ -323,8 +324,25 @@ export async function verifyPayment(
       ? 'invalid'
       : result.status
   const verified = result.status === 'verified' ? result : undefined
+  /*
+   * Only the record that was checked: the firehose may have rewritten it
+   * (another transaction, plan or creator) during the RPC calls. A result
+   * stored on the new record would free the checked transaction for reuse;
+   * the rewrite is pending again and gets its own check.
+   */
+  const unchanged = (
+    eb: ExpressionBuilder<DatabaseSchema, 'membership_payment'>,
+  ) =>
+    eb.and([
+      eb('uri', '=', payment.uri),
+      eb('txHash', '=', payment.txHash),
+      eb('plan', '=', payment.plan),
+      eb('creator', '=', payment.creator),
+      eb('chain', '=', payment.chain),
+      eb('status', '=', 'pending'),
+    ])
   try {
-    await db
+    const res = await db
       .updateTable('membership_payment')
       .set({
         status,
@@ -340,8 +358,9 @@ export async function verifyPayment(
             ? nextCheck(payment.pendingSince ?? payment.indexedAt, now)
             : null,
       })
-      .where('uri', '=', payment.uri)
-      .execute()
+      .where(unchanged)
+      .executeTakeFirst()
+    if (!Number(res.numUpdatedRows)) return 'pending'
   } catch (err) {
     // membership_payment_tx_verified_idx: verified for another payment meanwhile
     if (status !== 'verified' || !isUniqueViolation(err)) throw err
@@ -352,7 +371,7 @@ export async function verifyPayment(
         reason: 'Transaction already used by another payment',
         nextCheckAt: null,
       })
-      .where('uri', '=', payment.uri)
+      .where(unchanged)
       .execute()
     return 'invalid'
   }
@@ -511,6 +530,8 @@ export async function getPendingPayments(db: Database, now = Date.now()) {
  */
 export class ChainClock {
   private last?: { at: number; chainMs: number }
+  /** The block time being read, shared by concurrent callers */
+  private reading?: Promise<void>
 
   constructor(
     private rpc?: EvmRpc,
@@ -521,13 +542,33 @@ export class ChainClock {
     const wall = Date.now()
     if (!this.rpc) return wall
     if (!this.last || wall - this.last.at > this.ttlMs) {
-      try {
-        this.last = { at: wall, chainMs: (await this.rpc.blockTime()) * 1000 }
-      } catch {
-        return wall
+      this.reading ??= this.read(this.rpc).finally(() => {
+        this.reading = undefined
+      })
+      await this.reading
+    }
+    const now = Date.now()
+    return this.last
+      ? Math.max(now, this.last.chainMs + (now - this.last.at))
+      : now
+  }
+
+  /*
+   * A failed read is remembered like an answer (keeping the last known
+   * offset), so that while the chain is unreachable each gated read does not
+   * wait for its own RPC timeout.
+   */
+  private async read(rpc: EvmRpc) {
+    const at = Date.now()
+    try {
+      this.last = { at, chainMs: (await rpc.blockTime()) * 1000 }
+    } catch {
+      const last = this.last
+      this.last = {
+        at,
+        chainMs: last ? last.chainMs + (at - last.at) : at,
       }
     }
-    return Math.max(wall, this.last.chainMs + (wall - this.last.at))
   }
 }
 

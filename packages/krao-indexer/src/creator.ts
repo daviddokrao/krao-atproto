@@ -90,6 +90,8 @@ export async function topSupporters(
       .where('recipient', '=', actor)
       .where('status', '=', 'verified')
       .where('createdAt', '>=', new Date(opts.since).toISOString())
+      // createdAt is the tipper's own claim: one dated ahead would stay listed
+      .where('createdAt', '<=', new Date().toISOString())
       .where('did', '!=', actor)
       .where(visibleDid('did'))
       .execute(),

@@ -364,6 +364,35 @@ describe('verifyPayment', () => {
     expect(await isActiveMember(db, CREATOR, MEMBER, Date.now())).toBe(false)
   })
 
+  it('drops a check whose record was rewritten meanwhile', async () => {
+    const p = await plan()
+    const first = send(5_000_000n)
+    const row = paymentRowFromRecord(
+      `at://${MEMBER}/net.krao.membership.payment/rw`,
+      MEMBER,
+      {
+        plan: { uri: p, cid: 'bafyplan' },
+        creator: CREATOR,
+        chain: BASE,
+        txHash: first,
+        createdAt: new Date().toISOString(),
+      },
+      new Date().toISOString(),
+    )!
+    await upsertPayment(db, row)
+    // The record now names another transaction; the old check comes back
+    await upsertPayment(db, { ...row, txHash: tx(424_242) })
+    expect(await verifyPayment(db, rpcs, row)).toBe('pending')
+    const stored = await db
+      .selectFrom('membership_payment')
+      .select(['status', 'txHash'])
+      .where('uri', '=', row.uri)
+      .executeTakeFirstOrThrow()
+    expect(stored).toEqual({ status: 'pending', txHash: tx(424_242) })
+    // The first transaction is still free for one payment
+    expect(await pay(p, first)).toBe('verified')
+  })
+
   it('lists active and expired members for the creator', async () => {
     const p = await plan()
     await pay(p, send(5_000_000n, Date.now() - 40 * DAY), {
@@ -444,6 +473,25 @@ describe('ChainClock', () => {
     )
     expect(await new ChainClock(chain).now()).toBeLessThan(Date.now() + 1000)
   })
+
+  it('asks a failing chain once per interval, keeping the last offset', async () => {
+    let calls = 0
+    let fail = false
+    const flaky = {
+      blockTime: async () => {
+        calls += 1
+        if (fail) throw new Error('down')
+        return Math.floor((Date.now() + 31 * DAY) / 1000)
+      },
+    } as unknown as EvmRpc
+    // Every call is due for a read; concurrent ones share it
+    const clock = new ChainClock(flaky, -1)
+    expect(await clock.now()).toBeGreaterThan(Date.now() + 30 * DAY)
+    fail = true
+    const [a, b] = await Promise.all([clock.now(), clock.now()])
+    expect(calls).toBe(2)
+    expect(Math.min(a, b)).toBeGreaterThan(Date.now() + 30 * DAY)
+  })
 })
 
 describe('creator numbers', () => {
@@ -490,6 +538,19 @@ describe('creator numbers', () => {
       { did: MEMBER, anonymous: false, totalUsd: '7.00', tipCount: 2 },
     ])
     expect(JSON.stringify(list)).not.toContain(OTHER)
+  })
+
+  it('leaves out tips dated in the future', async () => {
+    await verifiedTip(OTHER, '9000000', {
+      createdAt: new Date(Date.now() + 365 * DAY).toISOString(),
+    })
+    const now = Date.now()
+    const list = await topSupporters(db, CREATOR, {
+      since: now - 90 * DAY,
+      chainSince: now - 90 * DAY,
+      limit: 10,
+    })
+    expect(list).toEqual([])
   })
 
   it('sums tips and members over 30 days', async () => {
