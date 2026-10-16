@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net'
 import type http from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IdResolver } from '@atproto/identity'
+import { vnDay } from './activity.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { PhoneCrypto, PhoneService, type SmsProvider } from './phone.js'
 import { createApp } from './server.js'
@@ -154,6 +155,50 @@ describe('rewards HTTP routes', () => {
     expect((await post({ type: 'account.created', did })).status).toBe(400)
     expect((await post({ type: 'post.first', did: 'bob' })).status).toBe(400)
     expect((await post({ type: 'post.first', did }, 'wrong')).status).toBe(401)
+  })
+
+  it('takes M33 events and activity days, but not active.30d itself', async () => {
+    const did = 'did:plc:alice'
+    const post = (body: unknown) =>
+      internal('/internal/events', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+    expect((await post({ type: 'community.joined', did })).status).toBe(200)
+    expect((await post({ type: 'tip.first', did })).status).toBe(200)
+    // Derived by the rewards service, never reported
+    expect((await post({ type: 'active.30d', did })).status).toBe(400)
+    expect(await service.balance(did)).toEqual({ pending: 10, approved: 0 })
+
+    const today = vnDay(Date.now())
+    const res = await post({ type: 'activity.day', did, day: today })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Out of range: answered (so the outbox moves on), but not kept
+    const far = await post({ type: 'activity.day', did, day: '2099-01-01' })
+    expect(far.status).toBe(200)
+    expect(await far.json()).toEqual({ ok: true, ignored: true })
+    expect(
+      (await post({ type: 'activity.day', did, day: '2026-02-30' })).status,
+    ).toBe(400)
+    expect((await post({ type: 'activity.day', did })).status).toBe(400)
+    const days = await db.selectFrom('activity_day').selectAll().execute()
+    expect(days).toEqual([{ did, day: today }])
+  })
+
+  it('has no dev routes outside dev mode', async () => {
+    const res = await internal('/internal/dev/backdate-account', {
+      method: 'POST',
+      body: JSON.stringify({ did: 'did:plc:alice', days: 40 }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('keeps the analytics for admins', async () => {
+    for (const method of ['getFunnel', 'getRetention', 'getSummary']) {
+      const res = await fetch(`${base}/xrpc/net.krao.analytics.${method}`)
+      expect(res.status).toBe(401)
+    }
   })
 
   it('answers the leaderboard without auth, with no viewer block', async () => {

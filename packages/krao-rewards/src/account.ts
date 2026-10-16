@@ -87,6 +87,7 @@ export async function exportRewardsData(
     consents,
     badges,
     leaderboard,
+    activity,
   ] = await Promise.all([
     db
       .selectFrom('referral_code')
@@ -131,6 +132,11 @@ export async function exportRewardsData(
       .select(['optIn', 'updatedAt'])
       .where('did', '=', did)
       .executeTakeFirst(),
+    db
+      .selectFrom('activity_day')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .where('did', '=', did)
+      .executeTakeFirst(),
   ])
   return withoutEmpty({
     referralCode: code?.code ?? null,
@@ -156,6 +162,8 @@ export async function exportRewardsData(
       optIn: !!leaderboard?.optIn,
       updatedAt: leaderboard?.updatedAt ?? null,
     },
+    // How many days the indexer saw the account active (the days stay here)
+    activityDays: Number(activity?.count ?? 0),
     pushDevices: pushDevices ? await pushDevices().catch(() => null) : null,
   })
 }

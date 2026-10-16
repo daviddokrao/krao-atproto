@@ -58,6 +58,16 @@ have no monetary value; they may be converted to a token later.
   `POST /internal/events` (`{type, did}`, internal token) from its outbox.
   The event id is `<type>:<did>`, so each is rewarded once per account,
   whatever happens to the wallet or post later.
+- M33: `growth.community-joined` +10 (`community.joined`: first accepted
+  membership of someone else's community that had 3 other members) and
+  `growth.active-30d` +50 (`active.30d`: active on 20 of the 30 days from
+  the account's `account.created`), vesting on `kyc:self`, at most once a
+  day; `.referrer` twins disabled. The indexer also reports `tip.first`
+  (first verified tip sent; no default rule) and `activity.day`
+  (`{type, did, day}`, a Vietnam-time day the account created a record),
+  kept in `activity_day`. Days after tomorrow or before the day before the
+  sign-up are ignored, except with `devMode`, which also adds
+  `POST /internal/dev/backdate-account {did, days}` (moves the sign-up back).
 - Missing default rules are added on every start (rules are never deleted,
   only disabled); existing rules keep their settings.
 - Points have no monetary value.
@@ -73,6 +83,13 @@ have no monetary value; they may be converted to a token later.
 - Weeks are ISO weeks in Vietnam's time: Monday 00:00 UTC+7 (Sunday 17:00
   UTC) to the next Monday.
 - The choice is in the data export and is deleted with the account.
+
+## Analytics
+
+- `net.krao.analytics.getFunnel` (sign-ups in a window: phone, KYC, wallet,
+  first tip), `getRetention` (sign-up weeks, d1 / d7 (days 6-8) / d30
+  (days 28-32), Vietnam time) and `getSummary` (accounts, active today /
+  7 / 30 days). Admins only; counts only, no DIDs, nothing leaves Krao.
 
 ## KYC
 

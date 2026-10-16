@@ -15,9 +15,10 @@ import {
 } from '@atproto/xrpc-server'
 import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
+import { getFunnel, getRetention, getSummary } from './analytics.js'
 import {
-  ACCOUNT_EVENTS,
   type CodeKind,
+  INDEXER_EVENTS,
   type KycStatus,
   type RewardEvent,
 } from './db.js'
@@ -40,6 +41,7 @@ import {
   isVerifiedHuman,
   setBadgeVisibility,
 } from './badges.js'
+import { isDay } from './activity.js'
 import { getLeaderboard, setOptIn } from './leaderboard.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
@@ -141,6 +143,11 @@ export type AppOptions = {
   pushDevices?: (did: string) => Promise<PushDevices>
   /** Sets the language of an account's pushes at the push service */
   pushLanguage?: (did: string, language: string) => Promise<string>
+  /**
+   * Development and rehearsals only: activity days are taken for any day,
+   * and /internal/dev/backdate-account moves sign-ups back (tests)
+   */
+  devMode?: boolean
 }
 
 export function createApp(opts: AppOptions): Express {
@@ -560,6 +567,37 @@ export function createApp(opts: AppOptions): Express {
     },
   })
 
+  // Analytics: aggregate numbers only, for the rewards admins
+  // ---------
+
+  server.add(net.krao.analytics.getFunnel, {
+    auth: adminAuth,
+    handler: async ({ params }) => {
+      for (const value of [params.since, params.until]) {
+        if (value !== undefined && isNaN(Date.parse(value))) {
+          throw new InvalidRequestError('Invalid datetime')
+        }
+      }
+      return json(
+        await getFunnel(service.db, {
+          since: params.since,
+          until: params.until,
+        }),
+      )
+    },
+  })
+
+  server.add(net.krao.analytics.getRetention, {
+    auth: adminAuth,
+    handler: async ({ params }) =>
+      json(await getRetention(service.db, { weeks: params.weeks ?? 8 })),
+  })
+
+  server.add(net.krao.analytics.getSummary, {
+    auth: adminAuth,
+    handler: async () => json(await getSummary(service.db)),
+  })
+
   // Admin
   // -----
 
@@ -860,20 +898,36 @@ export function createApp(opts: AppOptions): Express {
   })
 
   /*
-   * The indexer: account events it saw (first verified wallet, first post),
-   * from its outbox. Rewarded once per account, so retries are harmless.
+   * The indexer: account events it saw (first verified wallet, first post,
+   * first community, first verified tip), and the days accounts were active
+   * (activity.day, with `day`), from its outbox. Rewarded once per account
+   * and kept once per day, so retries are harmless. A day out of range is
+   * answered ok (ignored), so the outbox does not retry it forever.
    */
   app.post(
     '/internal/events',
     internalAuth,
     jsonBody({ limit: '10kb' }),
     (req, res, next) => {
-      const { type, did } = req.body ?? {}
-      if (
-        typeof did !== 'string' ||
-        !did.startsWith('did:') ||
-        !ACCOUNT_EVENTS.includes(type as RewardEvent)
-      ) {
+      const { type, did, day } = req.body ?? {}
+      if (typeof did !== 'string' || !did.startsWith('did:')) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      if (type === 'activity.day') {
+        if (!isDay(day)) {
+          res.status(400).json({ error: 'InvalidRequest' })
+          return
+        }
+        service
+          .recordActivityDay(did, day, { anyDay: !!opts.devMode })
+          .then((kept) =>
+            res.json({ ok: true, ...(kept ? {} : { ignored: true }) }),
+          )
+          .catch(next)
+        return
+      }
+      if (!INDEXER_EVENTS.includes(type as RewardEvent)) {
         res.status(400).json({ error: 'InvalidRequest' })
         return
       }
@@ -883,6 +937,37 @@ export function createApp(opts: AppOptions): Express {
         .catch(next)
     },
   )
+
+  // Development only: an account's sign-up `days` days earlier (tests of
+  // the first month, see recordActivityDay)
+  if (opts.devMode) {
+    app.post(
+      '/internal/dev/backdate-account',
+      internalAuth,
+      jsonBody({ limit: '10kb' }),
+      (req, res, next) => {
+        const { did, days } = req.body ?? {}
+        if (
+          typeof did !== 'string' ||
+          !did.startsWith('did:') ||
+          !Number.isInteger(days) ||
+          days < 0 ||
+          days > 3650
+        ) {
+          res.status(400).json({ error: 'InvalidRequest' })
+          return
+        }
+        service
+          .backdateAccount(did, days)
+          .then((createdAt) =>
+            createdAt
+              ? res.json({ did, createdAt })
+              : res.status(404).json({ error: 'NotFound' }),
+          )
+          .catch(next)
+      },
+    )
+  }
 
   // Development only (the log SMS driver): the last code sent to an account
   const devCodes = opts.phone?.devCodes

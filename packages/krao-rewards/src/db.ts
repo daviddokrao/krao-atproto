@@ -14,14 +14,42 @@ export type RewardEvent =
   | 'wallet.linked'
   /** The account's first post (reported by the indexer) */
   | 'post.first'
+  /**
+   * The account's first accepted membership of a community it does not own,
+   * which had at least 3 other members (reported by the indexer)
+   */
+  | 'community.joined'
+  /** Active on 20 of its first 30 days (derived here, see activity.ts) */
+  | 'active.30d'
+  /** The first verified tip the account sent (reported by the indexer) */
+  | 'tip.first'
 export const REWARD_EVENTS: RewardEvent[] = [
   'account.created',
   'kyc.approved',
   'wallet.linked',
   'post.first',
+  'community.joined',
+  'active.30d',
+  'tip.first',
 ]
-/** Events the indexer reports at /internal/events, once per account */
-export const ACCOUNT_EVENTS: RewardEvent[] = ['wallet.linked', 'post.first']
+/** Events that happen once per account; their event id is `<type>:<did>` */
+export const ACCOUNT_EVENTS: RewardEvent[] = [
+  'wallet.linked',
+  'post.first',
+  'community.joined',
+  'active.30d',
+  'tip.first',
+]
+/**
+ * Account events the indexer reports at /internal/events. It also reports
+ * the days accounts were active (activity.day, see activity.ts).
+ */
+export const INDEXER_EVENTS: RewardEvent[] = [
+  'wallet.linked',
+  'post.first',
+  'community.joined',
+  'tip.first',
+]
 /** Referral rewards are one level only (no referrer's referrer) */
 export type Beneficiary = 'actor' | 'referrer'
 
@@ -198,7 +226,15 @@ export interface LeaderboardPrefTable {
   updatedAt: string
 }
 
+/** A day (Vietnam time) the account created a record (see activity.ts) */
+export interface ActivityDayTable {
+  did: string
+  /** YYYY-MM-DD */
+  day: string
+}
+
 export interface DatabaseSchema {
+  activity_day: ActivityDayTable
   referral_code: ReferralCodeTable
   referral: ReferralTable
   kyc_record: KycRecordTable
@@ -364,6 +400,29 @@ const migrations = {
         .addColumn('updatedAt', 'varchar', (col) => col.notNull())
         .execute()
       await sql`create index points_entry_did_time_idx on points_entry (did, createdAt)`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Growth and analytics (M33): the days accounts were active, and events
+   * looked up by type and time (sign-ups for the funnel and retention)
+   */
+  '007-activity': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('activity_day')
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('day', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('activity_day_pkey', ['did', 'day'])
+        .execute()
+      await sql`create index activity_day_day_idx on activity_day (day)`.execute(
+        db,
+      )
+      await sql`create index reward_event_type_time_idx on reward_event (type, createdAt)`.execute(
+        db,
+      )
+      await sql`create index reward_event_actor_idx on reward_event (actorDid, type)`.execute(
         db,
       )
     },

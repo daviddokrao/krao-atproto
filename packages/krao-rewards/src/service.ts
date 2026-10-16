@@ -17,8 +17,16 @@ import {
   ACCOUNT_EVENTS,
   DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
   DEFAULT_INVITER_CAP_PER_DAY,
+  INDEXER_EVENTS,
   REWARD_EVENTS,
 } from './db.js'
+import {
+  ACTIVE_MIN_DAYS,
+  acceptableDay,
+  accountCreatedAt,
+  activeDaysInWindow,
+  isDay,
+} from './activity.js'
 
 type Db = Database | Transaction<DatabaseSchema>
 
@@ -172,6 +180,71 @@ export const DEFAULT_RULES: RuleInput[] = [
     event: 'post.first',
     beneficiary: 'referrer',
     amount: 5,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  /*
+   * Growth (M33): joining a first community of someone else's that already
+   * had 3 other members, and being active on 20 of the first 30 days. Once
+   * per account, vesting on its KYC; the referrer rules start disabled.
+   */
+  {
+    id: 'growth.community-joined',
+    enabled: true,
+    description: 'Joining a first community',
+    event: 'community.joined',
+    beneficiary: 'actor',
+    amount: 10,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: 1,
+  },
+  {
+    id: 'growth.community-joined.referrer',
+    enabled: false,
+    description: 'Someone you invited joined a first community',
+    event: 'community.joined',
+    beneficiary: 'referrer',
+    amount: 5,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  {
+    id: 'growth.active-30d',
+    enabled: true,
+    description: 'Active on 20 of the first 30 days',
+    event: 'active.30d',
+    beneficiary: 'actor',
+    amount: 50,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: 1,
+  },
+  {
+    id: 'growth.active-30d.referrer',
+    enabled: false,
+    description: 'Someone you invited was active on 20 of their first 30 days',
+    event: 'active.30d',
+    beneficiary: 'referrer',
+    amount: 20,
     vesting: ['kyc:self', 'kyc:related'],
     codeKinds: [],
     campaignId: null,
@@ -909,6 +982,7 @@ export class RewardsService {
       await tx.deleteFrom('phone_otp').where('did', '=', did).execute()
       await tx.deleteFrom('badge_pref').where('did', '=', did).execute()
       await tx.deleteFrom('leaderboard_pref').where('did', '=', did).execute()
+      await tx.deleteFrom('activity_day').where('did', '=', did).execute()
       await this.audit(tx, 'system', 'account.deleted', did)
     })
   }
@@ -946,12 +1020,100 @@ export class RewardsService {
    * accounts that are taken down or deleted are dropped.
    */
   async recordAccountEvent(type: RewardEvent, did: string) {
-    if (!ACCOUNT_EVENTS.includes(type)) {
+    if (!INDEXER_EVENTS.includes(type)) {
       throw new RewardsError('InvalidRequest', `Unknown event: ${type}`)
     }
     await this.db
       .transaction()
       .execute((tx) => this.runAccountEvent(tx, type, did))
+  }
+
+  /**
+   * A day (YYYY-MM-DD, Vietnam time) the account created a record, as the
+   * indexer saw it. Kept once per account and day; an account active on
+   * ACTIVE_MIN_DAYS days of its first 30 earns active.30d (once). Days
+   * after tomorrow or before the day before its sign-up are ignored, unless
+   * `anyDay` (development: lets tests make up a month of activity). Taken
+   * down and deleted accounts are ignored. Resolves to whether it was kept.
+   */
+  async recordActivityDay(
+    did: string,
+    day: string,
+    opts: { anyDay?: boolean; now?: number } = {},
+  ): Promise<boolean> {
+    if (!isDay(day)) {
+      throw new RewardsError('InvalidRequest', 'The day must be YYYY-MM-DD')
+    }
+    return this.db.transaction().execute(async (tx) => {
+      if (await this.isTakenDown(tx, did)) return false
+      const createdAt = await accountCreatedAt(tx, did)
+      if (
+        !opts.anyDay &&
+        !acceptableDay(day, { now: opts.now ?? Date.now(), createdAt })
+      ) {
+        return false
+      }
+      await tx
+        .insertInto('activity_day')
+        .values({ did, day })
+        .onConflict((oc) => oc.doNothing())
+        .execute()
+      await this.checkActive30d(tx, did, createdAt)
+      return true
+    })
+  }
+
+  /** Runs active.30d for the account if its first 30 days qualify */
+  private async checkActive30d(tx: Db, did: string, createdAt?: string) {
+    // Accounts without a sign-up event (eg made before referrals) never earn it
+    if (!createdAt) return
+    const done = await tx
+      .selectFrom('reward_event')
+      .select('id')
+      .where('id', '=', `active.30d:${did}`)
+      .executeTakeFirst()
+    if (done) return
+    if ((await activeDaysInWindow(tx, did, createdAt)) >= ACTIVE_MIN_DAYS) {
+      await this.runAccountEvent(tx, 'active.30d', did)
+    }
+  }
+
+  /**
+   * Development only: moves the account's sign-up (its account.created event
+   * and its referral) `days` days back, so tests can play its first month.
+   * Resolves to the new time, or undefined without a sign-up event.
+   */
+  async backdateAccount(did: string, days: number) {
+    return this.db.transaction().execute(async (tx) => {
+      const createdAt = await accountCreatedAt(tx, did)
+      if (!createdAt) return undefined
+      const shift = (iso: string) =>
+        new Date(Date.parse(iso) - days * 24 * 60 * 60 * 1000).toISOString()
+      const moved = shift(createdAt)
+      await tx
+        .updateTable('reward_event')
+        .set({ createdAt: moved })
+        .where('id', '=', `account.created:${did}`)
+        .execute()
+      const referral = await tx
+        .selectFrom('referral')
+        .select('createdAt')
+        .where('did', '=', did)
+        .executeTakeFirst()
+      if (referral) {
+        await tx
+          .updateTable('referral')
+          .set({ createdAt: shift(referral.createdAt) })
+          .where('did', '=', did)
+          .execute()
+      }
+      await this.audit(tx, 'system', 'dev.backdate', did, {
+        days,
+        createdAt: moved,
+      })
+      await this.checkActive30d(tx, did, moved)
+      return moved
+    })
   }
 
   // KYC

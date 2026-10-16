@@ -64,7 +64,8 @@ export type KraoRewardsConfig = {
   }
   /**
    * Development and rehearsals only: with the log SMS driver, the codes sent
-   * can be read at /internal/dev/last-otp (internal token)
+   * can be read at /internal/dev/last-otp (internal token); activity days are
+   * taken for any day and sign-ups can be moved back (tests of active.30d)
    */
   devMode?: boolean
 }
@@ -142,6 +143,7 @@ export class KraoRewards {
       pushLanguage: push
         ? (did, language) => push.setLanguage(did, language)
         : undefined,
+      devMode: cfg.devMode,
     })
     return new KraoRewards(cfg, db, service, phone, admins, app, push)
   }
