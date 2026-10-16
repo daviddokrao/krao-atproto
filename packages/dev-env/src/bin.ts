@@ -8,7 +8,12 @@ import { KraoPush } from '@krao/push'
 import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
-import { publishKraoPermissionSets, serveMiniAppSample } from './krao-dev.js'
+import { ADMIN_PASSWORD } from './const.js'
+import {
+  addKraoLabels,
+  publishKraoPermissionSets,
+  serveMiniAppSample,
+} from './krao-dev.js'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
@@ -183,6 +188,12 @@ const run = async () => {
       url: `http://localhost:${KRAO_REWARDS_PORT}`,
       token: KRAO_REWARDS_TOKEN,
     },
+    // Impersonation checks label and report in the dev-env Ozone (M35)
+    ozone: { url: network.ozone.url, adminPassword: ADMIN_PASSWORD },
+    trustedVerifierDids: (process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '')
+      .split(',')
+      .map((did) => did.trim())
+      .filter((did) => did.startsWith('did:')),
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
@@ -244,6 +255,8 @@ const run = async () => {
     insecureFetch: true,
     // Tests review KYC by hand on every run
     manualReview: { dailyLimit: 1000 },
+    // Shown in the app's role list (M35), as the indexer has it
+    gateModeratorDids: [network.ozone.ctx.cfg.service.did],
     push: KRAO_PUSH,
     // SMS codes are logged, and readable at /internal/dev/last-otp
     phone: {
@@ -323,7 +336,16 @@ const run = async () => {
       )
       .execute()
   }
+  // ...and for the indexer's impersonation checks (M35)
+  await kraoIndexer.addTrustedVerifier(verifier)
   console.log(`☑️ Trusted verifier krao-verify.test (${verifier})`)
+  const labels = await addKraoLabels(network).catch((err) => {
+    console.warn('⚠️ Krao labels not added to the labeler record', err)
+    return [] as string[]
+  })
+  console.log(
+    `🏷️ Krao labels: ${labels.filter((l) => l.startsWith('impersonation')).join(', ')}`,
+  )
   /*
    * The official account (the seed script fills it in): token pages link only
    * the holders-<symbol> feeds it publishes (KRAO_OFFICIAL_FEED_DIDS)

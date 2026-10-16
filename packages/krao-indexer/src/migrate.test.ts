@@ -27,6 +27,7 @@ describe('migrateDb', () => {
       '010-onchain-profile',
       '011-miniapps',
       '012-admin-audit',
+      '013-impersonation',
     ])
     await db.destroy()
   })
@@ -59,6 +60,7 @@ describe('migrateDb', () => {
       '010-onchain-profile',
       '011-miniapps',
       '012-admin-audit',
+      '013-impersonation',
     ])
     await db.destroy()
   })

@@ -13,6 +13,7 @@ import { type Database, createDb, migrateDb } from './db.js'
 import { HolderFeeds } from './holders.js'
 import { FirehoseIndexer } from './indexer.js'
 import { RewardsHumanCheck } from './human.js'
+import { ImpersonationWatcher, OzoneAdminClient } from './impersonation.js'
 import { RewardsEventsClient } from './rewards-events.js'
 import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
@@ -38,6 +39,8 @@ export * from './onchain.js'
 export * from './holders.js'
 export * from './miniapp.js'
 export * from './admin-roles.js'
+export * from './impersonation.js'
+export * from './lookalike.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -146,6 +149,14 @@ export type KraoIndexerConfig = {
   knownDelegates?: string[]
   /** How long the on-chain profile tab reuses NFT holdings (default 10 min, 0: off) */
   onchainCacheMs?: number
+  /**
+   * Impersonation checks (M35): accounts whose verifications count
+   * (KRAO_TRUSTED_VERIFIER_DIDS, as the AppView's), and Krao's Ozone, which
+   * labels and reports suspects (its admin password). Without Ozone there
+   * are no checks.
+   */
+  trustedVerifierDids?: string[]
+  ozone?: { url: string; adminPassword: string }
 }
 
 export class KraoIndexer {
@@ -164,8 +175,46 @@ export class KraoIndexer {
     public tokens: TokenCatalog,
     private officialFeedDids: Set<string>,
     public audit: AdminAuditOutbox,
+    private trustedVerifiers: Set<string>,
+    public impersonation?: ImpersonationWatcher,
   ) {
     audit.onQueued = () => this.deliverAudit()
+    if (impersonation) {
+      impersonation.onQueued = () => this.kickImpersonation()
+    }
+  }
+
+  /** Makes an account a trusted verifier (eg one made at startup) */
+  async addTrustedVerifier(did: string) {
+    if (this.trustedVerifiers.has(did)) return
+    this.trustedVerifiers.add(did)
+    await this.impersonation?.verifiersChanged()
+  }
+
+  private impersonationRunning = false
+  private impersonationAgain = false
+  private impersonationTimer?: NodeJS.Timeout
+
+  /** Runs the impersonation checks and Ozone updates in the background */
+  private kickImpersonation() {
+    const watcher = this.impersonation
+    if (!watcher) return
+    if (this.impersonationRunning) {
+      this.impersonationAgain = true
+      return
+    }
+    this.impersonationRunning = true
+    void (async () => {
+      do {
+        this.impersonationAgain = false
+        await watcher
+          .round()
+          .catch((err: unknown) =>
+            console.error('Krao indexer: impersonation round failed', err),
+          )
+      } while (this.impersonationAgain)
+      this.impersonationRunning = false
+    })()
   }
 
   /** Sends queued admin log entries to the rewards service */
@@ -266,6 +315,21 @@ export class KraoIndexer {
         : undefined,
     )
     const officialFeedDids = new Set(cfg.officialFeedDids ?? [])
+    const trustedVerifiers = new Set(cfg.trustedVerifierDids ?? [])
+    const impersonation = cfg.ozone
+      ? new ImpersonationWatcher(db, {
+          verifiers: trustedVerifiers,
+          pdsUrl: cfg.pdsUrl ?? cfg.firehoseUrl.replace(/^ws/, 'http'),
+          idResolver,
+          moderator: new OzoneAdminClient(
+            cfg.ozone.url,
+            cfg.ozone.adminPassword,
+            cfg.gateDid ?? 'did:web:gate.krao.net',
+          ),
+          audit,
+        })
+      : undefined
+    indexer.impersonation = impersonation
     return new KraoIndexer(
       cfg,
       db,
@@ -306,6 +370,8 @@ export class KraoIndexer {
       tokens,
       officialFeedDids,
       audit,
+      trustedVerifiers,
+      impersonation,
     )
   }
 
@@ -322,11 +388,35 @@ export class KraoIndexer {
     // Retries of the admin log (entries are sent as soon as they are queued)
     this.auditTimer = setInterval(() => this.deliverAudit(), 15_000)
     this.auditTimer.unref()
+    if (this.impersonation) {
+      const watcher = this.impersonation
+      void (async () => {
+        // Accounts from before this feature (the PDS may start later)
+        for (let delay = 5_000; ; delay = Math.min(delay * 2, 300_000)) {
+          try {
+            await watcher.backfill()
+            break
+          } catch (err) {
+            console.error('Krao indexer: impersonation backfill failed', err)
+            await new Promise((resolve) => setTimeout(resolve, delay).unref())
+            if (!this.server?.listening) return
+          }
+        }
+        this.kickImpersonation()
+      })()
+      // Retries of Ozone calls
+      this.impersonationTimer = setInterval(
+        () => this.kickImpersonation(),
+        10_000,
+      )
+      this.impersonationTimer.unref()
+    }
     return this.server
   }
 
   async destroy(): Promise<void> {
     clearInterval(this.auditTimer)
+    clearInterval(this.impersonationTimer)
     await this.indexer.destroy()
     await this.safety.destroy()
     await this.tokens.destroy()

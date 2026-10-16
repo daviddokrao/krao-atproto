@@ -66,6 +66,19 @@ const indexer = await KraoIndexer.create({
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean),
+  // Impersonation checks (M35): verifications by these accounts count, and
+  // suspects are labeled and reported in Krao's Ozone (admin password)
+  trustedVerifierDids: (process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  ozone:
+    process.env.KRAO_OZONE_URL && process.env.KRAO_OZONE_ADMIN_PASSWORD
+      ? {
+          url: process.env.KRAO_OZONE_URL,
+          adminPassword: process.env.KRAO_OZONE_ADMIN_PASSWORD,
+        }
+      : undefined,
   // Token prices: Uniswap v3 pools on Base, read through KRAO_RPC_URLS
   tokens: {
     factory: process.env.KRAO_UNISWAP_V3_FACTORY || undefined,

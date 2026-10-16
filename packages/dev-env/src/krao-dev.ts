@@ -114,3 +114,83 @@ export async function publishKraoPermissionSets(
   }
   return { published, resolved }
 }
+
+/**
+ * Adds Krao's own labels (services/krao/labeler-labels.json, eg
+ * impersonation-suspect) to the dev-env labeler record (Ozone's account,
+ * mod-authority.test), as services/krao/set-labeler-labels.mjs does in
+ * production. Returns the label values the record lists.
+ */
+export async function addKraoLabels(network: TestNetwork): Promise<string[]> {
+  const extra = JSON.parse(
+    await readFile(repoFile('services/krao/labeler-labels.json'), 'utf8'),
+  ) as {
+    labelValues: string[]
+    labelValueDefinitions: { identifier: string }[]
+  }
+  const call = async (
+    method: string,
+    opts: { body?: unknown; query?: Record<string, string>; token?: string },
+  ) => {
+    const url = new URL(`/xrpc/${method}`, network.pds.url)
+    for (const [k, v] of Object.entries(opts.query ?? {})) {
+      url.searchParams.set(k, v)
+    }
+    const res = await fetch(url, {
+      method: opts.body ? 'POST' : 'GET',
+      headers: {
+        ...(opts.body ? { 'content-type': 'application/json' } : {}),
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, any>
+    if (!res.ok) throw new Error(`${method}: ${data.message ?? res.status}`)
+    return data
+  }
+  // The account OzoneServiceProfile creates (service-profile-ozone.ts)
+  const session = await call('com.atproto.server.createSession', {
+    body: { identifier: 'mod-authority.test', password: 'hunter2' },
+  })
+  const current = await call('com.atproto.repo.getRecord', {
+    query: {
+      repo: session.did,
+      collection: 'app.bsky.labeler.service',
+      rkey: 'self',
+    },
+  })
+  const record = current.value as {
+    policies: {
+      labelValues: string[]
+      labelValueDefinitions?: { identifier: string }[]
+    }
+  }
+  const labelValues = [
+    ...new Set([...record.policies.labelValues, ...extra.labelValues]),
+  ]
+  await call('com.atproto.repo.putRecord', {
+    token: session.accessJwt,
+    body: {
+      repo: session.did,
+      collection: 'app.bsky.labeler.service',
+      rkey: 'self',
+      record: {
+        ...record,
+        policies: {
+          ...record.policies,
+          labelValues,
+          labelValueDefinitions: [
+            ...(record.policies.labelValueDefinitions ?? []).filter(
+              (d) =>
+                !extra.labelValueDefinitions.some(
+                  (e) => e.identifier === d.identifier,
+                ),
+            ),
+            ...extra.labelValueDefinitions,
+          ],
+        },
+      },
+    },
+  })
+  return labelValues
+}

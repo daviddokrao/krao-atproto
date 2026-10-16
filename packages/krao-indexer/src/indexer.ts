@@ -65,6 +65,11 @@ import {
 import { deleteOrphanedMedia } from './gate-media.js'
 import type { HumanCheck } from './human.js'
 import {
+  type ImpersonationWatcher,
+  PROFILE_COLLECTION,
+  VERIFICATION_COLLECTION,
+} from './impersonation.js'
+import {
   type NameRpc,
   deletePrimaryName,
   markPrimaryNameStale,
@@ -222,6 +227,9 @@ export class FirehoseIndexer {
         PLAN_COLLECTION,
         PAYMENT_COLLECTION,
         MINIAPP_COLLECTION,
+        // Impersonation checks (M35): names, avatars and verifications
+        PROFILE_COLLECTION,
+        VERIFICATION_COLLECTION,
         ...(feed.did
           ? [
               FEED_GENERATOR_COLLECTION,
@@ -232,7 +240,10 @@ export class FirehoseIndexer {
             ]
           : []),
       ],
-      excludeIdentity: true,
+      // Handle changes, for impersonation checks (M35); handles are read
+      // from DID documents there, not verified here
+      excludeIdentity: false,
+      unauthenticatedHandles: true,
       excludeSync: true,
       getCursor: () => this.getCursor(),
       handleEvent: (evt) => this.handleEvent(evt),
@@ -311,6 +322,8 @@ export class FirehoseIndexer {
   ensRpc?: NameRpc
   /** What Mini App records must follow (Krao's web origins, dev mode) */
   miniAppRules: MiniAppRules = { webOrigins: [] }
+  /** Impersonation checks (M35); profiles and verifications are skipped without */
+  impersonation?: ImpersonationWatcher
 
   private destroyed = false
 
@@ -869,6 +882,16 @@ export class FirehoseIndexer {
             this.miniAppRules,
           ),
         )
+      } else if (
+        evt.collection === PROFILE_COLLECTION ||
+        evt.collection === VERIFICATION_COLLECTION
+      ) {
+        await this.impersonation?.onRecord(
+          evt.did,
+          evt.collection,
+          evt.uri.toString(),
+          evt.record,
+        )
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
         if (record.did === this.feed.did) {
@@ -935,7 +958,18 @@ export class FirehoseIndexer {
         await deleteFeedGenerator(this.db, evt.uri.toString())
       } else if (evt.collection === MINIAPP_COLLECTION) {
         await deleteMiniApp(this.db, evt.uri.toString())
+      } else if (
+        evt.collection === PROFILE_COLLECTION ||
+        evt.collection === VERIFICATION_COLLECTION
+      ) {
+        await this.impersonation?.onDelete(
+          evt.did,
+          evt.collection,
+          evt.uri.toString(),
+        )
       }
+    } else if (evt.event === 'identity') {
+      await this.impersonation?.onIdentity(evt.did)
     } else if (evt.event === 'account') {
       if (evt.active) {
         await this.db
@@ -985,6 +1019,7 @@ export class FirehoseIndexer {
         await deletePrimaryName(this.db, evt.did)
         await deleteAccountEventsForDid(this.db, evt.did)
         await deleteMiniAppsForDid(this.db, evt.did)
+        await this.impersonation?.onAccountDeleted(evt.did)
       }
     }
   }

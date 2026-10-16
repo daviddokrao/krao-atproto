@@ -1,0 +1,24 @@
+{
+  "labelValues": ["impersonation-suspect"],
+  "labelValueDefinitions": [
+    {
+      "identifier": "impersonation-suspect",
+      "severity": "inform",
+      "blurs": "none",
+      "defaultSetting": "warn",
+      "adultOnly": false,
+      "locales": [
+        {
+          "lang": "en",
+          "name": "Possible impersonation",
+          "description": "This account's name and picture or handle look like a verified account's. Krao checks this automatically; the account can appeal."
+        },
+        {
+          "lang": "vi",
+          "name": "Có thể mạo danh",
+          "description": "Tên và ảnh đại diện hoặc handle của tài khoản này giống một tài khoản đã xác minh. Krao kiểm tra tự động; chủ tài khoản có thể khiếu nại."
+        }
+      ]
+    }
+  ]
+}

@@ -581,7 +581,66 @@ export interface AdminAuditOutboxTable {
   error: string | null
 }
 
+/** Krao accounts' names and avatars, for impersonation checks (M35) */
+export interface ActorProfileTable {
+  did: string
+  handle: string | null
+  displayName: string | null
+  avatarCid: string | null
+  updatedAt: string
+}
+
+/** app.bsky.graph.verification records (any issuer; trusted ones count) */
+export interface VerificationTable {
+  uri: string
+  issuer: string
+  subject: string
+  handle: string
+  displayName: string
+  createdAt: string
+}
+
+/** Perceptual hashes of avatar blobs (hash null: the read failed) */
+export interface AvatarHashTable {
+  cid: string
+  hash: string | null
+  error: string | null
+  checkedAt: string
+}
+
+/** Accounts waiting for an impersonation check */
+export interface ImpersonationCheckTable {
+  did: string
+  queuedAt: string
+}
+
+/** Suspects: whether they should carry the label, and whether Ozone has it */
+export interface ImpersonationFlagTable {
+  did: string
+  targetDid: string
+  targetHandle: string | null
+  desired: number
+  applied: number
+  /** A report was filed in Ozone (once per account) */
+  reported: Generated<number>
+  attempts: number
+  nextAttemptAt: string
+  error: string | null
+  updatedAt: string
+}
+
+export interface ImpersonationStateTable {
+  key: string
+  value: string
+}
+
 export interface DatabaseSchema {
+  actor_profile: ActorProfileTable
+  verification: VerificationTable
+  avatar_hash: AvatarHashTable
+  impersonation_check: ImpersonationCheckTable
+  impersonation_flag: ImpersonationFlagTable
+  impersonation_state: ImpersonationStateTable
   admin_audit_outbox: AdminAuditOutboxTable
   miniapp: MiniAppTable
   nft_collection: NftCollectionTable
@@ -1172,6 +1231,64 @@ const migrations = {
       await sql`create index admin_audit_outbox_due_idx on admin_audit_outbox (nextAttemptAt) where sentAt is null`.execute(
         db,
       )
+    },
+  },
+  /** M35: impersonation checks (see impersonation.ts) */
+  '013-impersonation': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('actor_profile')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('handle', 'varchar')
+        .addColumn('displayName', 'varchar')
+        .addColumn('avatarCid', 'varchar')
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('verification')
+        .addColumn('uri', 'varchar', (col) => col.primaryKey())
+        .addColumn('issuer', 'varchar', (col) => col.notNull())
+        .addColumn('subject', 'varchar', (col) => col.notNull())
+        .addColumn('handle', 'varchar', (col) => col.notNull())
+        .addColumn('displayName', 'varchar', (col) => col.notNull())
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await sql`create index verification_issuer_idx on verification (issuer, subject)`.execute(
+        db,
+      )
+      await sql`create index verification_subject_idx on verification (subject)`.execute(
+        db,
+      )
+      await db.schema
+        .createTable('avatar_hash')
+        .addColumn('cid', 'varchar', (col) => col.primaryKey())
+        .addColumn('hash', 'varchar')
+        .addColumn('error', 'varchar')
+        .addColumn('checkedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('impersonation_check')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('queuedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('impersonation_flag')
+        .addColumn('did', 'varchar', (col) => col.primaryKey())
+        .addColumn('targetDid', 'varchar', (col) => col.notNull())
+        .addColumn('targetHandle', 'varchar')
+        .addColumn('desired', 'integer', (col) => col.notNull())
+        .addColumn('applied', 'integer', (col) => col.notNull())
+        .addColumn('reported', 'integer', (col) => col.notNull().defaultTo(0))
+        .addColumn('attempts', 'integer', (col) => col.notNull())
+        .addColumn('nextAttemptAt', 'varchar', (col) => col.notNull())
+        .addColumn('error', 'varchar')
+        .addColumn('updatedAt', 'varchar', (col) => col.notNull())
+        .execute()
+      await db.schema
+        .createTable('impersonation_state')
+        .addColumn('key', 'varchar', (col) => col.primaryKey())
+        .addColumn('value', 'varchar', (col) => col.notNull())
+        .execute()
     },
   },
 }
