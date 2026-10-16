@@ -215,6 +215,32 @@ describe('inspectSignature', () => {
     expect(hex.summary).toBe('hello')
   })
 
+  it('keeps long Vietnamese text within the output limits (UTF-8 bytes)', async () => {
+    const long = 'Tôi đồng ý với điều khoản. '.repeat(100)
+    const message = await inspect({ method: 'personal_sign', payload: long })
+    expect(Buffer.byteLength(message.summary!)).toBeLessThanOrEqual(1000)
+    expect(long.startsWith(message.summary!)).toBe(true)
+    const permit = await inspect(
+      typed(
+        {
+          name: 'Đồng tiền'.repeat(100),
+          chainId: 8453,
+          verifyingContract: PERMIT2,
+        },
+        'PermitSingle',
+        {
+          spender: SPENDER,
+          details: { token: usdc, amount: MAX160 },
+        },
+      ),
+    )
+    expect(Buffer.byteLength(permit.domain!.name!)).toBeLessThanOrEqual(256)
+    expect(Buffer.byteLength(permit.summary!)).toBeLessThanOrEqual(1000)
+    expect(permit.warnings).toEqual([
+      expect.objectContaining({ code: 'unlimitedApproval' }),
+    ])
+  })
+
   it('warns about signing bytes that are not text', async () => {
     const result = await inspect({
       method: 'personal_sign',

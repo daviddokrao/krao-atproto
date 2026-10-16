@@ -6,9 +6,9 @@
       "type": "permission-set",
       "title": "Krao web3",
       "title:lang": { "vi": "Krao web3" },
-      "detail": "Manage your linked wallets, NFT avatar, tips, memberships, polls, gated posts, communities and Mini Apps on Krao, and use Krao's wallet, rewards and account services for you.",
+      "detail": "Manage your linked wallets, NFT avatar, tips, memberships, polls, gated posts, communities and Mini Apps on Krao, and use Krao's wallet and rewards services for you. Not your phone number, identity verification, consents or data export.",
       "detail:lang": {
-        "vi": "Quản lý ví đã liên kết, avatar NFT, tip, hội viên, bình chọn, bài giới hạn, cộng đồng và Mini App của bạn trên Krao, và dùng các dịch vụ ví, phần thưởng, tài khoản của Krao thay bạn."
+        "vi": "Quản lý ví đã liên kết, avatar NFT, tip, hội viên, bình chọn, bài giới hạn, cộng đồng và Mini App của bạn trên Krao, và dùng các dịch vụ ví, phần thưởng của Krao thay bạn. Không gồm số điện thoại, xác minh danh tính, đồng ý hay xuất dữ liệu."
       },
       "permissions": [
         {
@@ -38,9 +38,6 @@
           "resource": "rpc",
           "inheritAud": true,
           "lxm": [
-            "net.krao.account.exportData",
-            "net.krao.account.getConsent",
-            "net.krao.account.recordConsent",
             "net.krao.community.getCommunity",
             "net.krao.community.getPendingMembers",
             "net.krao.community.listMyCommunities",
@@ -48,17 +45,10 @@
             "net.krao.gate.getContent",
             "net.krao.gate.putContent",
             "net.krao.gate.uploadMedia",
-            "net.krao.kyc.getBadgeVisibility",
-            "net.krao.kyc.getStatus",
-            "net.krao.kyc.setBadgeVisibility",
-            "net.krao.kyc.startVerification",
             "net.krao.membership.getPlans",
             "net.krao.membership.getStatus",
             "net.krao.membership.listMembers",
             "net.krao.membership.listMyMemberships",
-            "net.krao.phone.getStatus",
-            "net.krao.phone.requestCode",
-            "net.krao.phone.verifyCode",
             "net.krao.points.getBalance",
             "net.krao.points.listEntries",
             "net.krao.points.setLeaderboardOptIn",

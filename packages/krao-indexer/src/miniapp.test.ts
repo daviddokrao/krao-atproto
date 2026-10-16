@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Database, createDb, migrateDb } from './db.js'
+import { exportIndexerData } from './export.js'
 import {
   MINIAPP_COLLECTION,
   MiniAppError,
@@ -65,6 +66,7 @@ describe('Mini App URLs', () => {
   it('needs https on another origin than the web app', () => {
     expect(checkMiniAppUrl('https://vote.example.com/x?y=1', RULES)).toEqual({
       origin: 'https://vote.example.com',
+      href: 'https://vote.example.com/x?y=1',
     })
     expect(checkMiniAppUrl('http://vote.example.com/', RULES)).toHaveProperty(
       'reason',
@@ -91,6 +93,7 @@ describe('Mini App URLs', () => {
     const dev = { devMode: true, webOrigins: ['http://localhost:8081'] }
     expect(checkMiniAppUrl('http://localhost:2595/', dev)).toEqual({
       origin: 'http://localhost:2595',
+      href: 'http://localhost:2595/',
     })
     // Still not the web app's own origin, nor other plain http hosts
     expect(checkMiniAppUrl('http://localhost:8081/x', dev)).toHaveProperty(
@@ -144,6 +147,40 @@ describe('Mini App records', () => {
     expect(icon('image/png', 1000)).toBe('bafkreiabcdefghijklmnop')
     expect(icon('image/svg+xml', 1000)).toBeNull()
     expect(icon('image/png', 2_000_000)).toBeNull()
+  })
+
+  it('stores what fits the view: ASCII URLs, byte-limited text', () => {
+    const row = miniAppRowFromRecord(
+      uri('a'),
+      DEV,
+      'cid1',
+      record({ url: `https://bỏ-phiếu.example/${'đ'.repeat(300)}` }),
+      RULES,
+    )
+    expect(row.invalidReason).toBeNull()
+    expect(row.origin).toMatch(/^https:\/\/xn--[a-z0-9-]+\.example$/)
+    expect(row.url).toMatch(/^[\x21-\x7e]+$/)
+    expect(row.url.length).toBeLessThanOrEqual(2048)
+    // Too long once percent-encoded: invalid, not a view that cannot be sent
+    const long = miniAppRowFromRecord(
+      uri('b'),
+      DEV,
+      'cid1',
+      record({ url: `https://vote.example.com/${'đ'.repeat(2000)}` }),
+      RULES,
+    )
+    expect(long.invalidReason).toMatch(/url is longer/)
+    expect(Buffer.byteLength(long.url)).toBeLessThanOrEqual(2048)
+    const named = miniAppRowFromRecord(
+      uri('c'),
+      DEV,
+      'cid1',
+      record({ name: 'ệ'.repeat(600), description: 'ệ'.repeat(2000) }),
+      RULES,
+    )
+    expect(named.invalidReason).toMatch(/name/)
+    expect(Buffer.byteLength(named.name)).toBeLessThanOrEqual(640)
+    expect(Buffer.byteLength(named.description!)).toBeLessThanOrEqual(3000)
   })
 })
 
@@ -315,5 +352,27 @@ describe('Mini App review', () => {
     expect(await getMiniApp(db, uri('a'))).toBeUndefined()
     await deleteMiniAppsForDid(db, DEV)
     expect(await getMiniApp(db, uri('b'))).toBeUndefined()
+  })
+
+  it("is in the developer's data export, with its review", async () => {
+    await index('a', 'cid1')
+    await approveMiniApp(db, ADMIN, { uri: uri('a'), cid: 'cid1' }, safe)
+    const data = (await exportIndexerData(db, DEV, (id) => id)) as {
+      miniApps: Record<string, unknown>[]
+    }
+    expect(data.miniApps).toEqual([
+      expect.objectContaining({
+        uri: uri('a'),
+        cid: 'cid1',
+        name: 'Bỏ phiếu nhanh',
+        url: 'https://vote.example.com/app',
+        permissions: ['identity', 'wallet'],
+        approvedCid: 'cid1',
+      }),
+    ])
+    const other = (await exportIndexerData(db, ADMIN, (id) => id)) as {
+      miniApps: unknown[]
+    }
+    expect(other.miniApps).toEqual([])
   })
 })

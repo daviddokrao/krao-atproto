@@ -37,6 +37,7 @@ export type MiniAppRouteOptions = {
 
 const ICON_SIZE = 256
 const ICON_MAX_BYTES = 1_000_000
+const ICON_MAX_PIXELS = 4096 * 4096
 
 export function addMiniAppRoutes(
   server: Server,
@@ -170,7 +171,10 @@ export function addMiniAppIconRoute(
         const blob = await fetch(url, { signal: AbortSignal.timeout(10_000) })
         if (!blob.ok) throw new Error(`getBlob: HTTP ${blob.status}`)
         // Global fetch's Response, read the same way as safeFetch's
-        png = await sharp(await readLimited(blob as never, ICON_MAX_BYTES))
+        // A small file can still claim a huge image: bound the pixels too
+        png = await sharp(await readLimited(blob as never, ICON_MAX_BYTES), {
+          limitInputPixels: ICON_MAX_PIXELS,
+        })
           .resize(ICON_SIZE, ICON_SIZE, { fit: 'cover' })
           .png()
           .toBuffer()

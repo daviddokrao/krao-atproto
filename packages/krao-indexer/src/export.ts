@@ -33,7 +33,7 @@ export function withoutEmpty(value: unknown): unknown {
  * checked, plus the gated content it gave this service): linked wallets
  * and their verified Basename/ENS name,
  * tips sent and received, gate rules and gated content, NFT avatar,
- * community records, polls, membership plans and payments.
+ * community records, polls, membership plans and payments, Mini Apps.
  * `mediaUrl` signs links to its gated media.
  */
 export async function exportIndexerData(
@@ -62,6 +62,7 @@ export async function exportIndexerData(
     content,
     nftAvatar,
     primaryName,
+    miniApps,
   ] = await Promise.all([
     db
       .selectFrom('wallet')
@@ -120,6 +121,27 @@ export async function exportIndexerData(
       .where('did', '=', did)
       .where('name', 'is not', null)
       .executeTakeFirst(),
+    // Mini Apps the account publishes, with Krao's review of them
+    db
+      .selectFrom('miniapp')
+      .select([
+        'uri',
+        'cid',
+        'name',
+        'description',
+        'url',
+        'permissions',
+        'chains',
+        'invalidReason',
+        'approvedCid',
+        'approvedAt',
+        'revokedAt',
+        'revokedReason',
+        'createdAt',
+      ])
+      .where('did', '=', did)
+      .limit(MAX_ROWS)
+      .execute(),
   ])
   const tipView = (t: (typeof tipsSent)[number]) => ({
     uri: t.uri,
@@ -165,6 +187,11 @@ export async function exportIndexerData(
       updatedAt: c.updatedAt,
     })),
     nftAvatar: nftAvatar ?? null,
+    miniApps: miniApps.map((m) => ({
+      ...m,
+      permissions: parse(m.permissions),
+      chains: parse(m.chains),
+    })),
     ...(await exportCommunityData(db, did)),
     ...(await exportPollData(db, did)),
     ...(await exportMembershipData(db, did)),

@@ -1,5 +1,5 @@
 import { LINK_DOMAIN, LINK_STATEMENT, parseSignInMessage } from '@krao/wallet'
-import { hasControlChars } from './abi-decode.js'
+import { hasControlChars, utf8Prefix } from './abi-decode.js'
 import { EVM_ADDRESS_RE } from './address-check.js'
 import {
   type Approval,
@@ -175,7 +175,8 @@ export async function inspectSignature(
           'This is not readable text: it could be a hash that authorizes anything',
       })
     } else {
-      summary = text.slice(0, 1000)
+      // Output limits are UTF-8 bytes (a Vietnamese message is ~3 per letter)
+      summary = utf8Prefix(text, 1000)
       let siwe: ReturnType<typeof parseSignInMessage> | undefined
       try {
         siwe = parseSignInMessage(text)
@@ -202,7 +203,10 @@ export async function inspectSignature(
           warnings.push({
             code: 'walletProofPhishing',
             severity: 'danger',
-            message: `This sign-in message is for ${siwe.domain}, not the site asking`,
+            message: utf8Prefix(
+              `This sign-in message is for ${siwe.domain}, not the site asking`,
+              1000,
+            ),
           })
         }
         if (
@@ -229,7 +233,7 @@ export async function inspectSignature(
     const verifyingContract = asAddress(d.verifyingContract)
     const domainChain = asBigInt(d.chainId)
     domain = {
-      ...(typeof d.name === 'string' ? { name: d.name.slice(0, 256) } : {}),
+      ...(typeof d.name === 'string' ? { name: utf8Prefix(d.name, 256) } : {}),
       ...(domainChain !== undefined ? { chainId: domainChain.toString() } : {}),
       ...(verifyingContract ? { verifyingContract } : {}),
     }
@@ -299,7 +303,7 @@ export async function inspectSignature(
       kind = 'typedData'
     }
     summary = primaryType
-      ? `${typeof d.name === 'string' ? `${d.name.slice(0, 100)}: ` : ''}${primaryType.slice(0, 100)}`
+      ? `${typeof d.name === 'string' ? `${utf8Prefix(d.name, 300)}: ` : ''}${utf8Prefix(primaryType, 300)}`
       : undefined
   } else {
     throw new PreviewError(

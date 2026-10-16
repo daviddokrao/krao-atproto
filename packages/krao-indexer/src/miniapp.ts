@@ -1,5 +1,6 @@
 import { sql } from 'kysely'
 import { AtUri } from '@atproto/syntax'
+import { utf8Prefix } from './abi-decode.js'
 import type { Database, MiniAppTable } from './db.js'
 
 /*
@@ -24,6 +25,7 @@ export const MINIAPP_PERMISSIONS = [
 export const MINIAPP_CHAINS = ['eip155:8453']
 export const MINIAPP_NAME_MAX = 64
 export const MINIAPP_DESCRIPTION_MAX = 300
+export const MINIAPP_URL_MAX = 2048
 const ICON_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const ICON_MAX_BYTES = 1_000_000
 
@@ -49,12 +51,17 @@ export class MiniAppError extends Error {
 export function checkMiniAppUrl(
   raw: string,
   rules: MiniAppRules,
-): { origin: string } | { reason: string } {
+): { origin: string; href: string } | { reason: string } {
   let url: URL
   try {
     url = new URL(raw)
   } catch {
     return { reason: 'url is not a valid URL' }
+  }
+  // The normalized URL (ASCII: punycode host, percent-encoded path) is what
+  // is stored and shown, so it must fit the view's limit too
+  if (url.href.length > MINIAPP_URL_MAX) {
+    return { reason: `url is longer than ${MINIAPP_URL_MAX} characters` }
   }
   if (url.username || url.password) {
     return { reason: 'url may not contain credentials' }
@@ -77,7 +84,7 @@ export function checkMiniAppUrl(
   if (webOrigins.includes(url.origin)) {
     return { reason: "url may not be on Krao's own web app origin" }
   }
-  return { origin: url.origin }
+  return { origin: url.origin, href: url.href }
 }
 
 /** The CID of a blob ref, as the firehose (CID object) or JSON ($link) has it */
@@ -166,9 +173,11 @@ export function miniAppRowFromRecord(
     uri,
     did,
     cid,
-    name: name.slice(0, 640),
-    description: description?.slice(0, 3000) ?? null,
-    url: url.slice(0, 2048),
+    // Byte limits of net.krao.miniapp.defs#miniAppView: one row over them
+    // would fail every page it is on (eg the review queue)
+    name: utf8Prefix(name, 640),
+    description: description ? utf8Prefix(description, 3000) : null,
+    url: 'href' in checked ? checked.href : utf8Prefix(url, MINIAPP_URL_MAX),
     origin: 'origin' in checked ? checked.origin : '',
     iconCid: iconOk ? iconCid : null,
     iconMime: iconOk ? String(icon?.mimeType) : null,

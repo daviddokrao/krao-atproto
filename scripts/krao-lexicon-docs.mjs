@@ -235,6 +235,12 @@ export function render(lexicons = loadLexicons()) {
   )
 }
 
+/**
+ * Methods no permission set may grant to another app: the account's data
+ * export and consents, its phone number and identity verification
+ */
+const PRIVATE_METHODS = /^net\.krao\.(account|phone|kyc)\./
+
 /** Problems that make --check fail */
 export function check(lexicons = loadLexicons()) {
   const problems = []
@@ -266,6 +272,8 @@ export function check(lexicons = loadLexicons()) {
           problems.push(`${id}: ${item} is not a net.krao ${wanted.join('/')}`)
         } else if (item.includes('.admin.')) {
           problems.push(`${id}: ${item} is an admin method`)
+        } else if (PRIVATE_METHODS.test(item)) {
+          problems.push(`${id}: ${item} is only for Krao's own app`)
         }
       }
     }

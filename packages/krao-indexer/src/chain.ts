@@ -3,6 +3,8 @@
  * read calls the indexer needs, so no client library is pulled in.
  */
 
+import { readLimited } from './safe-fetch.js'
+
 /** keccak256("Transfer(address,address,uint256)") */
 const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -41,6 +43,9 @@ type Transaction = {
   value: string
 }
 
+/** The largest answer EvmRpc.request reads */
+export const RPC_REQUEST_MAX_BYTES = 8 * 1024 * 1024
+
 /** A JSON-RPC error the node answered with (not a transport failure) */
 export class RpcError extends Error {
   constructor(
@@ -55,14 +60,24 @@ export class RpcError extends Error {
 export class EvmRpc {
   constructor(private url: string) {}
 
-  private async call<T>(method: string, params: unknown[]): Promise<T> {
+  private async call<T>(
+    method: string,
+    params: unknown[],
+    maxBytes?: number,
+  ): Promise<T> {
     const res = await fetch(this.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       signal: AbortSignal.timeout(10_000),
     })
-    const body = (await res.json()) as {
+    const body = (
+      maxBytes === undefined
+        ? await res.json()
+        : JSON.parse(
+            (await readLimited(res as never, maxBytes)).toString('utf8'),
+          )
+    ) as {
       result?: T
       error?: { message: string; code?: number; data?: unknown }
     }
@@ -78,10 +93,11 @@ export class EvmRpc {
 
   /**
    * Any JSON-RPC method (eg debug_traceCall); node errors throw RpcError,
-   * transport failures other errors
+   * transport failures and answers over RPC_REQUEST_MAX_BYTES other errors
+   * (calls and traces of user-given transactions can answer with a lot)
    */
   request<T>(method: string, params: unknown[]): Promise<T> {
-    return this.call<T>(method, params)
+    return this.call<T>(method, params, RPC_REQUEST_MAX_BYTES)
   }
 
   /** Native coin balance at the latest block */

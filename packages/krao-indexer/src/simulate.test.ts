@@ -1,10 +1,14 @@
+import { once } from 'node:events'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { decodeAbiString, decodeRevertData, eventTopic } from './abi-decode.js'
-import { RpcError } from './chain.js'
+import { EvmRpc, RPC_REQUEST_MAX_BYTES, RpcError } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import {
   type CallFrame,
   PERMIT2,
+  PREVIEW_GAS_CAP,
   PreviewError,
   SELECTORS,
   TOPICS,
@@ -626,5 +630,142 @@ describe('simulate', () => {
     await expect(simulate(rpc, { data: '0xzz' })).rejects.toBeInstanceOf(
       PreviewError,
     )
+  })
+
+  it('caps the gas and time the node may spend', async () => {
+    const seen: unknown[][] = []
+    const { rpc } = fakeRpc({
+      debug_traceCall: (params) => {
+        seen.push(params)
+        return { type: 'CALL', from: USER, to: OTHER, gasUsed: '0x5208' }
+      },
+      eth_getCode: () => '0x',
+    })
+    await simulate(rpc, { value: '1' })
+    const [tx, , config] = seen[0] as [
+      { gas: string },
+      string,
+      { timeout: string },
+    ]
+    expect(BigInt(tx.gas)).toBe(PREVIEW_GAS_CAP)
+    expect(config.timeout).toBe('5s')
+  })
+
+  it('keeps contract-made text within the output limits', async () => {
+    const token = addr(0xcc)
+    const longText = 'ệ'.repeat(300)
+    const { rpc } = fakeRpc({
+      // A token whose symbol and name are long multi-byte strings
+      debug_traceCall: () => ({
+        type: 'CALL',
+        from: USER,
+        to: token,
+        gasUsed: '0x5208',
+        logs: [
+          {
+            address: token,
+            topics: [TOPICS.approval, '0x' + pad(USER), '0x' + pad(OTHER)],
+            data: '0x' + pad(MAX),
+          },
+        ],
+      }),
+      eth_getCode: () => '0x6080',
+      tryCall: ([, data]) =>
+        (data as string).startsWith('0x95d89b41') || // symbol()
+        (data as string).startsWith('0x06fdde03') // name()
+          ? encodeAbiStringForTest(longText)
+          : null,
+    })
+    const result = await simulate(rpc, { to: token })
+    const info = result.approvals[0].token
+    expect(Buffer.byteLength(info.symbol!)).toBeLessThanOrEqual(64)
+    expect(Buffer.byteLength(info.name!)).toBeLessThanOrEqual(256)
+    expect(result.warnings[0]).toMatchObject({ code: 'unlimitedApproval' })
+    // A revert with a long reason
+    const { rpc: reverting } = fakeRpc({
+      debug_traceCall: () => ({
+        type: 'CALL',
+        from: USER,
+        to: OTHER,
+        error: 'execution reverted',
+        revertReason: longText,
+      }),
+      eth_getCode: () => '0x',
+    })
+    const reverted = await simulate(reverting, {})
+    expect(Buffer.byteLength(reverted.revertReason!)).toBeLessThanOrEqual(1000)
+    expect(
+      Buffer.byteLength(reverted.warnings[0].message!),
+    ).toBeLessThanOrEqual(1000)
+  })
+
+  it('warns when the account is already delegated to an unknown contract', async () => {
+    const delegate = addr(0xdd)
+    const code = (address: unknown) =>
+      address === USER ? '0xef0100' + delegate.slice(2) : '0x'
+    const traced = fakeRpc({
+      debug_traceCall: () => ({
+        type: 'CALL',
+        from: USER,
+        to: OTHER,
+        gasUsed: '0x5208',
+      }),
+      eth_getCode: ([address]) => code(address),
+    })
+    expect((await simulate(traced.rpc, { value: '1' })).warnings).toEqual([
+      expect.objectContaining({
+        code: 'eip7702Delegation',
+        severity: 'warning',
+        address: delegate,
+      }),
+    ])
+    // Only decoded: what the delegate's code does is not seen
+    const decoded = fakeRpc({
+      eth_call: () => '0x',
+      eth_getCode: ([address]) => code(address),
+    })
+    expect((await simulate(decoded.rpc, { value: '1' })).warnings).toEqual([
+      expect.objectContaining({
+        code: 'eip7702Delegation',
+        severity: 'danger',
+        address: delegate,
+      }),
+    ])
+    // A delegate Krao trusts
+    expect(
+      (
+        await simulate(
+          decoded.rpc,
+          { value: '1' },
+          { knownDelegates: [delegate] },
+        )
+      ).warnings,
+    ).toEqual([])
+  })
+})
+
+describe('EvmRpc.request', () => {
+  it('refuses answers that are too large', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          result: 'x'.repeat(RPC_REQUEST_MAX_BYTES),
+        }),
+      )
+    })
+    server.listen(0)
+    await once(server, 'listening')
+    const { port } = server.address() as AddressInfo
+    try {
+      const rpc = new EvmRpc(`http://127.0.0.1:${port}`)
+      await expect(rpc.request('debug_traceCall', [])).rejects.toThrow(
+        /too large/,
+      )
+    } finally {
+      server.close()
+    }
   })
 })

@@ -100,6 +100,23 @@ export function hasControlChars(text: string): boolean {
   return false
 }
 
+/**
+ * The longest prefix of `text` that fits in `maxBytes` of UTF-8 (lexicon
+ * string maxLength counts UTF-8 bytes, not UTF-16 units)
+ */
+export function utf8Prefix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
+  let out = ''
+  let bytes = 0
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8')
+    if (bytes + size > maxBytes) break
+    out += char
+    bytes += size
+  }
+  return out
+}
+
 const ERROR_SELECTOR = selector('Error(string)')
 const PANIC_SELECTOR = selector('Panic(uint256)')
 

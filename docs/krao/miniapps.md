@@ -154,8 +154,9 @@ Apps that sign users in with OAuth can ask for Krao's permission sets:
 
 - `include:net.krao.authWeb3` (with `?aud=` the Krao service DID for its RPC
   part): the user's wallets, NFT avatar, tips, memberships, polls, gated
-  posts, communities and Mini App records, and Krao's wallet, rewards and
-  account methods.
+  posts, communities and Mini App records, and Krao's wallet and rewards
+  methods. Not the account's phone number, identity verification (KYC),
+  consents or data export: those stay with Krao's own app.
 - `include:net.krao.authMiniApp`: only creating poll votes and tips.
 
 The PDS resolves `net.krao.*` lexicons through DNS (`_lexicon.krao.net`, see

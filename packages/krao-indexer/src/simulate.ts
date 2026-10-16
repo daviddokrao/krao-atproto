@@ -8,6 +8,7 @@ import {
   topicAddress,
   uintArrayAt,
   uintAt,
+  utf8Prefix,
 } from './abi-decode.js'
 import { EVM_ADDRESS_RE, checkAddresses } from './address-check.js'
 import { type EvmRpc, RpcError } from './chain.js'
@@ -36,6 +37,13 @@ const WETH_ADDRESS = '0x4200000000000000000000000000000000000006'
 export const UNLIMITED_UINT256 = 1n << 255n
 /** Permit2 amounts are uint160 */
 export const UNLIMITED_UINT160 = 1n << 159n
+/**
+ * The gas a previewed transaction may use: EIP-7825's per-transaction cap,
+ * so a user-given call cannot make the node trace a whole block's worth
+ */
+export const PREVIEW_GAS_CAP = 1n << 24n
+/** How long the node may trace (geth's tracer timeout) */
+const TRACE_TIMEOUT = '5s'
 
 export const SELECTORS = {
   transfer: selector('transfer(address,uint256)'),
@@ -613,8 +621,8 @@ export class TokenLookup {
           lower(r.address),
           {
             address: lower(r.address),
-            symbol: r.symbol,
-            name: r.name,
+            symbol: utf8Prefix(r.symbol, 64),
+            name: utf8Prefix(r.name, 256),
             decimals: r.decimals,
           },
         ]),
@@ -664,7 +672,9 @@ export class TokenLookup {
     const known = catalog.get(address)
     if (known) return known
     const collection = collections.get(address)
-    if (collection?.name) return { address, name: collection.name }
+    if (collection?.name) {
+      return { address, name: utf8Prefix(collection.name, 256) }
+    }
     const cached = this.onchain.get(address)
     if (cached && Date.now() - cached.at < 60 * 60 * 1000) return cached.info
     const [symbol, name, decimals] = await Promise.all([
@@ -675,11 +685,13 @@ export class TokenLookup {
     const d = decimals && strip(decimals).length === 64 ? BigInt(decimals) : -1n
     const info: TokenInfo = {
       address,
+      // Byte limits of net.krao.wallet.defs#tokenInfo: a token with a longer
+      // name must not make the whole preview fail
       ...(decodeAbiString(symbol)
-        ? { symbol: decodeAbiString(symbol)!.slice(0, 64) }
+        ? { symbol: utf8Prefix(decodeAbiString(symbol)!, 64) }
         : {}),
       ...(decodeAbiString(name)
-        ? { name: decodeAbiString(name)!.slice(0, 256) }
+        ? { name: utf8Prefix(decodeAbiString(name)!, 256) }
         : {}),
       ...(d >= 0n && d <= 255n ? { decimals: Number(d) } : {}),
     }
@@ -868,6 +880,7 @@ export async function simulateTransaction(
     from,
     to,
     data,
+    gas: '0x' + PREVIEW_GAS_CAP.toString(16),
     ...(value ? { value: '0x' + value.toString(16) } : {}),
   }
 
@@ -881,7 +894,11 @@ export async function simulateTransaction(
     const trace = await rpc.request<CallFrame>('debug_traceCall', [
       call,
       'latest',
-      { tracer: 'callTracer', tracerConfig: { withLog: true } },
+      {
+        tracer: 'callTracer',
+        tracerConfig: { withLog: true },
+        timeout: TRACE_TIMEOUT,
+      },
     ])
     if (!trace || typeof trace !== 'object') throw new Error('No trace')
     const traced = parseTrace(trace, from)
@@ -923,6 +940,10 @@ export async function simulateTransaction(
     }
   }
 
+  // The contract's (or node's) own text, of any length: it must fit the
+  // output and the warning below (UTF-8 bytes)
+  if (revertReason) revertReason = utf8Prefix(revertReason, 900)
+
   const tokens = new TokenLookup(opts.db, unavailable ? undefined : rpc)
   const approvals = await finishApprovals(drafts.approvals, tokens)
   const changes = await finishChanges(drafts.changes, tokens)
@@ -954,6 +975,22 @@ export async function simulateTransaction(
       address: delegate,
     })
   }
+  // An account already delegated (EIP-7702) runs its delegate's code
+  const current = unavailable ? undefined : await delegateOf(rpc, from)
+  if (
+    current &&
+    !knownDelegates.has(current) &&
+    !authorizations.includes(current)
+  ) {
+    warnings.push({
+      code: 'eip7702Delegation',
+      // A trace shows what that code does here; a decoded call does not
+      severity: method === 'trace' ? 'warning' : 'danger',
+      message:
+        'Your account is already run by a contract Krao does not know: it can move your assets',
+      address: current,
+    })
+  }
   warnings.push(
     ...(await commonWarnings(opts.db, {
       origin: input.origin,
@@ -983,7 +1020,7 @@ export async function simulateTransaction(
   const usdOut = await usdOf(opts.db, changes)
   return {
     ok,
-    ...(revertReason ? { revertReason: revertReason.slice(0, 1000) } : {}),
+    ...(revertReason ? { revertReason } : {}),
     method,
     changes,
     approvals,
@@ -991,6 +1028,20 @@ export async function simulateTransaction(
     ...(gas !== undefined ? { gasEstimate: gas.toString() } : {}),
     ...(usdOut ? { usdOut } : {}),
   }
+}
+
+/** The EIP-7702 delegate of an account (code 0xef0100 + address), if any */
+export async function delegateOf(
+  rpc: PreviewRpc,
+  account: string,
+): Promise<string | undefined> {
+  const code = await rpc
+    .request<string>('eth_getCode', [account, 'latest'])
+    .catch(() => undefined)
+  const hex = typeof code === 'string' ? strip(code) : ''
+  return hex.length === 46 && hex.startsWith('ef0100')
+    ? '0x' + hex.slice(6)
+    : undefined
 }
 
 async function isKnownContract(
