@@ -119,9 +119,12 @@
             "account.created",
             "kyc.approved",
             "wallet.linked",
-            "post.first"
+            "post.first",
+            "community.joined",
+            "active.30d",
+            "tip.first"
           ],
-          "description": "What triggers the rule. wallet.linked (first verified wallet) and post.first (first post) happen once per account."
+          "description": "What triggers the rule. wallet.linked (first verified wallet), post.first (first post), community.joined (first accepted membership of someone else's community with at least 3 other members), active.30d (active on 20 of its first 30 days) and tip.first (first verified tip sent) happen once per account."
         },
         "beneficiary": {
           "type": "string",

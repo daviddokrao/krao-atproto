@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.nft.listCollections",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Krao's approved NFT collections, the most recently added first. Public.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["collections"],
+          "properties": {
+            "collections": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.nft.defs#collectionView"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

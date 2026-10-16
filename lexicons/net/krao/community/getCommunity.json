@@ -21,6 +21,11 @@
             "community": {
               "type": "ref",
               "ref": "net.krao.community.defs#communityView"
+            },
+            "feedGeneratorDid": {
+              "type": "string",
+              "format": "did",
+              "description": "The DID a community feed generator record (app.bsky.feed.generator, rkey community-<slug>) must name to be served: the indexer's feed generator DID. Absent when the indexer serves no feeds."
             }
           }
         }

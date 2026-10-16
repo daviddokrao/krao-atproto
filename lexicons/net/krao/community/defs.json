@@ -78,6 +78,11 @@
         },
         "createdAt": { "type": "string", "format": "datetime" },
         "indexedAt": { "type": "string", "format": "datetime" },
+        "feed": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The community's feed generator (rkey community-<slug> in the owner's repo, served by the indexer), when the owner published one. It lists the community's public posts."
+        },
         "viewer": { "type": "ref", "ref": "#viewerState" }
       }
     },

@@ -1,0 +1,24 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.analytics.getSummary",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Headline numbers: accounts (created through sign-up and not taken down or deleted), and accounts active today, in the last 7 and the last 30 days (Vietnam time, today included). Rewards admins only (service auth).",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["accounts", "activeToday", "active7d", "active30d"],
+          "properties": {
+            "accounts": { "type": "integer", "minimum": 0 },
+            "activeToday": { "type": "integer", "minimum": 0 },
+            "active7d": { "type": "integer", "minimum": 0 },
+            "active30d": { "type": "integer", "minimum": 0 },
+            "posts7d": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

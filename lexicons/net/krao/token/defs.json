@@ -44,6 +44,11 @@
           "type": "string",
           "format": "datetime",
           "description": "When the price was read."
+        },
+        "holderFeed": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The 'holders of this token' feed generator (rkey holders-<symbol in lower case>), when one is published for the indexer."
         }
       }
     },
