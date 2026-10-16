@@ -26,6 +26,8 @@ exit non-zero on any failure.
 | `safety.mjs`          | M27       | Phishing link checks and admin list, unsafe posts out of Popular, address owners, verification badge, seed phrases refused in chat, human badge |
 | `community.mjs`       | M29       | NFT-gated community, member-only posts, community feed, moderator hides, bans, approvals                                                        |
 | `poll.mjs`            | M29       | One vote per account, verified-only polls, token polls weighted at a snapshot block, deadlines, hidden results                                  |
+| `search.mjs`          | M30       | Accent-insensitive search: "tien ao" finds "tiền ảo", đ as d, phrase ranked first, accounts by display name                                     |
+| `token.mjs`           | M30       | Token catalog, ETH price from a Uniswap v3 pool on the fork, price history, $ETH cashtag feed, NotFound, admin put/remove                       |
 
 Posting and chat need a verified phone in the dev-env: `login()` (and the
 groups' sign-up helpers) verify one through the real flow, reading the code
