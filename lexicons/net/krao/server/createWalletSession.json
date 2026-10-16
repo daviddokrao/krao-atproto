@@ -16,7 +16,7 @@
               "ref": "net.krao.chain.defs#accountId"
             },
             "message": { "type": "string", "maxLength": 4000 },
-            "signature": { "type": "string", "maxLength": 1024 },
+            "signature": { "type": "string", "maxLength": 8192 },
             "authFactorToken": { "type": "string" }
           }
         }
