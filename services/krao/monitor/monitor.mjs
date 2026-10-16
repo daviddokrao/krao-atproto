@@ -39,6 +39,8 @@ import {
 } from './checks.mjs'
 
 const env = process.env
+/** Alerts kept for a webhook that does not take them */
+const MAX_UNSENT = 100
 const num = (name, fallback) =>
   env[name] !== undefined && env[name] !== '' ? Number(env[name]) : fallback
 
@@ -168,6 +170,8 @@ export function startMonitor(cfg) {
   const round = async () => {
     const results = await runChecks(cfg)
     unsent.push(...tracker.update(results))
+    // A webhook down for long must not grow this without end: keep the latest
+    if (unsent.length > MAX_UNSENT) unsent = unsent.slice(-MAX_UNSENT)
     if (unsent.length && (await sendAlert(unsent, cfg.alert))) unsent = []
   }
   const loop = async () => {

@@ -117,7 +117,10 @@ export async function verifyAccountSignature(
  *    the deployment in an eth_call.
  *
  * Returns false for invalid signatures; throws (RpcTransportError, or
- * RpcResponseError other than a revert) when the chain could not answer.
+ * an RpcResponseError of a limited or broken node) when the chain could not
+ * answer. A contract that fails its call (revert, out of gas, bad opcode)
+ * is a "no", never an error: a contract must not be able to make callers
+ * retry forever.
  */
 export async function verifyEvmHashSignature(params: {
   address: string
@@ -213,6 +216,12 @@ function isValidSignatureCalldata(hash: Uint8Array, sig: Uint8Array) {
   ])
 }
 
+/**
+ * Gas for each eth_call (3M): enough to deploy a wallet and check a signature,
+ * not enough for a contract to spend a node's whole call budget.
+ */
+const CALL_GAS = '0x2dc6c0'
+
 /** The ERC-1271 answer is the magic value, left aligned in a 32 byte word */
 function isMagicWord(word: Uint8Array): boolean {
   return (
@@ -227,10 +236,12 @@ async function ethCall(
   tx: { to?: string; data: string },
 ): Promise<Uint8Array | null> {
   try {
-    const result = await rpc('eth_call', [tx, 'latest'])
+    const result = await rpc('eth_call', [{ ...tx, gas: CALL_GAS }, 'latest'])
     return typeof result === 'string' ? hexToBytes(result) : null
   } catch (err) {
-    if (err instanceof RpcResponseError && err.isRevert) return null
+    // The node answered about the call: anything but a node problem is the
+    // contract's (or the signature's) doing
+    if (err instanceof RpcResponseError && !err.isNodeProblem) return null
     throw err
   }
 }

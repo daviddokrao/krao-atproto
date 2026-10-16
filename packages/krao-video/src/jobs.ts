@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, openAsBlob } from 'node:fs'
-import { access, mkdir, rename, rm } from 'node:fs/promises'
+import { access, mkdir, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { cidForRawHash, getBlobCidString, xrpc } from '@atproto/lex'
 import {
@@ -112,6 +112,11 @@ export class JobQueue {
     private limits: ProcessingLimits,
     private concurrency: number,
     private store: JobStore,
+    /** The daily allowance: resumed jobs count again, and are refunded */
+    private quota?: {
+      charge(did: string, bytes: number): void
+      release(did: string, bytes: number): void
+    },
   ) {}
 
   get(jobId: string): JobStatus | undefined {
@@ -183,6 +188,11 @@ export class JobQueue {
       } else if (!(await exists(stored.source))) {
         await this.giveUp(job, 'The uploaded video is gone')
       } else {
+        // Allowances are counted in memory: count this one again for today,
+        // and give it back if the job fails, as for a new upload
+        const { size } = await stat(stored.source)
+        this.quota?.charge(job.did, size)
+        job.onFailed = () => this.quota?.release(job.did, size)
         this.update(job.jobId, { state: 'JOB_STATE_CREATED' })
         this.queue.push(job)
         resumed.push(job.jobId)
@@ -208,7 +218,21 @@ export class JobQueue {
       failureCode: 'generic_failure',
       error,
     })
-    await rm(job.workDir, { recursive: true, force: true })
+    await this.removeWorkDir(job.workDir)
+  }
+
+  /**
+   * Removes a job's upload folder, which must be under `<dataDir>/uploads`:
+   * the path comes from the job store, so it is checked before deleting.
+   */
+  private async removeWorkDir(workDir: string) {
+    const uploads = path.join(path.resolve(this.dataDir), 'uploads') + path.sep
+    const dir = path.resolve(workDir)
+    if (!dir.startsWith(uploads) || dir.length <= uploads.length) {
+      console.error(`krao-video: not removing ${workDir}, outside the uploads`)
+      return
+    }
+    await rm(dir, { recursive: true, force: true })
   }
 
   /**
@@ -280,7 +304,7 @@ export class JobQueue {
         error: failure.message,
       })
     }
-    await rm(job.workDir, { recursive: true, force: true })
+    await this.removeWorkDir(job.workDir)
   }
 
   /** The processing itself: probe, mp4, HLS, PDS upload; returns the blob */

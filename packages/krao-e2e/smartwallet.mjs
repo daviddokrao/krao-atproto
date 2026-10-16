@@ -9,6 +9,7 @@ import {
   coinbaseReplaySafeHash,
   coinbaseSignature,
   coinbaseUndeployedSignature,
+  wrapErc6492Signature,
   hashEvmMessage,
   hexToBytes,
   readAddress,
@@ -17,6 +18,7 @@ import { secp256k1 } from '@noble/curves/secp256k1'
 import * as ui8 from 'uint8arrays'
 import {
   INDEXER,
+  USDC,
   PDS,
   SIGNUP_CODE,
   checker,
@@ -86,6 +88,15 @@ async function smartWallet() {
     signForged: (message) =>
       coinbaseSignature({
         ownerSignature: ownerSign(message, secp256k1.utils.randomPrivateKey()),
+      }),
+    /** Wrapped for ERC-6492 with another key, or through another factory */
+    signUndeployedWith: (message, { key: signer = key, factory } = {}) =>
+      wrapErc6492Signature({
+        factory: factory ?? COINBASE_SMART_WALLET_FACTORY,
+        factoryCalldata: coinbaseCreateAccountCalldata([owner.address], 0),
+        signature: coinbaseSignature({
+          ownerSignature: ownerSign(message, signer),
+        }),
       }),
   }
   return w
@@ -226,4 +237,41 @@ check(
   statusC?.status === 'invalid',
   JSON.stringify(statusC),
 )
+
+// 4. Undeployed wallets: forged ERC-6492 signatures, checked on the fork
+const d = await smartWallet()
+const forged6492 = [
+  [
+    'a 6492 signature by a key that does not own the wallet',
+    (m) => d.signUndeployedWith(m, { key: secp256k1.utils.randomPrivateKey() }),
+  ],
+  [
+    'a 6492 signature whose factory is an account, not a factory',
+    (m) => d.signUndeployedWith(m, { factory: FUNDER }),
+  ],
+  [
+    'a 6492 signature whose factory reverts',
+    (m) => d.signUndeployedWith(m, { factory: USDC }),
+  ],
+]
+for (const [name, sign] of forged6492) {
+  const res = await walletLogin(d, sign)
+  check(
+    `${name} is rejected`,
+    !res.ok && res.data.error === 'InvalidSignature',
+    res.data.error,
+  )
+}
+check(
+  'the forged signatures deployed nothing',
+  (await rpc('eth_getCode', [d.address, 'latest'])) === '0x',
+)
+// The real one (not linked anywhere) gets past the signature check
+const real6492 = await walletLogin(d)
+check(
+  'its real 6492 signature passes the signature check',
+  !real6492.ok && real6492.data.error === 'WalletNotLinked',
+  real6492.data.error,
+)
+
 done()

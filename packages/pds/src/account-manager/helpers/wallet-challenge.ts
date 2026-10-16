@@ -35,3 +35,19 @@ export const consume = async (
   )
   return rows.length > 0
 }
+
+/** Whether an unexpired challenge exists for `nonce` and `account` */
+export const exists = async (
+  db: AccountDb,
+  nonce: string,
+  account: string,
+): Promise<boolean> => {
+  const row = await db.db
+    .selectFrom('wallet_challenge')
+    .select('nonce')
+    .where('nonce', '=', nonce)
+    .where('account', '=', account)
+    .where('expiresAt', '>', new Date().toISOString())
+    .executeTakeFirst()
+  return !!row
+}

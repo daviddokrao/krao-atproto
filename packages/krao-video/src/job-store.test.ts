@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -10,6 +10,7 @@ import {
   MAX_JOB_ATTEMPTS,
   type VideoJob,
 } from './jobs.js'
+import { DEFAULT_LIMITS, Quotas } from './uploads.js'
 
 const BLOB = lexParse(
   JSON.stringify({
@@ -45,7 +46,7 @@ let dir: string
 let dbFile: string
 const stores: JobStore[] = []
 
-function queue() {
+function queue(quotas?: Quotas) {
   const store = new JobStore(dbFile)
   stores.push(store)
   return new TestQueue(
@@ -54,6 +55,7 @@ function queue() {
     { maxDurationSec: 180 },
     1,
     store,
+    quotas,
   )
 }
 
@@ -163,5 +165,52 @@ describe('persistent job queue', () => {
       state: 'JOB_STATE_FAILED',
       error: 'The uploaded video is gone',
     })
+  })
+
+  it('counts a resumed job against the allowance, refunded if it fails', async () => {
+    const first = queue()
+    first.add(await job('a'))
+    await tick()
+    first.close()
+
+    // A restart starts the day's counts over
+    const quotas = new Quotas({
+      ...DEFAULT_LIMITS,
+      dailyVideos: 5,
+      dailyBytes: 1000,
+    })
+    const second = queue(quotas)
+    expect(await second.resume()).toEqual(['a'])
+    // 'video bytes' is 11 bytes
+    expect(quotas.remaining('did:plc:alice')).toEqual({ videos: 4, bytes: 989 })
+    await tick()
+    second.finish('a', false)
+    await tick()
+    expect(second.get('a')?.state).toBe('JOB_STATE_FAILED')
+    expect(quotas.remaining('did:plc:alice')).toEqual({
+      videos: 5,
+      bytes: 1000,
+    })
+  })
+
+  it('only removes job folders under <dataDir>/uploads', async () => {
+    const outside = path.join(dir, 'precious')
+    await mkdir(outside, { recursive: true })
+    const source = path.join(outside, 'source')
+    await writeFile(source, 'video bytes')
+    const q = queue()
+    q.add({
+      jobId: 'x',
+      did: 'did:plc:alice',
+      source,
+      workDir: outside,
+      pdsUrl: 'http://localhost:2583',
+      token: 'token',
+    })
+    await tick()
+    q.finish('x', false)
+    await tick()
+    expect(q.get('x')?.state).toBe('JOB_STATE_FAILED')
+    await expect(access(source)).resolves.toBeUndefined()
   })
 })

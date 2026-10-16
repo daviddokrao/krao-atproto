@@ -126,7 +126,7 @@ export const kraoText = {
   kycBody: (lang: Lang, approved: boolean) =>
     approved
       ? lang === 'vi'
-        ? 'Điểm giới thiệu đang chờ giờ có thể được duyệt.'
+        ? 'Điểm giới thiệu đang chờ của bạn giờ đã có thể được duyệt.'
         : 'Pending referral points can now be approved.'
       : lang === 'vi'
         ? 'Mở Krao để xem cần làm gì tiếp theo.'

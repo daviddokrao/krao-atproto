@@ -438,6 +438,84 @@ describe('verifyEvmHashSignature', () => {
   })
 })
 
+describe('contract wallets that misbehave', () => {
+  const hash = hashEvmMessage('hello')
+  const signature = '0x' + '00'.repeat(200)
+  const address = '0x' + 'cd'.repeat(20)
+  /** A deployed contract whose eth_call fails with `error` */
+  const failingCall =
+    (error: Error, seen: unknown[] = []): EvmJsonRpc =>
+    async (method, params) => {
+      if (method === 'eth_getCode') return '0x6080'
+      seen.push(params[0])
+      throw error
+    }
+
+  it('treats any failed execution as an invalid signature', async () => {
+    for (const error of [
+      new RpcResponseError('execution reverted', 3),
+      new RpcResponseError('out of gas', -32000),
+      new RpcResponseError('invalid opcode: INVALID', -32000),
+      new RpcResponseError('stack underflow', -32000),
+      new RpcResponseError('execution timeout', -32015),
+      new RpcResponseError('out of gas', -32603),
+      new RpcResponseError('something odd', -32000),
+    ]) {
+      expect(
+        await verifyEvmHashSignature({
+          address,
+          hash,
+          signature,
+          rpc: failingCall(error),
+        }),
+      ).toBe(false)
+    }
+  })
+
+  it('throws only when the node is limited or broken', async () => {
+    for (const error of [
+      new RpcResponseError('limit exceeded', -32005),
+      new RpcResponseError('internal error', -32603),
+      new RpcTransportError('eth_call: HTTP 503'),
+    ]) {
+      await expect(
+        verifyEvmHashSignature({
+          address,
+          hash,
+          signature,
+          rpc: failingCall(error),
+        }),
+      ).rejects.toBe(error)
+    }
+  })
+
+  it('caps the gas of every call', async () => {
+    const seen: unknown[] = []
+    await verifyEvmHashSignature({
+      address,
+      hash,
+      signature,
+      rpc: failingCall(new RpcResponseError('execution reverted', 3), seen),
+    })
+    expect(seen).toEqual([expect.objectContaining({ gas: '0x2dc6c0' })])
+  })
+
+  it('reads HTTP 429 and 5xx as the node being unreachable', async () => {
+    for (const status of [429, 502]) {
+      const rpc = httpJsonRpc('http://rpc.test', {
+        fetch: (async () =>
+          Response.json(
+            { jsonrpc: '2.0', id: 1, error: { code: 3, message: 'revert' } },
+            { status },
+          )) as typeof fetch,
+      })
+      await expect(rpc('eth_call', [])).rejects.toBeInstanceOf(
+        RpcTransportError,
+      )
+    }
+  })
+})
+
 describe('verifyWalletProof with contract wallets', () => {
   it('links a smart wallet on the RPC chain only', async () => {
     const o = owner()

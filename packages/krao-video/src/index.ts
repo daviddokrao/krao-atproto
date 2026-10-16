@@ -84,6 +84,7 @@ export class KraoVideo {
       cfg.concurrency ??
         Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2))),
       jobStore,
+      quotas,
     )
     const auth = new VideoAuth(
       idResolver,

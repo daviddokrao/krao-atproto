@@ -197,6 +197,7 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
           ? {
               url: env.kraoEvmRpcUrl,
               chainId: `eip155:${env.kraoEvmChainId ?? 8453}`,
+              checksPerIp: env.kraoContractChecksPerIp ?? 20,
             }
           : undefined,
       }
@@ -565,7 +566,12 @@ export type KraoConfig = {
    * JSON-RPC endpoint of one EVM chain (CAIP-2 id, default Base), to check
    * signatures of smart contract wallets. Plain wallets need none.
    */
-  evmRpc?: { url: string; chainId: string }
+  evmRpc?: {
+    url: string
+    chainId: string
+    /** Contract wallet sign-in checks per IP per 5 minutes */
+    checksPerIp: number
+  }
 }
 
 /**

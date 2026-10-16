@@ -576,6 +576,11 @@ export class AccountManager {
     await walletChallenge.create(this.db, challenge)
   }
 
+  /** Whether the challenge is pending (not used, not expired); keeps it */
+  async hasWalletChallenge(nonce: string, account: string): Promise<boolean> {
+    return walletChallenge.exists(this.db, nonce, account)
+  }
+
   async consumeWalletChallenge(
     nonce: string,
     account: string,

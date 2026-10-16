@@ -1,7 +1,8 @@
 /**
  * An EVM JSON-RPC endpoint, as a function: `(method, params) => result`.
  * Errors the node answers with throw `RpcResponseError`; anything else (no
- * answer, HTTP error, bad JSON) throws `RpcTransportError`.
+ * answer, HTTP 429 or 5xx, another HTTP error without a JSON-RPC error, bad
+ * JSON) throws `RpcTransportError`.
  */
 export type EvmJsonRpc = (method: string, params: unknown[]) => Promise<unknown>
 
@@ -23,9 +24,25 @@ export class RpcResponseError extends Error {
     super(message)
   }
 
-  /** Whether this is a reverted eth_call, as opposed to a node problem */
-  get isRevert(): boolean {
-    return this.code === 3 || /revert/i.test(this.message)
+  /**
+   * Whether the call itself failed (revert, out of gas, invalid opcode...),
+   * as opposed to the node: the contract's answer, so a "no".
+   */
+  get isExecutionError(): boolean {
+    return (
+      this.code === 3 ||
+      this.code === -32015 ||
+      /revert|out of gas|invalid opcode|execution|stack (underflow|overflow|limit)/i.test(
+        this.message,
+      )
+    )
+  }
+
+  /** Whether the node is limited or broken (try again later) */
+  get isNodeProblem(): boolean {
+    return (
+      !this.isExecutionError && (this.code === -32005 || this.code === -32603)
+    )
   }
 }
 
@@ -48,6 +65,9 @@ export function httpJsonRpc(
         body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
         signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
       })
+      if (res.status === 429 || res.status >= 500) {
+        throw new Error(`HTTP ${res.status}`)
+      }
       body = (await res.json()) as typeof body
       if (!body || typeof body !== 'object') throw new Error('Not JSON-RPC')
       if (!res.ok && !body.error) throw new Error(`HTTP ${res.status}`)
