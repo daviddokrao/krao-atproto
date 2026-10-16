@@ -51,8 +51,11 @@ async function signUp(name) {
     },
   })
   if (!res.ok) throw new Error(`createAccount: ${res.data.message}`)
+  signedUp.push(res.data.did)
   return res.data
 }
+/** Accounts this run signed up (the PDS reports them to rewards later) */
+const signedUp = []
 
 /** Polls `fn` until it returns something truthy, or gives up */
 async function waitFor(fn, ms = 20_000) {
@@ -463,15 +466,22 @@ const steps = (funnel) =>
   Object.fromEntries((funnel.steps ?? []).map((s) => [s.id, s.count]))
 const analytics = async (method, query) =>
   (await rewardsCall(admin, `net.krao.analytics.${method}`, { query })).data
-/** Moves the account's sign-up back; waits for the PDS to report it first */
-const backdate = async (did, days) => {
-  const at = await waitFor(async () => {
+/**
+ * Waits until the rewards service has the account's sign-up: the PDS reports
+ * sign-ups from its outbox 10-40 seconds later (moving it back 0 days only
+ * answers once it is there)
+ */
+const registered = (did) =>
+  waitFor(async () => {
     const res = await internal('/internal/dev/backdate-account', {
       did,
       days: 0,
     })
     return res.ok && (await res.json()).createdAt
-  })
+  }, 60_000)
+/** Moves the account's sign-up back; waits for the PDS to report it first */
+const backdate = async (did, days) => {
+  const at = await registered(did)
   if (!at) return undefined
   const res = await internal('/internal/dev/backdate-account', { did, days })
   return res.ok ? (await res.json()).createdAt : undefined
@@ -489,7 +499,9 @@ check(
   denied.status === 403,
   `${denied.status}`,
 )
-// Let deliveries from the sections above settle first
+// Every account so far must have reached the rewards service, or a late
+// sign-up would count as one of the new ones
+for (const did of signedUp) await registered(did)
 await sleep(3_000)
 const funnelBefore = steps(await analytics('getFunnel'))
 const summaryBefore = await analytics('getSummary')
@@ -501,6 +513,10 @@ check(
 )
 const fa = await signUp('funnela')
 const fb = await signUp('funnelb')
+check(
+  'the PDS reports both sign-ups',
+  !!(await registered(fa.did)) && !!(await registered(fb.did)),
+)
 await verifyPhone(fa)
 await linkWallet(fa, wallet())
 const kyc = await rewardsCall(admin, 'net.krao.rewards.admin.reviewKyc', {
@@ -521,8 +537,7 @@ const expected = {
 }
 const funnelAfter = await waitFor(async () => {
   const now = steps(await analytics('getFunnel'))
-  return now.walletLinked >= expected.walletLinked &&
-    now.registered >= expected.registered
+  return Object.keys(expected).every((id) => now[id] >= expected[id])
     ? now
     : undefined
 })

@@ -94,6 +94,26 @@ describe('analytics', () => {
     })
   })
 
+  it('counts steps reached before the PDS reported the sign-up', async () => {
+    // The PDS reports sign-ups 10-40 seconds late, from its outbox: a phone,
+    // a KYC approval or a wallet can come first
+    await verifyPhone('did:late')
+    await service.setKycStatus('test', 'did:late', {
+      status: 'approved',
+      provider: 'manual',
+    })
+    await service.recordAccountEvent('wallet.linked', 'did:late')
+    expect(steps(await getFunnel(db, { now: NOW })).registered).toBe(0)
+    await signUp('did:late', NOW - DAY)
+    expect(steps(await getFunnel(db, { now: NOW }))).toEqual({
+      registered: 1,
+      phoneVerified: 1,
+      kycApproved: 1,
+      walletLinked: 1,
+      firstTip: 0,
+    })
+  })
+
   it('builds weekly cohorts with d1, d7 and d30 windows', async () => {
     // Six weeks back: every window has ended
     const old = NOW - 6 * 7 * DAY
