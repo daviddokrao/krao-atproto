@@ -619,7 +619,10 @@ export async function getPlans(db: Database, creator: string, all: boolean) {
   return qb.execute()
 }
 
-/** Members whose period covering `now` was paid for with each plan */
+/**
+ * Members whose current period was paid for with each plan. The current
+ * period is the first paid period that has not ended (see currentPeriod).
+ */
 export async function planMemberCounts(
   db: Database,
   plans: string[],
@@ -628,17 +631,46 @@ export async function planMemberCounts(
   if (!plans.length) return new Map()
   const nowIso = new Date(now).toISOString()
   const rows = await db
-    .selectFrom('membership_payment')
-    .select(['plan'])
-    .select(sql<number>`count(distinct did)`.as('count'))
-    .where('plan', 'in', plans)
-    .where('status', '=', 'verified')
-    .where('periodStart', '<=', nowIso)
-    .where('periodEnd', '>', nowIso)
-    .where(visibleDid('did'))
-    .groupBy('plan')
+    .selectFrom('membership_payment as mp')
+    .select(['mp.plan'])
+    .select(sql<number>`count(distinct mp.did)`.as('count'))
+    .where('mp.plan', 'in', plans)
+    .where('mp.status', '=', 'verified')
+    .where('mp.periodEnd', '>', nowIso)
+    .where(visibleDid('mp.did'))
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('membership_payment as o')
+            .select('o.uri')
+            .whereRef('o.creator', '=', 'mp.creator')
+            .whereRef('o.did', '=', 'mp.did')
+            .where('o.status', '=', 'verified')
+            .where('o.periodEnd', '>', nowIso)
+            .whereRef('o.periodEnd', '<', 'mp.periodEnd'),
+        ),
+      ),
+    )
+    .groupBy('mp.plan')
     .execute()
   return new Map(rows.map((r) => [r.plan, Number(r.count)]))
+}
+
+/**
+ * The period a member is in at `now`: the first paid period that has not
+ * ended. Periods of one run follow each other, so this is the one covering
+ * `now`, or, when `now` is just before a period that began a new run, that
+ * one. The clock can be that little behind: ChainClock extrapolates the
+ * latest block time, and a dev chain that sat idle mines its next block
+ * further ahead (after evm_increaseTime). A period paid on chain has always
+ * started.
+ */
+export function currentPeriod<
+  P extends { periodStart: string | null; periodEnd: string | null },
+>(verified: P[], nowIso: string): P | undefined {
+  return verified
+    .filter((p) => p.periodStart && p.periodEnd && p.periodEnd > nowIso)
+    .sort((a, b) => a.periodEnd!.localeCompare(b.periodEnd!))[0]
 }
 
 /** The membership of `member` with `creator` at `now`; undefined if they never paid */
@@ -682,9 +714,7 @@ export async function getMembership(
     .sort((a, b) => (a.periodStart as string).localeCompare(b.periodStart!))
   if (summary && summary.expiresAt > nowIso && verified.length) {
     const current =
-      verified.find(
-        (p) => (p.periodStart as string) <= nowIso && nowIso < p.periodEnd!,
-      ) ?? verified[verified.length - 1]
+      currentPeriod(verified, nowIso) ?? verified[verified.length - 1]
     return {
       ...base,
       plan: current.plan,

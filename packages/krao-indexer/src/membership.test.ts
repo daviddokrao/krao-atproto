@@ -364,6 +364,42 @@ describe('verifyPayment', () => {
     expect(await isActiveMember(db, CREATOR, MEMBER, Date.now())).toBe(false)
   })
 
+  it('agrees on an active member when the clock is behind the block', async () => {
+    // A dev chain idle after evm_increaseTime mines ahead of ChainClock
+    const p = await plan()
+    const lag = 10 * 60_000
+    const blockAt = Date.now() + 31 * DAY
+    await pay(p, send(5_000_000n, blockAt))
+    const clock = blockAt - lag
+    expect(await isActiveMember(db, CREATOR, MEMBER, clock)).toBe(true)
+    expect(await isActiveMember(db, CREATOR, MEMBER, clock, p)).toBe(true)
+    expect((await planMemberCounts(db, [p], clock)).get(p)).toBe(1)
+    expect(await getMembership(db, CREATOR, MEMBER, clock)).toMatchObject({
+      status: 'active',
+      plan: p,
+    })
+    const now = Date.now()
+    const stats = await creatorStats(db, CREATOR, {
+      now,
+      chainNow: clock,
+      follows: false,
+    })
+    expect(stats.members).toEqual({ active: 1, new30d: 1, expired30d: 0 })
+    expect(stats.daily[29].newMembers).toBe(1)
+  })
+
+  it('counts a member under the plan of their current period only', async () => {
+    const fan = await plan()
+    const vip = await plan({ priceUsdc: '20000000' })
+    const t0 = Date.now() - DAY
+    await pay(fan, send(5_000_000n, t0), { publishedAt: t0 })
+    // A renewal on another plan starts when the current period ends
+    await pay(vip, send(20_000_000n))
+    const counts = await planMemberCounts(db, [fan, vip], Date.now())
+    expect(counts.get(fan)).toBe(1)
+    expect(counts.get(vip)).toBeUndefined()
+  })
+
   it('drops a check whose record was rewritten meanwhile', async () => {
     const p = await plan()
     const first = send(5_000_000n)

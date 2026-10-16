@@ -196,7 +196,12 @@ check(
   `${before.status}`,
 )
 
-// 3. The member pays 5 USDC to the creator's wallet and records it
+// 3. The member pays 5 USDC to the creator's wallet and records it.
+// Earlier runs moved the chain 31 days ahead, and an idle chain mines its
+// next block far ahead of its latest one: mine now, so the indexer's chain
+// clock (read every 5s) starts from the chain's present.
+await rpc('evm_mine', [])
+await sleep(6000)
 const payTx = await sendUsdc(
   memberWallet.address,
   creatorWallet.address,

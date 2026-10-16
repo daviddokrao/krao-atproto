@@ -250,9 +250,11 @@ export async function creatorStats(
     const first = Date.parse(m.firstAt)
     if (expires > chainNow) active += 1
     else if (expires > chainWindowStart) expired30d += 1
-    if (first > chainWindowStart && first <= chainNow) {
+    // firstAt is a block time, so it has happened even when it is a little
+    // ahead of chainNow (see currentPeriod): that counts as today
+    if (first > chainWindowStart) {
       new30d += 1
-      const day = dayOf(first - offset)
+      const day = dayOf(Math.min(first - offset, now))
       if (day !== undefined) daily[day].newMembers += 1
     }
   }
