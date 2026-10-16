@@ -170,6 +170,11 @@ const run = async () => {
     push: KRAO_PUSH,
     // Ozone, and rewards-admin.test (added below), may read gated content
     gateModeratorDids: [network.ozone.ctx.cfg.service.did],
+    // Verified communities and polls (the rewards service starts below)
+    rewards: {
+      url: `http://localhost:${KRAO_REWARDS_PORT}`,
+      token: KRAO_REWARDS_TOKEN,
+    },
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)

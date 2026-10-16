@@ -215,6 +215,9 @@ services:
       KRAO_GATE_MODERATION_ACCESS: ${KRAO_GATE_MODERATION_ACCESS:-true}
       KRAO_PHISHING_LIST_URL: ${KRAO_PHISHING_LIST_URL:-}
       KRAO_SAFETY_ADMIN_DIDS: ${KRAO_SAFETY_ADMIN_DIDS:-}
+      # Verified communities and polls: phone or KYC, asked of rewards
+      KRAO_REWARDS_URL: http://rewards:2592
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
 
   chat:
     <<: *backend
