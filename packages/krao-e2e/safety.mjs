@@ -369,4 +369,27 @@ check(
   shown.every((a) => Object.keys(a).sort().join() === 'badges,did'),
 )
 
+/*
+ * Operations: safety admins replay the indexer's failed firehose events
+ */
+const replay = await admin(
+  safetyAdmin,
+  'net.krao.indexer.admin.replayFailedEvents',
+  { body: { limit: 100 } },
+)
+check(
+  'a safety admin replays failed firehose events, with counts',
+  replay.ok &&
+    ['replayed', 'failed', 'remaining'].every(
+      (k) => typeof replay.data[k] === 'number',
+    ),
+  JSON.stringify(replay.data),
+)
+const replayDenied = await admin(
+  krao,
+  'net.krao.indexer.admin.replayFailedEvents',
+  { body: {} },
+)
+check('others may not replay', replayDenied.status === 403, replayDenied.status)
+
 done()
