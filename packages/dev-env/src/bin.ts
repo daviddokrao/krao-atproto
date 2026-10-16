@@ -4,6 +4,7 @@ import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
+import { KraoPlcMirror } from '@krao/plc-mirror'
 import { KraoPush } from '@krao/push'
 import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
@@ -23,6 +24,9 @@ const KRAO_VIDEO_PORT = 2591
 const KRAO_CHAT_PORT = 2590
 const KRAO_REWARDS_PORT = 2592
 const KRAO_PUSH_PORT = 2593
+/** Krao's PLC mirror (M35), in front of the dev PLC (2582) */
+const KRAO_PLC_MIRROR_PORT = 2596
+const PLC_MIRROR_URL = `http://localhost:${KRAO_PLC_MIRROR_PORT}`
 /** Krao's sample Mini App (services/krao/miniapp-sample) */
 const KRAO_MINIAPP_SAMPLE_PORT = 2595
 /** The AppView's courier key and Krao services' push token; dev only */
@@ -71,8 +75,23 @@ const run = async () => {
 
 [ created by Bluesky ]`)
 
+  /*
+   * The PLC mirror starts first (it waits for the PLC with retries): the
+   * AppView, the main PDS and Krao's services resolve DIDs through it, and
+   * the PDS writes through it (passed on to the PLC), as in production
+   */
+  const plcMirror = await KraoPlcMirror.create({
+    port: KRAO_PLC_MIRROR_PORT,
+    dbLocation: ':memory:',
+    source: 'http://localhost:2582',
+    pollMs: 500,
+    maxBackoffMs: 1_000,
+  })
+  await plcMirror.start()
+
   const network = await TestNetwork.create({
     pds: {
+      didPlcUrl: PLC_MIRROR_URL,
       port: 2583,
       hostname: PDS_HOSTNAME,
       /*
@@ -98,6 +117,7 @@ const run = async () => {
       supportUrl: 'https://krao.net/support',
     },
     bsky: {
+      plcUrl: PLC_MIRROR_URL,
       dbPostgresSchema: 'bsky',
       port: 2584,
       // Image and other public URLs the AppView hands out (see PDS_HOSTNAME)
@@ -131,6 +151,7 @@ const run = async () => {
     )
   }
   console.log(`👤 DID Placeholder server http://localhost:${network.plc.port}`)
+  console.log(`🪞 Krao PLC mirror ${PLC_MIRROR_URL}`)
   console.log(`🌞 Main PDS http://localhost:${network.pds.port}`)
   console.log(`🌞 Main PDS account DB`, network.pds.ctx.cfg.db.accountDbLoc)
   console.log(
@@ -160,7 +181,7 @@ const run = async () => {
     port: KRAO_INDEXER_PORT,
     dbLocation: ':memory:',
     firehoseUrl: network.pds.url.replace('http', 'ws'),
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     handleResolverUrl: network.pds.url,
     appviewUrl: network.bsky.url,
     nftRecheckMs: 15_000,
@@ -203,7 +224,7 @@ const run = async () => {
     port: KRAO_VIDEO_PORT,
     serviceDid: 'did:web:video.krao.test',
     dataDir: await mkdtemp(path.join(os.tmpdir(), 'krao-video-')),
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     pdsUrls: [
       network.pds.url,
       ...(PDS_HOSTNAME === 'localhost'
@@ -227,7 +248,7 @@ const run = async () => {
     port: KRAO_CHAT_PORT,
     serviceDid: chatDid,
     dbLocation: ':memory:',
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     appviewUrl: network.bsky.url,
     insecureFetch: true,
     // Ozone reviews reported messages through chat.bsky.moderation.*
@@ -250,7 +271,7 @@ const run = async () => {
     port: KRAO_REWARDS_PORT,
     serviceDid: 'did:web:rewards.krao.test',
     dbLocation: ':memory:',
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     internalToken: KRAO_REWARDS_TOKEN,
     insecureFetch: true,
     // Tests review KYC by hand on every run
@@ -289,7 +310,7 @@ const run = async () => {
     },
     pollMs: 500,
     firehoseUrl: network.pds.url.replace('http', 'ws'),
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
   })
   await kraoPush.start()
   console.log(`🔔 Krao push service ${kraoPush.url}`)
