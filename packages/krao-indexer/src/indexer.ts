@@ -65,6 +65,7 @@ import {
   type NameRpc,
   deletePrimaryName,
   markPrimaryNameStale,
+  markPrimaryNamesStaleForAddresses,
   refreshPrimaryNames,
 } from './names.js'
 import {
@@ -798,9 +799,18 @@ export class FirehoseIndexer {
       }
     } else if (evt.event === 'delete') {
       if (evt.collection === WALLET_COLLECTION) {
+        const gone = await this.db
+          .selectFrom('wallet')
+          .select('evmAddress')
+          .where('uri', '=', evt.uri.toString())
+          .executeTakeFirst()
         await deleteWallet(this.db, evt.uri.toString())
         await markNftAvatarStale(this.db, evt.did)
         await markPrimaryNameStale(this.db, evt.did)
+        // Another account linking the same wallet may own it now
+        await markPrimaryNamesStaleForAddresses(this.db, [
+          gone?.evmAddress ?? null,
+        ])
         this.nameRound.kick()
       } else if (evt.collection === TIP_COLLECTION) {
         await deleteTip(this.db, evt.uri.toString())
@@ -866,7 +876,17 @@ export class FirehoseIndexer {
           .deleteFrom('hidden_actor')
           .where('did', '=', evt.did)
           .execute()
+        const gone = await this.db
+          .selectFrom('wallet')
+          .select('evmAddress')
+          .where('did', '=', evt.did)
+          .execute()
         await deleteWalletsForDid(this.db, evt.did)
+        // Others linking the same wallets may own them now
+        await markPrimaryNamesStaleForAddresses(
+          this.db,
+          gone.map((w) => w.evmAddress),
+        )
         await deleteTipsForDid(this.db, evt.did)
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)

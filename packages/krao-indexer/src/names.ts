@@ -273,6 +273,25 @@ export async function markPrimaryNameStale(db: Database, did: string) {
     .execute()
 }
 
+/**
+ * Links of these EVM addresses went away: the accounts that still link
+ * them may own them now (see ownedEvmAddresses), so check their names too
+ */
+export async function markPrimaryNamesStaleForAddresses(
+  db: Database,
+  addresses: (string | null)[],
+) {
+  const evm = addresses.filter((a): a is string => !!a)
+  if (!evm.length) return
+  const rows = await db
+    .selectFrom('wallet')
+    .select('did')
+    .distinct()
+    .where('evmAddress', 'in', evm)
+    .execute()
+  for (const { did } of rows) await markPrimaryNameStale(db, did)
+}
+
 export async function deletePrimaryName(db: Database, did: string) {
   await db.deleteFrom('primary_name').where('did', '=', did).execute()
 }

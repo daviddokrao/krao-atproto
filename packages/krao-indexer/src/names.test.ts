@@ -10,6 +10,7 @@ import {
   getPrimaryNames,
   isAcceptableName,
   markPrimaryNameStale,
+  markPrimaryNamesStaleForAddresses,
   nameAddresses,
   namehash,
   refreshPrimaryNames,
@@ -284,5 +285,18 @@ describe('refreshPrimaryNames', () => {
     await markPrimaryNameStale(db, DID)
     await refreshPrimaryNames(db, { base: chain.rpc }, NOW + 1000)
     expect((await getPrimaryNames(db, [DID])).has(DID)).toBe(false)
+  })
+
+  it('checks the other accounts of a wallet whose link went away', async () => {
+    await markPrimaryNameStale(db, DID)
+    await db.updateTable('primary_name').set({ stale: 0 }).execute()
+    await markPrimaryNamesStaleForAddresses(db, [ALICE, null])
+    const row = await db
+      .selectFrom('primary_name')
+      .select('stale')
+      .where('did', '=', DID)
+      .executeTakeFirstOrThrow()
+    expect(row.stale).toBe(1)
+    await markPrimaryNamesStaleForAddresses(db, [null])
   })
 })
