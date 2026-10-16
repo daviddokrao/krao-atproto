@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.admin.getMyRoles",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The viewer's Krao admin roles, from the services' configuration and from admins (`admin` comes with every other role). Empty for most accounts. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["roles"],
+          "properties": {
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.admin.defs#role"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

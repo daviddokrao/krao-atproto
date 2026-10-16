@@ -233,8 +233,32 @@ export interface ActivityDayTable {
   day: string
 }
 
+/** A Krao admin role granted by an admin (see roles.ts) */
+export interface AdminRoleTable {
+  did: string
+  role: string
+  grantedBy: string
+  grantedAt: string
+}
+
+/** Admin actions across Krao's services (see roles.ts) */
+export interface AdminAuditLogTable {
+  id: Generated<number>
+  service: string
+  actor: string
+  action: string
+  subject: string | null
+  /** JSON */
+  details: string | null
+  createdAt: string
+  /** `<service>:<key>` of entries other services send (retries kept once) */
+  sourceKey: string | null
+}
+
 export interface DatabaseSchema {
   activity_day: ActivityDayTable
+  admin_role: AdminRoleTable
+  admin_audit_log: AdminAuditLogTable
   referral_code: ReferralCodeTable
   referral: ReferralTable
   kyc_record: KycRecordTable
@@ -423,6 +447,40 @@ const migrations = {
         db,
       )
       await sql`create index reward_event_actor_idx on reward_event (actorDid, type)`.execute(
+        db,
+      )
+    },
+  },
+  /*
+   * Unified admin roles and the shared admin log (M35): roles granted by
+   * admins (configured ones are not stored), and admin actions of every
+   * Krao service
+   */
+  '008-admin-roles': {
+    up: async (db: Kysely<any>) => {
+      await db.schema
+        .createTable('admin_role')
+        .addColumn('did', 'varchar', (col) => col.notNull())
+        .addColumn('role', 'varchar', (col) => col.notNull())
+        .addColumn('grantedBy', 'varchar', (col) => col.notNull())
+        .addColumn('grantedAt', 'varchar', (col) => col.notNull())
+        .addPrimaryKeyConstraint('admin_role_pkey', ['did', 'role'])
+        .execute()
+      await db.schema
+        .createTable('admin_audit_log')
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('service', 'varchar', (col) => col.notNull())
+        .addColumn('actor', 'varchar', (col) => col.notNull())
+        .addColumn('action', 'varchar', (col) => col.notNull())
+        .addColumn('subject', 'varchar')
+        .addColumn('details', 'varchar')
+        .addColumn('createdAt', 'varchar', (col) => col.notNull())
+        .addColumn('sourceKey', 'varchar', (col) => col.unique())
+        .execute()
+      await sql`create index admin_audit_log_service_idx on admin_audit_log (service, id)`.execute(
+        db,
+      )
+      await sql`create index admin_audit_log_actor_idx on admin_audit_log (actor, id)`.execute(
         db,
       )
     },

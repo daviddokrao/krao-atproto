@@ -1223,6 +1223,9 @@ importers:
         specifier: ^0.29.2
         version: 0.29.2
     devDependencies:
+      '@atproto/crypto':
+        specifier: workspace:^
+        version: link:../crypto
       '@types/better-sqlite3':
         specifier: ^7.6.11
         version: 7.6.13

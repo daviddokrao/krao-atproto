@@ -47,6 +47,15 @@ import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'
 import { PushRequestError } from './push-client.js'
 import {
+  AUDIT_SERVICES,
+  type AuditService,
+  RoleError,
+  type RoleGrant,
+  RoleStore,
+  listAudit,
+  recordAudit,
+} from './roles.js'
+import {
   type EntryView,
   RewardsError,
   type RewardsService,
@@ -135,6 +144,13 @@ export type AppOptions = {
   adminDids: Set<string>
   /** May call the KYC admin methods only */
   kycReviewerDids: Set<string>
+  /**
+   * Krao admin roles (M35): the sets above plus roles granted by admins.
+   * Made from the two sets when unset.
+   */
+  roles?: RoleStore
+  /** Handles for the role list (default: from DID documents) */
+  handleOf?: (did: string) => Promise<string | undefined>
   kycProvider: KycProvider | null
   manualReview: ManualReviewConfig
   /** Phone verification; none without an SMS provider */
@@ -152,9 +168,17 @@ export type AppOptions = {
 
 export function createApp(opts: AppOptions): Express {
   const { service, idResolver, serviceDid } = opts
-  const isAdmin = (did: string) => opts.adminDids.has(did)
-  const isReviewer = (did: string) =>
-    opts.adminDids.has(did) || opts.kycReviewerDids.has(did)
+  const roles =
+    opts.roles ??
+    new RoleStore(service.db, {
+      adminDids: opts.adminDids,
+      kycReviewerDids: opts.kycReviewerDids,
+    })
+  // The rewards screens (codes, rules, points, its log), KYC and analytics
+  const isAdmin = (did: string) => roles.has(did, 'rewards')
+  const isReviewer = (did: string) => roles.has(did, 'kyc')
+  const isAnalyst = (did: string) => roles.has(did, 'analytics')
+  const isRoleAdmin = (did: string) => roles.has(did, 'admin')
   const checkCodeLimit = rateLimiter(30)
   const getBadgesLimit = rateLimiter(120)
   const getLeaderboardLimit = rateLimiter(60)
@@ -184,9 +208,10 @@ export function createApp(opts: AppOptions): Express {
   }
 
   const roleAuth =
-    (allowed: (did: string) => boolean) => async (ctx: MethodAuthContext) => {
+    (allowed: (did: string) => Promise<boolean>) =>
+    async (ctx: MethodAuthContext) => {
       const result = await userAuth(ctx)
-      if (!allowed(result.credentials.did)) {
+      if (!(await allowed(result.credentials.did))) {
         throw new ForbiddenError('Only Krao admins may call this')
       }
       return result
@@ -199,6 +224,8 @@ export function createApp(opts: AppOptions): Express {
 
   const adminAuth = roleAuth(isAdmin)
   const reviewerAuth = roleAuth(isReviewer)
+  const analyticsAuth = roleAuth(isAnalyst)
+  const roleAdminAuth = roleAuth(isRoleAdmin)
 
   const did = (auth: { credentials: unknown }) =>
     (auth.credentials as { did: string }).did
@@ -571,7 +598,7 @@ export function createApp(opts: AppOptions): Express {
   // ---------
 
   server.add(net.krao.analytics.getFunnel, {
-    auth: adminAuth,
+    auth: analyticsAuth,
     handler: async ({ params }) => {
       for (const value of [params.since, params.until]) {
         if (value !== undefined && isNaN(Date.parse(value))) {
@@ -588,13 +615,13 @@ export function createApp(opts: AppOptions): Express {
   })
 
   server.add(net.krao.analytics.getRetention, {
-    auth: adminAuth,
+    auth: analyticsAuth,
     handler: async ({ params }) =>
       json(await getRetention(service.db, { weeks: params.weeks ?? 8 })),
   })
 
   server.add(net.krao.analytics.getSummary, {
-    auth: adminAuth,
+    auth: analyticsAuth,
     handler: async () => json(await getSummary(service.db)),
   })
 
@@ -604,13 +631,87 @@ export function createApp(opts: AppOptions): Express {
   server.add(net.krao.rewards.getRoles, {
     auth: userAuth,
     handler: async ({ auth }) => {
-      const viewer = did(auth)
-      const roles = [
-        ...(isAdmin(viewer) ? ['admin'] : []),
-        ...(isReviewer(viewer) ? ['kyc_reviewer'] : []),
-      ]
-      return json({ roles })
+      // The rewards screens' own names for the unified roles (M35)
+      const held = await roles.rolesOf(did(auth))
+      return json({
+        roles: [
+          ...(held.includes('rewards') ? ['admin'] : []),
+          ...(held.includes('kyc') ? ['kyc_reviewer'] : []),
+        ],
+      })
     },
+  })
+
+  // Krao admin roles and the shared admin log (M35)
+  // ---------------------------------------------
+
+  const handleCache = new Map<string, { handle?: string; until: number }>()
+  const handleOf =
+    opts.handleOf ??
+    (async (target: string) => {
+      const cached = handleCache.get(target)
+      if (cached && cached.until > Date.now()) return cached.handle
+      const doc = await idResolver.did.resolve(target).catch(() => null)
+      const aka = doc?.alsoKnownAs?.find((a) => a.startsWith('at://'))
+      const handle = aka ? aka.slice('at://'.length) : undefined
+      if (handleCache.size > 10_000) handleCache.clear()
+      handleCache.set(target, { handle, until: Date.now() + 5 * 60_000 })
+      return handle
+    })
+  const memberView = async (member: string, grants: RoleGrant[]) =>
+    clean({
+      did: member,
+      handle: await handleOf(member).catch(() => undefined),
+      roles: grants.map((g) => clean(g)),
+    })
+
+  server.add(net.krao.admin.getMyRoles, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json({ roles: await roles.rolesOf(did(auth)) }),
+  })
+
+  server.add(net.krao.admin.listRoles, {
+    auth: roleAdminAuth,
+    handler: async () => {
+      const members = await roles.members()
+      return json({
+        members: await Promise.all(
+          [...members].map(([member, grants]) => memberView(member, grants)),
+        ),
+      })
+    },
+  })
+
+  server.add(net.krao.admin.setRole, {
+    auth: roleAdminAuth,
+    handler: async ({ auth, input }) => {
+      const { did: target, role, enabled } = input.body
+      try {
+        await roles.set(did(auth), target, role, enabled)
+      } catch (err) {
+        if (err instanceof RoleError) {
+          throw new InvalidRequestError(err.message, err.error)
+        }
+        throw err
+      }
+      return json(await memberView(target, await roles.grantsOf(target)))
+    },
+  })
+
+  server.add(net.krao.admin.getAuditLog, {
+    auth: roleAdminAuth,
+    handler: async ({ params }) =>
+      json(
+        clean(
+          await listAudit(service.db, {
+            service: params.service,
+            actor: params.actor,
+            limit: params.limit ?? 50,
+            cursor: params.cursor,
+          }),
+        ),
+      ),
   })
 
   const admin = net.krao.rewards.admin
@@ -886,6 +987,70 @@ export function createApp(opts: AppOptions): Express {
       verified: opts.phone ? await opts.phone.isVerified(did) : false,
     })
   })
+
+  /*
+   * The indexer and chat: an account's Krao admin roles (`admin` expanded
+   * to every role), which they add to the accounts in their own config
+   */
+  app.get('/internal/roles', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({ roles: await roles.rolesOf(did) })
+  })
+
+  /*
+   * Admin actions of the other services, from their outboxes (retried, so
+   * kept once per `key`): the shared admin log
+   */
+  app.post(
+    '/internal/audit',
+    internalAuth,
+    jsonBody({ limit: '32kb' }),
+    (req, res, next) => {
+      const {
+        service: from,
+        actor,
+        action,
+        subject,
+        details,
+        createdAt,
+        key,
+      } = req.body ?? {}
+      if (
+        !AUDIT_SERVICES.includes(from as AuditService) ||
+        from === 'rewards' ||
+        typeof actor !== 'string' ||
+        !actor.startsWith('did:') ||
+        actor.length > 2048 ||
+        typeof action !== 'string' ||
+        !action ||
+        action.length > 128 ||
+        (subject !== undefined && typeof subject !== 'string') ||
+        (createdAt !== undefined &&
+          (typeof createdAt !== 'string' || isNaN(Date.parse(createdAt)))) ||
+        (key !== undefined && (typeof key !== 'string' || key.length > 256))
+      ) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      recordAudit(service.db, {
+        service: from as AuditService,
+        actor,
+        action,
+        subject,
+        details,
+        createdAt: createdAt ? new Date(createdAt).toISOString() : undefined,
+        sourceKey: key ? `${from}:${key}` : undefined,
+      })
+        .then((kept) =>
+          res.json({ ok: true, ...(kept ? {} : { duplicate: true }) }),
+        )
+        .catch(next)
+    },
+  )
 
   // The indexer: "verified" communities and polls (phone or KYC, not taken down)
   app.get('/internal/human-status', internalAuth, async (req, res) => {

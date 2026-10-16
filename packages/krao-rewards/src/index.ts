@@ -16,10 +16,12 @@ import {
   type SmsProvider,
 } from './phone.js'
 import { type PushClient, createPushClient } from './push-client.js'
+import { RoleStore } from './roles.js'
 import { createApp } from './server.js'
 import { RewardsService } from './service.js'
 
 export { RewardsService } from './service.js'
+export { ROLES, type Role, RoleStore } from './roles.js'
 export { SumsubProvider } from './kyc.js'
 export {
   HttpSmsProvider,
@@ -43,6 +45,13 @@ export type KraoRewardsConfig = {
   adminDids?: string[]
   /** May call the KYC admin methods only */
   kycReviewerDids?: string[]
+  /**
+   * The indexer's safety admins and gate moderators (KRAO_SAFETY_ADMIN_DIDS,
+   * KRAO_GATE_MODERATOR_DIDS): shown with those roles, which cannot be
+   * removed through the API (M35)
+   */
+  safetyAdminDids?: string[]
+  gateModeratorDids?: string[]
   /** No provider: users cannot start verification, admins still review */
   sumsub?: SumsubConfig
   manualReview?: Partial<ManualReviewConfig>
@@ -81,6 +90,7 @@ export class KraoRewards {
     public service: RewardsService,
     public phone: PhoneService | null,
     private admins: Set<string>,
+    public roles: RoleStore,
     private app: ReturnType<typeof createApp>,
     private push?: PushClient,
   ) {}
@@ -112,6 +122,13 @@ export class KraoRewards {
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),
     })
     const admins = new Set(cfg.adminDids ?? [])
+    const kycReviewers = new Set(cfg.kycReviewerDids ?? [])
+    const roles = new RoleStore(db, {
+      adminDids: admins,
+      kycReviewerDids: kycReviewers,
+      safetyAdminDids: new Set(cfg.safetyAdminDids ?? []),
+      gateModeratorDids: new Set(cfg.gateModeratorDids ?? []),
+    })
     const phone = cfg.phone
       ? new PhoneService(
           db,
@@ -132,7 +149,8 @@ export class KraoRewards {
       publicUrl: cfg.publicUrl,
       internalToken: cfg.internalToken,
       adminDids: admins,
-      kycReviewerDids: new Set(cfg.kycReviewerDids ?? []),
+      kycReviewerDids: kycReviewers,
+      roles,
       kycProvider: cfg.sumsub ? new SumsubProvider(cfg.sumsub) : null,
       manualReview: {
         dailyLimit: cfg.manualReview?.dailyLimit ?? 5,
@@ -145,7 +163,7 @@ export class KraoRewards {
         : undefined,
       devMode: cfg.devMode,
     })
-    return new KraoRewards(cfg, db, service, phone, admins, app, push)
+    return new KraoRewards(cfg, db, service, phone, admins, roles, app, push)
   }
 
   get url() {

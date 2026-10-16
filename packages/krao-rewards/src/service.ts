@@ -27,6 +27,7 @@ import {
   activeDaysInWindow,
   isDay,
 } from './activity.js'
+import { recordAudit } from './roles.js'
 
 type Db = Database | Transaction<DatabaseSchema>
 
@@ -284,6 +285,17 @@ export class RewardsService {
         createdAt: now(),
       })
       .execute()
+    // Actions of admins (not the system or a KYC provider) go to the
+    // shared admin log too
+    if (actor.startsWith('did:')) {
+      await recordAudit(db, {
+        service: 'rewards',
+        actor,
+        action,
+        subject,
+        details: data,
+      })
+    }
   }
 
   // Codes

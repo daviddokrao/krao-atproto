@@ -1,0 +1,94 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.admin.defs",
+  "defs": {
+    "role": {
+      "type": "string",
+      "description": "A Krao admin role. `admin` manages roles and implies every other role.",
+      "knownValues": [
+        "admin",
+        "rewards",
+        "kyc",
+        "safety",
+        "moderator",
+        "analytics"
+      ]
+    },
+    "roleGrant": {
+      "type": "object",
+      "required": ["role", "source"],
+      "properties": {
+        "role": {
+          "type": "ref",
+          "ref": "#role"
+        },
+        "source": {
+          "type": "string",
+          "description": "`env`: from the services' configuration, cannot be removed through the API. `db`: granted by an admin.",
+          "knownValues": ["env", "db"]
+        },
+        "grantedBy": {
+          "type": "string",
+          "format": "did"
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "required": ["did", "roles"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "handle": {
+          "type": "string",
+          "format": "handle"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#roleGrant"
+          }
+        }
+      }
+    },
+    "auditEntry": {
+      "type": "object",
+      "required": ["id", "service", "actor", "action", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "service": {
+          "type": "string",
+          "knownValues": ["rewards", "indexer", "chat", "moderation"]
+        },
+        "actor": {
+          "type": "string",
+          "format": "did"
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "details": {
+          "type": "unknown"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

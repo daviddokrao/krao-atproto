@@ -91,6 +91,9 @@ const rewards = await KraoRewards.create({
   publicUrl: env.KRAO_REWARDS_PUBLIC_URL,
   adminDids: list(env.KRAO_REWARDS_ADMIN_DIDS),
   kycReviewerDids: list(env.KRAO_KYC_REVIEWER_DIDS),
+  // Shown as Krao admin roles (the indexer reads the same variables)
+  safetyAdminDids: list(env.KRAO_SAFETY_ADMIN_DIDS),
+  gateModeratorDids: list(env.KRAO_GATE_MODERATOR_DIDS),
   sumsub,
   manualReview: {
     dailyLimit: env.KRAO_KYC_MANUAL_DAILY_LIMIT
