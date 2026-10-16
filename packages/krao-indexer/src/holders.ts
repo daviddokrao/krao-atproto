@@ -21,6 +21,8 @@ export const COMMUNITY_FEED_PREFIX = 'community-'
 export const HOLDER_BALANCE_CACHE_MS = 15 * 60 * 1000
 /** Default value a wallet set must hold, in US dollars */
 export const HOLDER_FEED_MIN_USD = 1
+/** Balance reads a holder list makes at the same time */
+const BALANCE_READS_AT_ONCE = 8
 
 type BalanceRpc = Pick<EvmRpc, 'getBalance' | 'tryCall'>
 
@@ -78,11 +80,43 @@ export class HolderFeeds {
     }
   }
 
+  /** Holder lists by token, and the reads of them under way */
+  private lists = new Map<string, { at: number; dids: string[] }>()
+  private reading = new Map<string, Promise<string[]>>()
+
   /**
    * Accounts (not hidden) whose owned verified EVM wallets together hold at
-   * least the minimum value of the catalog token `key` (upper case)
+   * least the minimum value of the catalog token `key` (upper case). Every
+   * feed request asks, and a fresh list reads the balance of every linked
+   * wallet, so the list itself is reused as long as balances are, a single
+   * read runs at a time per token, and an expired list is served while the
+   * next one is read.
    */
   async holders(key: string, now = Date.now()): Promise<string[]> {
+    const cached = this.lists.get(key)
+    if (cached && this.cacheMs > 0 && now - cached.at < this.cacheMs) {
+      return cached.dids
+    }
+    let read = this.reading.get(key)
+    if (!read) {
+      read = this.readHolders(key, now)
+        .then((dids) => {
+          if (this.cacheMs > 0) this.lists.set(key, { at: now, dids })
+          return dids
+        })
+        .finally(() => this.reading.delete(key))
+      this.reading.set(key, read)
+    }
+    if (cached && this.cacheMs > 0) {
+      read.catch((err: unknown) =>
+        console.error('Krao indexer: holder list read failed', key, err),
+      )
+      return cached.dids
+    }
+    return read
+  }
+
+  private async readHolders(key: string, now: number): Promise<string[]> {
     const rpc = this.opts.rpc
     if (!rpc) return []
     const token = await this.db
@@ -122,12 +156,16 @@ export class HolderFeeds {
       ),
     )
     const totals = new Map<string, bigint>()
-    for (const [address, did] of owner) {
-      if (hidden.has(did)) continue
-      const value = await this.balance(rpc, token, address, now)
-      if (!value) continue
-      totals.set(did, (totals.get(did) ?? 0n) + value)
+    const queue = [...owner].filter(([, did]) => !hidden.has(did))
+    // A few reads at a time: one at a time takes minutes with many wallets
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const [address, did] = next
+        const value = await this.balance(rpc, token, address, now)
+        if (value) totals.set(did, (totals.get(did) ?? 0n) + value)
+      }
     }
+    await Promise.all(Array.from({ length: BALANCE_READS_AT_ONCE }, worker))
     // amount / 10^decimals tokens x price / 10^18 dollars x 10^6
     const unit = 10n ** BigInt(token.decimals + 12)
     return [...totals]

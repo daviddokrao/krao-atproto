@@ -434,8 +434,16 @@ export class FirehoseIndexer {
    */
   private async communityJoined(community: string, did: string) {
     if (!this.rewardsEvents) return
-    if (!(await isRewardableJoin(this.db, community, did))) return
+    // Membership rechecks call this for every eligible member: skip the
+    // member count (a scan of the community) when it cannot matter
+    const queued = await this.db
+      .selectFrom('rewards_outbox')
+      .select('id')
+      .where('id', '=', `community.joined:${did}`)
+      .executeTakeFirst()
+    if (queued) return
     if (!(await this.isKraoAccount(did))) return
+    if (!(await isRewardableJoin(this.db, community, did))) return
     await this.queueRewardsEvent('community.joined', did)
   }
 

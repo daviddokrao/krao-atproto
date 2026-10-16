@@ -139,6 +139,28 @@ describe('holder feeds', () => {
     ])
   })
 
+  it('reads a holder list once for concurrent requests, and serves the last one while reading', async () => {
+    for (let n = 1; n <= 20; n++) {
+      await linkWallet(`did:plc:h${n}`, addr(n))
+      usdc.set(addr(n), 5_000_000n)
+    }
+    const feeds = new HolderFeeds(db, { rpc })
+    const lists = await Promise.all([
+      feeds.holders('USDC'),
+      feeds.holders('USDC'),
+      feeds.holders('USDC'),
+    ])
+    expect(lists[0]).toHaveLength(20)
+    expect(lists[1]).toEqual(lists[0])
+    expect(reads).toBe(20)
+    // Expired: the last list right away, the next one read behind it
+    usdc.set(addr(1), 0n)
+    const later = Date.now() + 16 * 60_000
+    expect(await feeds.holders('USDC', later)).toHaveLength(20)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(await feeds.holders('USDC', later)).toHaveLength(19)
+  })
+
   it('serves the newest top-level posts of the holders, without unsafe ones', async () => {
     const post = async (did: string, n: number) => {
       const uri = `at://${did}/app.bsky.feed.post/${n}`
