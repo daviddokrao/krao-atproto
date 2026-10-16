@@ -63,6 +63,9 @@ services:
       PDS_REPORT_SERVICE_DID: ${OZONE_SERVER_DID}
       PDS_INVITE_REQUIRED: 'true'
       PDS_KRAO_INDEXER_URL: http://indexer:2589
+      # Base RPC: smart wallets (ERC-1271/6492) sign in; empty: plain wallets only
+      PDS_KRAO_EVM_RPC_URL: ${KRAO_BASE_RPC_URL:-}
+      PDS_KRAO_EVM_CHAIN_ID: 8453
       PDS_KRAO_REWARDS_URL: http://rewards:2592
       PDS_KRAO_REWARDS_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN:?set KRAO_REWARDS_INTERNAL_TOKEN}
       # Decree 147: posting needs a phone number verified with rewards
@@ -330,6 +333,35 @@ services:
       KRAO_BACKUP_S3_ENDPOINT: ${KRAO_BACKUP_S3_ENDPOINT:-}
       AWS_ACCESS_KEY_ID: ${KRAO_S3_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${KRAO_S3_SECRET_ACCESS_KEY:-}
+
+  # Health of every service, disks and backups; alerts to a webhook
+  monitor:
+    <<: *backend
+    command: [node, services/krao/monitor/monitor.mjs]
+    # Only for its disk use (statfs) and the backup archives' age
+    volumes:
+      - postgres:/volumes/postgres:ro
+      - pds:/volumes/pds:ro
+      - indexer:/volumes/indexer:ro
+      - chat:/volumes/chat:ro
+      - video:/volumes/video:ro
+      - rewards:/volumes/rewards:ro
+      - push:/volumes/push:ro
+      - ${KRAO_BACKUP_DIR:-./backups}:/backups:ro
+    # GET /status on the host only: curl http://127.0.0.1:2594/status
+    ports: ['127.0.0.1:2594:2594']
+    environment:
+      KRAO_DOMAIN: ${KRAO_DOMAIN}
+      KRAO_MONITOR_PORT: 2594
+      KRAO_MONITOR_INTERVAL_SEC: ${KRAO_MONITOR_INTERVAL_SEC:-60}
+      KRAO_MONITOR_DISK_MAX_PERCENT: ${KRAO_MONITOR_DISK_MAX_PERCENT:-85}
+      # A missed backup alerts after two periods
+      KRAO_MONITOR_BACKUP_MAX_AGE_HOURS: ${KRAO_MONITOR_BACKUP_MAX_AGE_HOURS:-48}
+      KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC: ${KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC:-21600}
+      KRAO_ALERT_WEBHOOK_URL: ${KRAO_ALERT_WEBHOOK_URL:-}
+      KRAO_ALERT_FORMAT: ${KRAO_ALERT_FORMAT:-json}
+      KRAO_ALERT_TELEGRAM_CHAT_ID: ${KRAO_ALERT_TELEGRAM_CHAT_ID:-}
+      KRAO_ALERT_REPEAT_HOURS: ${KRAO_ALERT_REPEAT_HOURS:-6}
 
   caddy:
     image: caddy:2.10-alpine
