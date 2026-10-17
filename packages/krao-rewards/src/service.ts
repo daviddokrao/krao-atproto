@@ -1,5 +1,6 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Transaction } from 'kysely'
+import { isValidDid } from '@atproto/syntax'
 import type {
   Beneficiary,
   CodeKind,
@@ -287,7 +288,8 @@ export class RewardsService {
       .execute()
     // Actions of admins (not the system or a KYC provider) go to the
     // shared admin log too
-    if (actor.startsWith('did:')) {
+    // (the log's `actor` is a DID: `system` and providers stay out)
+    if (isValidDid(actor)) {
       await recordAudit(db, {
         service: 'rewards',
         actor,

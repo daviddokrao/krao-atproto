@@ -76,6 +76,29 @@ const HOMOGLYPHS: Record<string, string> = {
   '|': 'i',
 }
 
+/**
+ * Capitals that look like a Latin capital whose small letter does not look
+ * like the Latin small letter (Greek Ν lowercases to ν, read as `v` above):
+ * read before lowercasing
+ */
+const CAPITAL_HOMOGLYPHS: Record<string, string> = {
+  // Greek
+  Α: 'a',
+  Β: 'b',
+  Ε: 'e',
+  Ζ: 'z',
+  Η: 'h',
+  Ι: 'i',
+  Κ: 'k',
+  Μ: 'm',
+  Ν: 'n',
+  Ο: 'o',
+  Ρ: 'p',
+  Τ: 't',
+  Υ: 'y',
+  Χ: 'x',
+}
+
 /** Letter pairs that read as one letter, applied after the table above */
 const PAIRS: [RegExp, string][] = [
   [/rn/g, 'm'],
@@ -84,7 +107,9 @@ const PAIRS: [RegExp, string][] = [
 
 /** A name as it reads: see the top of this file */
 export function normalizeName(name: string): string {
-  let s = name.normalize('NFKC').toLowerCase()
+  let s = ''
+  for (const ch of name.normalize('NFKC')) s += CAPITAL_HOMOGLYPHS[ch] ?? ch
+  s = s.toLowerCase()
   // Diacritics: decompose, drop the marks; đ has no decomposition
   s = s.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd')
   let mapped = ''

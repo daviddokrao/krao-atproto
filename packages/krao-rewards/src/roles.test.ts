@@ -238,6 +238,9 @@ describe('Krao admin roles', () => {
     })
     await service.takeDown(USER)
     await service.liftTakedown(USER)
+    // Actors that are not DIDs (a KYC provider, a malformed one) stay out
+    await service.audit(service.db, 'sumsub', 'kyc.status', USER)
+    await service.audit(service.db, 'did:bad', 'kyc.status', USER)
     const log = await call(ADMIN, 'net.krao.admin.getAuditLog')
     expect(log.body.entries.map((e: any) => e.action)).toEqual([
       'points.adjust',
@@ -276,6 +279,10 @@ describe('Krao admin roles', () => {
     })
     expect((await post({ ...entry, service: 'rewards' })).status).toBe(400)
     expect((await post({ ...entry, actor: 'nobody' })).status).toBe(400)
+    // Only real DIDs: the lexicon's `actor` is one
+    for (const actor of ['did:', 'did:plc', 'did:plc:a b', 'DID:plc:x']) {
+      expect((await post({ ...entry, actor, key: actor })).status).toBe(400)
+    }
     const log = await call(ADMIN, 'net.krao.admin.getAuditLog', {
       query: `?service=indexer&actor=${SAFETY}`,
     })

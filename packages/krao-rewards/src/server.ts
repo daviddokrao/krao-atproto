@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import cors from 'cors'
 import express, { type Express, json as jsonBody, raw } from 'express'
 import type { IdResolver } from '@atproto/identity'
+import { isValidDid } from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
@@ -1022,9 +1023,10 @@ export function createApp(opts: AppOptions): Express {
       if (
         !AUDIT_SERVICES.includes(from as AuditService) ||
         from === 'rewards' ||
+        // The lexicon's `actor` is a DID
         typeof actor !== 'string' ||
-        !actor.startsWith('did:') ||
         actor.length > 2048 ||
+        !isValidDid(actor) ||
         typeof action !== 'string' ||
         !action ||
         action.length > 128 ||

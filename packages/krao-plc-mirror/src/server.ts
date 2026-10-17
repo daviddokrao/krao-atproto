@@ -30,9 +30,12 @@ export function createApp(mirror: PlcMirror): Express {
       res.status(503).json({ ok: false, error: 'Database' })
       return
     }
+    // Rows are never deleted, so the last id is the count; count(*) would
+    // scan the whole table (tens of millions of rows) and block the event
+    // loop (better-sqlite3 is synchronous) on every health check
     const count = await mirror.db
       .selectFrom('op')
-      .select((eb) => eb.fn.countAll<number>().as('n'))
+      .select((eb) => eb.fn.max<number | null>('id').as('n'))
       .executeTakeFirst()
     res.json({
       ok: true,

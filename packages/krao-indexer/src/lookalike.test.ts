@@ -23,6 +23,16 @@ describe('normalizeName', () => {
     expect(normalizeName('Віnance')).toBe('binance')
   })
 
+  it('reads Greek capitals as the Latin capitals they look like', () => {
+    // Greek Nu, Eta, Upsilon, Mu (their small letters look like v, n, u, µ)
+    const greek = 'ΝΗΥΜ'
+    expect(normalizeName(greek)).toBe('nhym')
+    expect(normalizeName('ΝOVA')).toBe('nova')
+    expect(normalizeName('ΗANOI')).toBe(normalizeName('Hanoi'))
+    // Small letters keep their own reading
+    expect(normalizeName('νη')).toBe('vn')
+  })
+
   it('reads fullwidth letters and look-alike digits', () => {
     expect(normalizeName('ＫＲＡＯ')).toBe('krao')
     expect(normalizeName('Kra0 0ffic1al')).toBe(normalizeName('Krao Official'))

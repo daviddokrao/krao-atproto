@@ -275,6 +275,49 @@ describe('PLC mirror', () => {
     ])
   })
 
+  it('moves its time cursor without losing operations at page edges', async () => {
+    // Pages served by a fake source: later operations of DIDs the mirror
+    // never had (all skipped)
+    const pages: { after: string | null }[] = []
+    let page: unknown[] = []
+    const fake = new PlcMirror(db, {
+      source: 'http://plc.invalid',
+      fetchFn: (async (url: URL) => {
+        pages.push({ after: url.searchParams.get('after') })
+        return new Response(page.map((e) => JSON.stringify(e)).join('\n'))
+      }) as never,
+    })
+    const entry = (i: number, createdAt: string) => ({
+      did: `did:plc:${String(i).padStart(24, 'a')}`,
+      operation: {
+        type: 'plc_tombstone',
+        prev: 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm',
+        sig: `sig${i}`,
+      },
+      createdAt,
+    })
+    const t0 = Date.parse('2026-10-01T00:00:00.000Z')
+    page = Array.from({ length: 1000 }, (_, i) =>
+      entry(i, new Date(t0 + i).toISOString()),
+    )
+    expect(await fake.pollOnce()).toBe(true)
+    // Skipped operations move the cursor to the last one's time, not past
+    // it: others of that millisecond may come on the next page
+    const last = new Date(t0 + 999).toISOString()
+    expect(await fake.getState('cursor')).toBe(last)
+    page = []
+    expect(await fake.pollOnce()).toBe(false)
+    expect(pages[1].after).toBe(new Date(t0 + 998).toISOString())
+
+    // A full page all within the cursor's millisecond: stepped past, not
+    // asked for forever
+    page = Array.from({ length: 1000 }, (_, i) => entry(2000 + i, last))
+    await fake.pollOnce()
+    expect(await fake.getState('cursor')).toBe(
+      new Date(t0 + 1000).toISOString(),
+    )
+  })
+
   it('reports how far behind it may be', async () => {
     expect(mirror.lagSeconds()).toBeNull()
     await mirror.pollOnce()

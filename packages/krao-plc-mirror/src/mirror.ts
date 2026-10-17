@@ -362,22 +362,30 @@ export class PlcMirror {
       .split('\n')
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line) as ExportEntry)
-    let fresh = 0
     let next = cursor
     for (const entry of entries) {
-      const result = await this.ingest(entry)
-      if (result === 'added' || result === 'rejected') fresh++
+      await this.ingest(entry)
       next =
         typeof entry.seq === 'number'
           ? `seq:${entry.seq}`
           : new Date(entry.createdAt).toISOString()
     }
     const full = entries.length >= PAGE_SIZE
+    if (
+      full &&
+      next &&
+      !next.startsWith('seq:') &&
+      cursor &&
+      !cursor.startsWith('seq:') &&
+      Date.parse(next) <= Date.parse(cursor)
+    ) {
+      // A full page within the cursor's millisecond would come back again
+      // forever: step past it. Otherwise the next page starts just before
+      // the last time taken (operations of that millisecond may straddle
+      // pages), whatever became of the operations.
+      next = new Date(Date.parse(cursor) + 1).toISOString()
+    }
     if (next && next !== cursor) {
-      // A full page of operations already taken: step past them
-      if (full && !fresh && !next.startsWith('seq:')) {
-        next = new Date(Date.parse(next) + 1).toISOString()
-      }
       await this.setState('cursor', next)
     }
     const now = new Date().toISOString()
