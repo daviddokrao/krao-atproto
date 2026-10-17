@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.getPlans",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Membership plans of an account, the oldest first. Only active plans, unless the caller is the creator (service auth for the indexer, optional).",
+      "parameters": {
+        "type": "params",
+        "required": ["creator"],
+        "properties": {
+          "creator": { "type": "string", "format": "at-identifier" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["plans"],
+          "properties": {
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.membership.defs#planView"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

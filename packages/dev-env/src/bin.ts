@@ -4,10 +4,18 @@ import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
+import { KraoPlcMirror } from '@krao/plc-mirror'
+import { KraoLabelSubscription } from '@atproto/bsky'
 import { KraoPush } from '@krao/push'
-import { KraoRewards } from '@krao/rewards'
+import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
+import { ADMIN_PASSWORD } from './const.js'
+import {
+  addKraoLabels,
+  publishKraoPermissionSets,
+  serveMiniAppSample,
+} from './krao-dev.js'
 import { generateMockSetup } from './mock/index.js'
 import { TestNetwork } from './network.js'
 import { mockMailer } from './util.js'
@@ -17,6 +25,11 @@ const KRAO_VIDEO_PORT = 2591
 const KRAO_CHAT_PORT = 2590
 const KRAO_REWARDS_PORT = 2592
 const KRAO_PUSH_PORT = 2593
+/** Krao's PLC mirror (M35), in front of the dev PLC (2582) */
+const KRAO_PLC_MIRROR_PORT = 2596
+const PLC_MIRROR_URL = `http://localhost:${KRAO_PLC_MIRROR_PORT}`
+/** Krao's sample Mini App (services/krao/miniapp-sample) */
+const KRAO_MINIAPP_SAMPLE_PORT = 2595
 /** The AppView's courier key and Krao services' push token; dev only */
 const KRAO_PUSH_COURIER_KEY = 'krao-dev-push-courier-key'
 const KRAO_PUSH_TOKEN = 'krao-dev-push-internal-token'
@@ -29,6 +42,17 @@ const KRAO_PUSH = {
 const KRAO_REWARDS_TOKEN = 'krao-dev-rewards-token'
 /** Campaign code for the seed scripts and e2e tests to sign up with */
 const KRAO_DEV_CODE = 'KRAO-DEV'
+/** Keys for stored phone numbers; dev only */
+const KRAO_DEV_PHONE_SECRETS = {
+  hmacSecret: 'krao-dev-phone-hmac-secret-0123456789',
+  encKey: '0123456789abcdef'.repeat(4),
+}
+/*
+ * Posting and chat need a verified phone (Decree 147), as in production.
+ * Codes go to the log and to /internal/dev/last-otp of the rewards service.
+ * KRAO_DEV_PHONE_REQUIRED=false turns it off (eg a public demo).
+ */
+const PHONE_REQUIRED = process.env.KRAO_DEV_PHONE_REQUIRED !== 'false'
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -52,8 +76,23 @@ const run = async () => {
 
 [ created by Bluesky ]`)
 
+  /*
+   * The PLC mirror starts first (it waits for the PLC with retries): the
+   * AppView, the main PDS and Krao's services resolve DIDs through it, and
+   * the PDS writes through it (passed on to the PLC), as in production
+   */
+  const plcMirror = await KraoPlcMirror.create({
+    port: KRAO_PLC_MIRROR_PORT,
+    dbLocation: ':memory:',
+    source: 'http://localhost:2582',
+    pollMs: 500,
+    maxBackoffMs: 1_000,
+  })
+  await plcMirror.start()
+
   const network = await TestNetwork.create({
     pds: {
+      didPlcUrl: PLC_MIRROR_URL,
       port: 2583,
       hostname: PDS_HOSTNAME,
       /*
@@ -63,6 +102,10 @@ const run = async () => {
        */
       enableDidDocWithSession: PDS_HOSTNAME === 'localhost',
       kraoIndexerUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      // Smart wallets sign in against the local Anvil fork of Base (8453)
+      kraoEvmRpcUrl: process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
+      // Every seed and e2e sign-in comes from this machine
+      kraoContractChecksPerIp: 10_000,
       // Invite codes are Krao referral codes (required once set up, below)
       kraoRewardsUrl: `http://localhost:${KRAO_REWARDS_PORT}`,
       kraoRewardsToken: KRAO_REWARDS_TOKEN,
@@ -75,6 +118,7 @@ const run = async () => {
       supportUrl: 'https://krao.net/support',
     },
     bsky: {
+      plcUrl: PLC_MIRROR_URL,
       dbPostgresSchema: 'bsky',
       port: 2584,
       // Image and other public URLs the AppView hands out (see PDS_HOSTNAME)
@@ -108,6 +152,7 @@ const run = async () => {
     )
   }
   console.log(`👤 DID Placeholder server http://localhost:${network.plc.port}`)
+  console.log(`🪞 Krao PLC mirror ${PLC_MIRROR_URL}`)
   console.log(`🌞 Main PDS http://localhost:${network.pds.port}`)
   console.log(`🌞 Main PDS account DB`, network.pds.ctx.cfg.db.accountDbLoc)
   console.log(
@@ -118,6 +163,12 @@ const run = async () => {
   console.log(`🔄 Bsync server http://localhost:${network.bsync.port}`)
   console.log(`🌅 Bsky Appview http://localhost:${network.bsky.port}`)
   console.log(`🌅 Bsky Appview DID ${network.bsky.serverDid}`)
+  // Krao: the dev Ozone's labels reach the AppView, as in production (M35)
+  new KraoLabelSubscription({
+    db: network.bsky.db,
+    service: network.ozone.url,
+    labelerDid: network.ozone.ctx.cfg.service.did,
+  }).start()
   for (const fg of network.feedGens) {
     console.log(`🤖 Feed Generator (${fg.did}) http://localhost:${fg.port}`)
   }
@@ -137,22 +188,40 @@ const run = async () => {
     port: KRAO_INDEXER_PORT,
     dbLocation: ':memory:',
     firehoseUrl: network.pds.url.replace('http', 'ws'),
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     handleResolverUrl: network.pds.url,
     appviewUrl: network.bsky.url,
     nftRecheckMs: 15_000,
     // Tests and demos check feeds and suggestions right after writing
     discoveryCacheMs: 0,
+    // ...and balances and NFTs right after moving them on the fork
+    holderFeed: { cacheMs: 0 },
+    onchainCacheMs: 0,
     gateDid: 'did:web:gate.krao.test',
     // Local Anvil chain (chain id 8453, forked from Base), see Krao README
     rpcUrls: {
       'eip155:8453': process.env.KRAO_DEV_RPC_URL ?? 'http://localhost:8545',
     },
     insecureFetch: true,
+    // Mini Apps may be served from http://localhost (the sample below)
+    devMode: true,
     feedGenDid,
     // Where short links lead: the web app in front of this dev-env
     webUrl: process.env.KRAO_DEV_WEB_URL || 'http://localhost:8081',
     push: KRAO_PUSH,
+    // Ozone, and rewards-admin.test (added below), may read gated content
+    gateModeratorDids: [network.ozone.ctx.cfg.service.did],
+    // Verified communities and polls (the rewards service starts below)
+    rewards: {
+      url: `http://localhost:${KRAO_REWARDS_PORT}`,
+      token: KRAO_REWARDS_TOKEN,
+    },
+    // Impersonation checks label and report in the dev-env Ozone (M35)
+    ozone: { url: network.ozone.url, adminPassword: ADMIN_PASSWORD },
+    trustedVerifierDids: (process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '')
+      .split(',')
+      .map((did) => did.trim())
+      .filter((did) => did.startsWith('did:')),
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
@@ -162,7 +231,7 @@ const run = async () => {
     port: KRAO_VIDEO_PORT,
     serviceDid: 'did:web:video.krao.test',
     dataDir: await mkdtemp(path.join(os.tmpdir(), 'krao-video-')),
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     pdsUrls: [
       network.pds.url,
       ...(PDS_HOSTNAME === 'localhost'
@@ -186,12 +255,19 @@ const run = async () => {
     port: KRAO_CHAT_PORT,
     serviceDid: chatDid,
     dbLocation: ':memory:',
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     appviewUrl: network.bsky.url,
     insecureFetch: true,
     // Ozone reviews reported messages through chat.bsky.moderation.*
     moderatorDids: [network.ozone.ctx.cfg.service.did],
     push: KRAO_PUSH,
+    // Turned on below, once the dev-env's own accounts exist
+    phone: {
+      rewardsUrl: `http://localhost:${KRAO_REWARDS_PORT}`,
+      token: KRAO_REWARDS_TOKEN,
+      required: false,
+    },
+    firehoseUrl: network.pds.url.replace('http', 'ws'),
   })
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)
@@ -202,12 +278,22 @@ const run = async () => {
     port: KRAO_REWARDS_PORT,
     serviceDid: 'did:web:rewards.krao.test',
     dbLocation: ':memory:',
-    plcUrl: network.plc.url,
+    plcUrl: PLC_MIRROR_URL,
     internalToken: KRAO_REWARDS_TOKEN,
     insecureFetch: true,
     // Tests review KYC by hand on every run
     manualReview: { dailyLimit: 1000 },
+    // Shown in the app's role list (M35), as the indexer has it
+    gateModeratorDids: [network.ozone.ctx.cfg.service.did],
     push: KRAO_PUSH,
+    // SMS codes are logged, and readable at /internal/dev/last-otp
+    phone: {
+      sms: new LogSmsProvider(),
+      secrets: KRAO_DEV_PHONE_SECRETS,
+      // Every seed and e2e request comes from this machine
+      limits: { ipHourlyCap: 100_000, globalHourlyCap: 100_000 },
+    },
+    devMode: true,
   })
   await kraoRewards.start()
   await kraoRewards.service.createCode('system', {
@@ -230,6 +316,8 @@ const run = async () => {
       schema: network.bsky.db.opts.schema,
     },
     pollMs: 500,
+    firehoseUrl: network.pds.url.replace('http', 'ws'),
+    plcUrl: PLC_MIRROR_URL,
   })
   await kraoPush.start()
   console.log(`🔔 Krao push service ${kraoPush.url}`)
@@ -247,9 +335,71 @@ const run = async () => {
   })
   const admin = await createKraoAccount(network.pds.url, 'rewards-admin')
   kraoRewards.addAdmin(admin)
+  kraoIndexer.addGateModerator(admin)
+  kraoIndexer.addSafetyAdmin(admin)
   console.log(
-    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin rewards-admin.test (${admin})`,
+    `🎁 Sign-up code ${KRAO_DEV_CODE}; rewards admin, gate moderator and safety admin rewards-admin.test (${admin})`,
   )
+  /*
+   * Krao's verifier: its app.bsky.graph.verification records give the blue
+   * check (the seed script verifies krao.test with it). Production sets
+   * verifiers with KRAO_TRUSTED_VERIFIER_DIDS, which works here too.
+   */
+  const verifier = await createKraoAccount(network.pds.url, 'krao-verify')
+  for (const did of [
+    verifier,
+    ...(process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '').split(','),
+  ]) {
+    if (!did.trim().startsWith('did:')) continue
+    await network.bsky.db.db
+      .insertInto('actor')
+      .values({
+        did: did.trim(),
+        // Old, so the AppView still indexes the handle when it sees one
+        indexedAt: new Date(0).toISOString(),
+        trustedVerifier: true,
+      })
+      .onConflict((oc) =>
+        oc.column('did').doUpdateSet({ trustedVerifier: true }),
+      )
+      .execute()
+  }
+  // ...and for the indexer's impersonation checks (M35)
+  await kraoIndexer.addTrustedVerifier(verifier)
+  console.log(`☑️ Trusted verifier krao-verify.test (${verifier})`)
+  const labels = await addKraoLabels(network).catch((err) => {
+    console.warn('⚠️ Krao labels not added to the labeler record', err)
+    return [] as string[]
+  })
+  console.log(
+    `🏷️ Krao labels: ${labels.filter((l) => l.startsWith('impersonation')).join(', ')}`,
+  )
+  /*
+   * The official account (the seed script fills it in): token pages link only
+   * the holders-<symbol> feeds it publishes (KRAO_OFFICIAL_FEED_DIDS)
+   */
+  const official = await createKraoAccount(network.pds.url, 'krao')
+  kraoIndexer.addOfficialFeedDid(official)
+  console.log(`📰 Official feed account krao.test (${official})`)
+  // The sample Mini App (the seed script registers and approves it)
+  await serveMiniAppSample(KRAO_MINIAPP_SAMPLE_PORT)
+  console.log(
+    `🧩 Sample Mini App http://localhost:${KRAO_MINIAPP_SAMPLE_PORT}/`,
+  )
+  // Krao's OAuth permission sets (include:net.krao.authWeb3 and authMiniApp)
+  const sets = await publishKraoPermissionSets(network).catch((err) => {
+    console.warn('⚠️ Krao permission sets not published', err)
+    return { published: [], resolved: [] as string[] }
+  })
+  console.log(
+    `🔑 Krao permission sets resolved by the PDS: ${sets.resolved.join(', ') || 'none'}`,
+  )
+  // Like sign-up codes: the mock accounts above posted without a phone
+  if (PHONE_REQUIRED) {
+    network.pds.ctx.cfg.kraoRewards!.phoneRequired = true
+    kraoChat.phone!.cfg.required = true
+    console.log('📱 Posting and chat need a verified phone (codes in the log)')
+  }
   console.timeEnd('✅ Dev environment is ready')
 }
 

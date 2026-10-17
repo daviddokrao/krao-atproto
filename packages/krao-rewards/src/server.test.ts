@@ -2,7 +2,9 @@ import type { AddressInfo } from 'node:net'
 import type http from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IdResolver } from '@atproto/identity'
+import { vnDay } from './activity.js'
 import { type Database, createDb, migrateDb } from './db.js'
+import { PhoneCrypto, PhoneService, type SmsProvider } from './phone.js'
 import { createApp } from './server.js'
 import { RewardsService } from './service.js'
 
@@ -10,6 +12,7 @@ const TOKEN = 'internal-token-for-tests-0123456789'
 
 let db: Database
 let service: RewardsService
+let phone: PhoneService
 let server: http.Server
 let base: string
 
@@ -18,6 +21,13 @@ beforeEach(async () => {
   await migrateDb(db)
   service = new RewardsService(db)
   await service.seedRules()
+  const sms: SmsProvider = { name: 'log', send: async () => {} }
+  phone = new PhoneService(
+    db,
+    new PhoneCrypto({ hmacSecret: 'h'.repeat(32), encKey: 'ab'.repeat(32) }),
+    sms,
+  )
+  phone.devCodes = new Map()
   const app = createApp({
     service,
     // Only user-authenticated XRPC methods resolve DIDs; not used here
@@ -28,6 +38,7 @@ beforeEach(async () => {
     kycReviewerDids: new Set(),
     kycProvider: null,
     manualReview: { dailyLimit: 10, requireSecondApprover: false },
+    phone,
   })
   server = app.listen(0)
   base = `http://localhost:${(server.address() as AddressInfo).port}`
@@ -96,6 +107,112 @@ describe('rewards HTTP routes', () => {
       method: 'POST',
       body: JSON.stringify({ did: 'bob', code }),
     })
+    expect(bad.status).toBe(400)
+  })
+
+  it('tells the PDS whether an account verified its phone', async () => {
+    const did = 'did:plc:alice'
+    const before = await internal(`/internal/phone-status?did=${did}`)
+    expect(await before.json()).toEqual({ verified: false })
+    await phone.requestCode(did, '0912345678')
+    // The dev route gives the code the log driver sent
+    const last = await internal(`/internal/dev/last-otp?did=${did}`)
+    const { code } = (await last.json()) as { code: string }
+    await phone.verifyCode(did, '+84912345678', code)
+    const after = await internal(`/internal/phone-status?did=${did}`)
+    expect(await after.json()).toEqual({ verified: true })
+    // The indexer's question for verified communities and polls
+    const human = await internal(`/internal/human-status?did=${did}`)
+    expect(await human.json()).toEqual({ human: true })
+    const nobody = await internal('/internal/human-status?did=did:plc:nobody')
+    expect(await nobody.json()).toEqual({ human: false })
+    const noAuth = await internal(
+      `/internal/human-status?did=${did}`,
+      {},
+      'wrong',
+    )
+    expect(noAuth.status).toBe(401)
+    const guarded = await internal(
+      `/internal/phone-status?did=${did}`,
+      {},
+      'wrong',
+    )
+    expect(guarded.status).toBe(401)
+  })
+
+  it('takes account events from the indexer, once per account', async () => {
+    const did = 'did:plc:alice'
+    const post = (body: unknown, token = TOKEN) =>
+      internal(
+        '/internal/events',
+        { method: 'POST', body: JSON.stringify(body) },
+        token,
+      )
+    expect((await post({ type: 'wallet.linked', did })).status).toBe(200)
+    expect((await post({ type: 'wallet.linked', did })).status).toBe(200)
+    expect((await post({ type: 'post.first', did })).status).toBe(200)
+    expect(await service.balance(did)).toEqual({ pending: 30, approved: 0 })
+    expect((await post({ type: 'account.created', did })).status).toBe(400)
+    expect((await post({ type: 'post.first', did: 'bob' })).status).toBe(400)
+    expect((await post({ type: 'post.first', did }, 'wrong')).status).toBe(401)
+  })
+
+  it('takes M33 events and activity days, but not active.30d itself', async () => {
+    const did = 'did:plc:alice'
+    const post = (body: unknown) =>
+      internal('/internal/events', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+    expect((await post({ type: 'community.joined', did })).status).toBe(200)
+    expect((await post({ type: 'tip.first', did })).status).toBe(200)
+    // Derived by the rewards service, never reported
+    expect((await post({ type: 'active.30d', did })).status).toBe(400)
+    expect(await service.balance(did)).toEqual({ pending: 10, approved: 0 })
+
+    const today = vnDay(Date.now())
+    const res = await post({ type: 'activity.day', did, day: today })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Out of range: answered (so the outbox moves on), but not kept
+    const far = await post({ type: 'activity.day', did, day: '2099-01-01' })
+    expect(far.status).toBe(200)
+    expect(await far.json()).toEqual({ ok: true, ignored: true })
+    expect(
+      (await post({ type: 'activity.day', did, day: '2026-02-30' })).status,
+    ).toBe(400)
+    expect((await post({ type: 'activity.day', did })).status).toBe(400)
+    const days = await db.selectFrom('activity_day').selectAll().execute()
+    expect(days).toEqual([{ did, day: today }])
+  })
+
+  it('has no dev routes outside dev mode', async () => {
+    const res = await internal('/internal/dev/backdate-account', {
+      method: 'POST',
+      body: JSON.stringify({ did: 'did:plc:alice', days: 40 }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('keeps the analytics for admins', async () => {
+    for (const method of ['getFunnel', 'getRetention', 'getSummary']) {
+      const res = await fetch(`${base}/xrpc/net.krao.analytics.${method}`)
+      expect(res.status).toBe(401)
+    }
+  })
+
+  it('answers the leaderboard without auth, with no viewer block', async () => {
+    const res = await fetch(`${base}/xrpc/net.krao.points.getLeaderboard`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.entries).toEqual([])
+    expect(body.viewer).toBeUndefined()
+    expect(body.period).toMatchObject({
+      start: expect.stringMatching(/T17:00:00\.000Z$/),
+    })
+    const bad = await fetch(
+      `${base}/xrpc/net.krao.points.getLeaderboard?period=month`,
+    )
     expect(bad.status).toBe(400)
   })
 

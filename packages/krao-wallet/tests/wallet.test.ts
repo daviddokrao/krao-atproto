@@ -153,11 +153,11 @@ describe('sign-in messages', () => {
 })
 
 describe('verifyWalletProof', () => {
-  it('accepts a valid EVM link proof', () => {
+  it('accepts a valid EVM link proof', async () => {
     const wallet = evmWallet()
     const message = linkMessage({ address: wallet.address })
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: DID,
         account: `eip155:8453:${wallet.address}`,
         proof: { type: 'siwe', message, signature: wallet.sign(message) },
@@ -165,7 +165,7 @@ describe('verifyWalletProof', () => {
     ).toEqual({ ok: true })
   })
 
-  it('rejects a link message written by another site', () => {
+  it('rejects a link message written by another site', async () => {
     const wallet = evmWallet()
     for (const overrides of [
       { domain: 'evil-dapp.example' },
@@ -174,21 +174,23 @@ describe('verifyWalletProof', () => {
     ]) {
       const message = linkMessage({ address: wallet.address, ...overrides })
       expect(
-        verifyWalletProof({
-          did: DID,
-          account: `eip155:8453:${wallet.address}`,
-          proof: { type: 'siwe', message, signature: wallet.sign(message) },
-        }).ok,
+        (
+          await verifyWalletProof({
+            did: DID,
+            account: `eip155:8453:${wallet.address}`,
+            proof: { type: 'siwe', message, signature: wallet.sign(message) },
+          })
+        ).ok,
       ).toBe(false)
     }
   })
 
-  it('recovers the signer address', () => {
+  it('recovers the signer address', async () => {
     const wallet = evmWallet()
     expect(recoverEvmAddress('hi', wallet.sign('hi'))).toBe(wallet.address)
   })
 
-  it('accepts the DID as a resource instead of the URI', () => {
+  it('accepts the DID as a resource instead of the URI', async () => {
     const wallet = evmWallet()
     const message = linkMessage({
       address: wallet.address,
@@ -196,19 +198,21 @@ describe('verifyWalletProof', () => {
       resources: [DID],
     })
     expect(
-      verifyWalletProof({
-        did: DID,
-        account: `eip155:8453:${wallet.address}`,
-        proof: { type: 'siwe', message, signature: wallet.sign(message) },
-      }).ok,
+      (
+        await verifyWalletProof({
+          did: DID,
+          account: `eip155:8453:${wallet.address}`,
+          proof: { type: 'siwe', message, signature: wallet.sign(message) },
+        })
+      ).ok,
     ).toBe(true)
   })
 
-  it('rejects a proof replayed for another DID', () => {
+  it('rejects a proof replayed for another DID', async () => {
     const wallet = evmWallet()
     const message = linkMessage({ address: wallet.address })
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: OTHER_DID,
         account: `eip155:8453:${wallet.address}`,
         proof: { type: 'siwe', message, signature: wallet.sign(message) },
@@ -216,12 +220,12 @@ describe('verifyWalletProof', () => {
     ).toEqual({ ok: false, reason: 'Message does not name the DID' })
   })
 
-  it('rejects a signature from another wallet', () => {
+  it('rejects a signature from another wallet', async () => {
     const wallet = evmWallet()
     const attacker = evmWallet()
     const message = linkMessage({ address: wallet.address })
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: DID,
         account: `eip155:8453:${wallet.address}`,
         proof: { type: 'siwe', message, signature: attacker.sign(message) },
@@ -229,24 +233,26 @@ describe('verifyWalletProof', () => {
     ).toEqual({ ok: false, reason: 'Invalid signature' })
   })
 
-  it('rejects a message for a different address or chain', () => {
+  it('rejects a message for a different address or chain', async () => {
     const wallet = evmWallet()
     const other = evmWallet()
     const wrongAddress = linkMessage({ address: other.address })
     expect(
-      verifyWalletProof({
-        did: DID,
-        account: `eip155:8453:${wallet.address}`,
-        proof: {
-          type: 'siwe',
-          message: wrongAddress,
-          signature: wallet.sign(wrongAddress),
-        },
-      }).ok,
+      (
+        await verifyWalletProof({
+          did: DID,
+          account: `eip155:8453:${wallet.address}`,
+          proof: {
+            type: 'siwe',
+            message: wrongAddress,
+            signature: wallet.sign(wrongAddress),
+          },
+        })
+      ).ok,
     ).toBe(false)
     const wrongChain = linkMessage({ address: wallet.address, chainId: '1' })
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: DID,
         account: `eip155:8453:${wallet.address}`,
         proof: {
@@ -261,24 +267,26 @@ describe('verifyWalletProof', () => {
     })
   })
 
-  it('rejects a tampered message', () => {
+  it('rejects a tampered message', async () => {
     const wallet = evmWallet()
     const message = linkMessage({ address: wallet.address })
     const signature = wallet.sign(message)
     expect(
-      verifyWalletProof({
-        did: DID,
-        account: `eip155:8453:${wallet.address}`,
-        proof: {
-          type: 'siwe',
-          message: message.replace('abc123def456', 'zzz'),
-          signature,
-        },
-      }).ok,
+      (
+        await verifyWalletProof({
+          did: DID,
+          account: `eip155:8453:${wallet.address}`,
+          proof: {
+            type: 'siwe',
+            message: message.replace('abc123def456', 'zzz'),
+            signature,
+          },
+        })
+      ).ok,
     ).toBe(false)
   })
 
-  it('accepts a valid Solana link proof and rejects a forged one', () => {
+  it('accepts a valid Solana link proof and rejects a forged one', async () => {
     const wallet = solanaWallet()
     const message = linkMessage({
       chain: 'Solana',
@@ -287,14 +295,14 @@ describe('verifyWalletProof', () => {
     })
     const account = `solana:${SOLANA_MAINNET}:${wallet.address}`
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: DID,
         account,
         proof: { type: 'siws', message, signature: wallet.sign(message) },
       }),
     ).toEqual({ ok: true })
     expect(
-      verifyWalletProof({
+      await verifyWalletProof({
         did: DID,
         account,
         proof: {
@@ -306,15 +314,17 @@ describe('verifyWalletProof', () => {
     ).toEqual({ ok: false, reason: 'Invalid signature' })
   })
 
-  it('rejects a mismatched proof type', () => {
+  it('rejects a mismatched proof type', async () => {
     const wallet = evmWallet()
     const message = linkMessage({ address: wallet.address })
     expect(
-      verifyWalletProof({
-        did: DID,
-        account: `eip155:8453:${wallet.address}`,
-        proof: { type: 'siws', message, signature: wallet.sign(message) },
-      }).ok,
+      (
+        await verifyWalletProof({
+          did: DID,
+          account: `eip155:8453:${wallet.address}`,
+          proof: { type: 'siws', message, signature: wallet.sign(message) },
+        })
+      ).ok,
     ).toBe(false)
   })
 })

@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.account.recordConsent",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Record that the viewer agreed to a version of Krao's terms and to the processing of the listed kinds of personal data. Each call adds a record; earlier ones are kept. Requires service auth for the rewards service.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["version", "items"],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "Version of the terms and privacy policy shown, eg 2026-10-16."
+            },
+            "items": {
+              "type": "array",
+              "minLength": 1,
+              "maxLength": 10,
+              "items": {
+                "type": "string",
+                "knownValues": ["terms", "privacy", "kyc", "phone", "wallet"]
+              },
+              "description": "What the viewer agreed to."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "net.krao.account.defs#consentView" }
+      }
+    }
+  }
+}

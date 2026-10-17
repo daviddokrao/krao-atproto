@@ -49,14 +49,27 @@ Krao's chat service, in place of Bluesky's (closed source) one. It serves the
 
 ## Configuration (`bin.ts`)
 
-| Env                    | Default                 |
-| ---------------------- | ----------------------- |
-| `KRAO_CHAT_PORT`       | `2590`                  |
-| `KRAO_CHAT_DID`        | `did:web:chat.krao.net` |
-| `KRAO_CHAT_PUBLIC_URL` | – (did:web document)    |
-| `KRAO_CHAT_DB`         | `krao-chat.sqlite`      |
-| `KRAO_PLC_URL`         | `https://plc.directory` |
-| `KRAO_APPVIEW_URL`     | `https://api.krao.net`  |
+| Env                                               | Default                 |
+| ------------------------------------------------- | ----------------------- |
+| `KRAO_CHAT_PORT`                                  | `2590`                  |
+| `KRAO_CHAT_DID`                                   | `did:web:chat.krao.net` |
+| `KRAO_CHAT_PUBLIC_URL`                            | – (did:web document)    |
+| `KRAO_CHAT_DB`                                    | `krao-chat.sqlite`      |
+| `KRAO_PLC_URL`                                    | `https://plc.directory` |
+| `KRAO_APPVIEW_URL`                                | `https://api.krao.net`  |
+| `KRAO_CHAT_PHONE_REQUIRED`                        | `false`                 |
+| `KRAO_REWARDS_URL`, `KRAO_REWARDS_INTERNAL_TOKEN` | required with the above |
+| `KRAO_FIREHOSE_URL`                               | – (PDS firehose)        |
+
+- **Phone (Decree 147):** with `KRAO_CHAT_PHONE_REQUIRED`, starting a convo,
+  sending messages and creating groups need a phone verified with the
+  rewards service (`PhoneVerificationRequired`); answers are cached, and the
+  check fails closed.
+- **Deletions:** with `KRAO_FIREHOSE_URL`, account deletions on the PDS
+  (`#account` events only) wipe the account's chat data, as
+  `chat.bsky.actor.deleteAccount` does.
+- **Export:** `net.krao.account.exportData` returns the account's convos,
+  its own messages, reactions and settings.
 
 ## Tests
 

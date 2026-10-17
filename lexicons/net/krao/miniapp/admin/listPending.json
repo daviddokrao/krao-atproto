@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.miniapp.admin.listPending",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Mini Apps waiting for review (new, or changed since their approval), oldest first. Safety admins only; requires service auth for the indexer.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 25
+          },
+          "cursor": { "type": "string", "maxLength": 512 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["apps"],
+          "properties": {
+            "apps": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.miniapp.defs#miniAppView"
+              }
+            },
+            "cursor": { "type": "string", "maxLength": 512 }
+          }
+        }
+      }
+    }
+  }
+}

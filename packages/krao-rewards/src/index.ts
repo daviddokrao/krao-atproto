@@ -8,12 +8,27 @@ import {
   SumsubProvider,
 } from './kyc.js'
 import { pushRewardChanges } from './notifications.js'
+import {
+  type PhoneLimits,
+  type PhoneSecrets,
+  PhoneCrypto,
+  PhoneService,
+  type SmsProvider,
+} from './phone.js'
 import { type PushClient, createPushClient } from './push-client.js'
+import { RoleStore } from './roles.js'
 import { createApp } from './server.js'
 import { RewardsService } from './service.js'
 
 export { RewardsService } from './service.js'
+export { ROLES, type Role, RoleStore } from './roles.js'
 export { SumsubProvider } from './kyc.js'
+export {
+  HttpSmsProvider,
+  LogSmsProvider,
+  PhoneService,
+  type SmsProvider,
+} from './phone.js'
 
 export type KraoRewardsConfig = {
   port: number
@@ -30,6 +45,13 @@ export type KraoRewardsConfig = {
   adminDids?: string[]
   /** May call the KYC admin methods only */
   kycReviewerDids?: string[]
+  /**
+   * The indexer's safety admins and gate moderators (KRAO_SAFETY_ADMIN_DIDS,
+   * KRAO_GATE_MODERATOR_DIDS): shown with those roles, which cannot be
+   * removed through the API (M35)
+   */
+  safetyAdminDids?: string[]
+  gateModeratorDids?: string[]
   /** No provider: users cannot start verification, admins still review */
   sumsub?: SumsubConfig
   manualReview?: Partial<ManualReviewConfig>
@@ -42,19 +64,35 @@ export type KraoRewardsConfig = {
    * new network (the admins) can sign up. Disable it once they have.
    */
   bootstrapCode?: { code: string; maxUses: number }
+  /** Phone verification (net.krao.phone.*); unavailable without it */
+  phone?: {
+    sms: SmsProvider
+    secrets: PhoneSecrets
+    /** Allowed prefixes and SMS caps (see DEFAULT_PHONE_LIMITS) */
+    limits?: Partial<PhoneLimits>
+  }
+  /**
+   * Development and rehearsals only: with the log SMS driver, the codes sent
+   * can be read at /internal/dev/last-otp (internal token); activity days are
+   * taken for any day and sign-ups can be moved back (tests of active.30d)
+   */
+  devMode?: boolean
 }
 
 export class KraoRewards {
   private server?: http.Server
   private pushTimer?: NodeJS.Timeout
-  private push?: PushClient
+  private pruneTimer?: NodeJS.Timeout
 
   private constructor(
     public cfg: KraoRewardsConfig,
     public db: Database,
     public service: RewardsService,
+    public phone: PhoneService | null,
     private admins: Set<string>,
+    public roles: RoleStore,
     private app: ReturnType<typeof createApp>,
+    private push?: PushClient,
   ) {}
 
   /** Lets an account call the admin methods (eg one created at startup) */
@@ -84,6 +122,26 @@ export class KraoRewards {
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),
     })
     const admins = new Set(cfg.adminDids ?? [])
+    const kycReviewers = new Set(cfg.kycReviewerDids ?? [])
+    const roles = new RoleStore(db, {
+      adminDids: admins,
+      kycReviewerDids: kycReviewers,
+      safetyAdminDids: new Set(cfg.safetyAdminDids ?? []),
+      gateModeratorDids: new Set(cfg.gateModeratorDids ?? []),
+    })
+    const phone = cfg.phone
+      ? new PhoneService(
+          db,
+          new PhoneCrypto(cfg.phone.secrets),
+          cfg.phone.sms,
+          Date.now,
+          cfg.phone.limits,
+        )
+      : null
+    if (phone && cfg.devMode && cfg.phone?.sms.name === 'log') {
+      phone.devCodes = new Map()
+    }
+    const push = createPushClient(cfg.push?.url, cfg.push?.token)
     const app = createApp({
       service,
       idResolver,
@@ -91,14 +149,21 @@ export class KraoRewards {
       publicUrl: cfg.publicUrl,
       internalToken: cfg.internalToken,
       adminDids: admins,
-      kycReviewerDids: new Set(cfg.kycReviewerDids ?? []),
+      kycReviewerDids: kycReviewers,
+      roles,
       kycProvider: cfg.sumsub ? new SumsubProvider(cfg.sumsub) : null,
       manualReview: {
         dailyLimit: cfg.manualReview?.dailyLimit ?? 5,
         requireSecondApprover: cfg.manualReview?.requireSecondApprover ?? false,
       },
+      phone,
+      pushDevices: push ? (did) => push.devices(did) : undefined,
+      pushLanguage: push
+        ? (did, language) => push.setLanguage(did, language)
+        : undefined,
+      devMode: cfg.devMode,
     })
-    return new KraoRewards(cfg, db, service, admins, app)
+    return new KraoRewards(cfg, db, service, phone, admins, roles, app, push)
   }
 
   get url() {
@@ -108,7 +173,17 @@ export class KraoRewards {
   async start(): Promise<http.Server> {
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
-    this.push = createPushClient(this.cfg.push?.url, this.cfg.push?.token)
+    if (this.phone) {
+      const phone = this.phone
+      this.pruneTimer = setInterval(
+        () =>
+          void phone.prune().catch((err: unknown) => {
+            console.error('Krao rewards: phone pruning failed', err)
+          }),
+        60 * 60_000,
+      )
+      this.pruneTimer.unref()
+    }
     if (this.push) {
       const push = this.push
       // Changes from before this start are not announced
@@ -135,6 +210,7 @@ export class KraoRewards {
 
   async destroy(): Promise<void> {
     clearInterval(this.pushTimer)
+    clearInterval(this.pruneTimer)
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

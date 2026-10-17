@@ -180,17 +180,63 @@ describe('RewardsService', () => {
     expect(await service.balance(CAROL)).toEqual({ pending: 50, approved: 0 })
   })
 
-  it('pays second level referrers when a rule asks for it', async () => {
-    await service.upsertRule(ADMIN, {
-      ...DEFAULT_RULES[0],
-      id: 'referral.level2',
-      beneficiary: 'referrer2',
-      amount: 10,
-      vesting: [],
-    })
+  it('refuses rules that reward beyond one level', async () => {
+    for (const beneficiary of ['referrer2', 'referrer_l2', 'referrer3']) {
+      const err = await service
+        .upsertRule(ADMIN, {
+          ...DEFAULT_RULES[0],
+          id: 'referral.level2',
+          beneficiary: beneficiary as never,
+          amount: 10,
+          vesting: [],
+        })
+        .catch((e: { error?: string }) => e)
+      expect((err as { error?: string }).error).toBe('MultiLevelReferral')
+    }
+    expect((await service.listRules()).map((r) => r.id)).not.toContain(
+      'referral.level2',
+    )
+  })
+
+  it('ignores multi-level rules left from before', async () => {
+    await db
+      .insertInto('reward_rule')
+      .values({
+        id: 'legacy.level2',
+        version: 1,
+        enabled: 1,
+        description: null,
+        event: 'account.created',
+        beneficiary: 'referrer2' as never,
+        amount: 10,
+        vesting: '[]',
+        codeKinds: '[]',
+        campaignId: null,
+        validFrom: null,
+        validUntil: null,
+        capPerBeneficiary: null,
+        capPerDay: null,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'test',
+      })
+      .execute()
     await signUp(BOB, ALICE)
     await signUp(CAROL, BOB)
-    expect(await service.balance(ALICE)).toEqual({ pending: 100, approved: 10 })
+    expect(await service.balance(ALICE)).toEqual({ pending: 100, approved: 0 })
+  })
+
+  it('caps the default inviter rule at 20 sign-ups a day', async () => {
+    const [inviter] = (await service.listRules()).filter(
+      (r) => r.id === 'referral.inviter',
+    )
+    expect(inviter.capPerDay).toBe(20)
+    for (let i = 0; i < 21; i++) {
+      await signUp(`did:plc:invitee${i}`, ALICE)
+    }
+    expect(await service.balance(ALICE)).toEqual({
+      pending: 2000,
+      approved: 0,
+    })
   })
 
   it('does not reward sign-ups that raced past a code limit', async () => {
@@ -305,6 +351,94 @@ describe('RewardsService', () => {
     await signUp(BOB, ALICE)
     await service.takeDown(ALICE)
     expect(await service.balance(BOB)).toEqual({ pending: 50, approved: 0 })
+  })
+
+  it('rewards a first wallet and a first post once per account', async () => {
+    await signUp(BOB, ALICE)
+    const before = await service.balance(BOB)
+    for (let i = 0; i < 3; i++) {
+      // The indexer reports again after an unlink and relink, a repost...
+      await service.recordAccountEvent('wallet.linked', BOB)
+      await service.recordAccountEvent('post.first', BOB)
+    }
+    const entries = (await service.listEntries(BOB, 50)).entries
+    expect(
+      entries.filter((e) => e.ruleId === 'growth.wallet-linked'),
+    ).toHaveLength(1)
+    expect(
+      entries.filter((e) => e.ruleId === 'growth.first-post'),
+    ).toHaveLength(1)
+    expect(await service.balance(BOB)).toEqual({
+      pending: before.pending + 30,
+      approved: 0,
+    })
+    // Vesting on the account's own KYC only
+    await approveKyc(BOB)
+    expect((await service.balance(BOB)).approved).toBeGreaterThanOrEqual(30)
+    // The referrer rules are off by default
+    expect(
+      (await service.listEntries(ALICE, 50)).entries.some((e) =>
+        e.ruleId?.startsWith('growth.'),
+      ),
+    ).toBe(false)
+  })
+
+  it('gives the referrer growth points once turned on, one level, capped', async () => {
+    const rule = DEFAULT_RULES.find(
+      (r) => r.id === 'growth.first-post.referrer',
+    )!
+    await service.upsertRule(ADMIN, { ...rule, enabled: true, capPerDay: 1 })
+    await signUp(BOB, ALICE)
+    await signUp(CAROL, ALICE)
+    await service.recordAccountEvent('post.first', BOB)
+    await service.recordAccountEvent('post.first', CAROL)
+    const growth = (await service.listEntries(ALICE, 50)).entries.filter(
+      (e) => e.ruleId === 'growth.first-post.referrer',
+    )
+    // Daily cap of one
+    expect(growth).toHaveLength(1)
+    expect(growth[0]).toMatchObject({ amount: 5, relatedDid: BOB })
+  })
+
+  it('drops account events of taken down and deleted accounts', async () => {
+    await service.takeDown(BOB)
+    await service.recordAccountEvent('post.first', BOB)
+    await service.accountDeleted(CAROL)
+    await service.recordAccountEvent('wallet.linked', CAROL)
+    expect(await service.balance(BOB)).toEqual({ pending: 0, approved: 0 })
+    expect(await service.balance(CAROL)).toEqual({ pending: 0, approved: 0 })
+    await expect(
+      service.recordAccountEvent('account.created', BOB),
+    ).rejects.toThrow()
+  })
+
+  it('adds new default rules to an existing rule table', async () => {
+    const fresh = createDb(':memory:')
+    await migrateDb(fresh)
+    const old = new RewardsService(fresh)
+    // A table seeded before the growth rules existed
+    for (const rule of DEFAULT_RULES.filter((r) =>
+      r.id.startsWith('referral.'),
+    )) {
+      await old.upsertRule('system', { ...rule, amount: 7 })
+    }
+    await old.seedRules()
+    const rules = await old.listRules()
+    expect(rules.map((r) => r.id).sort()).toEqual(
+      DEFAULT_RULES.map((r) => r.id).sort(),
+    )
+    // Existing rules keep their settings
+    expect(rules.find((r) => r.id === 'referral.inviter')?.amount).toBe(7)
+    await fresh.destroy()
+  })
+
+  it('refuses rules for unknown events', async () => {
+    await expect(
+      service.upsertRule(ADMIN, {
+        ...DEFAULT_RULES[0],
+        event: 'nope' as never,
+      }),
+    ).rejects.toThrow(/event must be one of/)
   })
 
   it('flags sign-ups whose code was no longer valid, without rewards', async () => {

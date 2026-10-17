@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.points.getLeaderboard",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "This week's leaderboard: points earned during the week by accounts that opted in (net.krao.points.setLeaderboardOptIn). Only they are listed and ranked; equal points share a rank. Weeks are ISO weeks in Vietnam's time (Monday 00:00 UTC+7). Points have no monetary value. Service auth for the rewards service is optional: with it, the viewer block says where the viewer stands.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "period": {
+            "type": "string",
+            "knownValues": ["week"],
+            "default": "week"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 25
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["period", "entries"],
+          "properties": {
+            "period": {
+              "type": "ref",
+              "ref": "net.krao.points.defs#leaderboardPeriod"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.points.defs#leaderboardEntry"
+              }
+            },
+            "viewer": {
+              "type": "ref",
+              "ref": "net.krao.points.defs#leaderboardViewer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

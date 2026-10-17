@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.moderator",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Makes an account a moderator of a community. Only counts in the owner's repo. Delete the record to remove the moderator.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["community", "subject", "createdAt"],
+        "properties": {
+          "community": { "type": "string", "format": "at-uri" },
+          "subject": { "type": "string", "format": "did" },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

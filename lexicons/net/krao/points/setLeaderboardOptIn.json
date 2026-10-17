@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.points.setLeaderboardOptIn",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Show or hide the viewer on the weekly leaderboard (off by default). Requires service auth for the rewards service.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["optIn"],
+          "properties": {
+            "optIn": { "type": "boolean" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["optIn"],
+          "properties": {
+            "optIn": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

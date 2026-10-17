@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.defs",
+  "defs": {
+    "badgeVisibility": {
+      "type": "object",
+      "required": ["human", "eligible"],
+      "properties": {
+        "human": {
+          "type": "boolean",
+          "description": "Whether the account chose to show the \"human\" badge."
+        },
+        "eligible": {
+          "type": "boolean",
+          "description": "Whether it has earned it (a verified phone number or approved KYC). The badge shows only when both are true."
+        }
+      }
+    },
+    "actorBadges": {
+      "type": "object",
+      "required": ["did", "badges"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "badges": {
+          "type": "array",
+          "items": { "type": "string", "knownValues": ["human"] }
+        }
+      }
+    }
+  }
+}

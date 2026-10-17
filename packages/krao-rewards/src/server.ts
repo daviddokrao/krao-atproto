@@ -2,19 +2,27 @@ import { timingSafeEqual } from 'node:crypto'
 import cors from 'cors'
 import express, { type Express, json as jsonBody, raw } from 'express'
 import type { IdResolver } from '@atproto/identity'
+import { isValidDid } from '@atproto/syntax'
 import {
   AuthRequiredError,
   ForbiddenError,
   InvalidRequestError,
   type MethodAuthContext,
   ResponseType,
+  UpstreamFailureError,
   XRPCError,
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
 import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
-import type { CodeKind, KycStatus } from './db.js'
+import { getFunnel, getRetention, getSummary } from './analytics.js'
+import {
+  type CodeKind,
+  INDEXER_EVENTS,
+  type KycStatus,
+  type RewardEvent,
+} from './db.js'
 import {
   type KycProvider,
   type ManualReviewConfig,
@@ -22,7 +30,32 @@ import {
   pendingSecondApproval,
   reviewKyc,
 } from './kyc.js'
+import {
+  type PushDevices,
+  exportRewardsData,
+  listConsents,
+  recordConsent,
+} from './account.js'
+import {
+  getBadgeVisibility,
+  humanDids,
+  isVerifiedHuman,
+  setBadgeVisibility,
+} from './badges.js'
+import { isDay } from './activity.js'
+import { getLeaderboard, setOptIn } from './leaderboard.js'
 import { net } from './lexicons/index.js'
+import type { PhoneService } from './phone.js'
+import { PushRequestError } from './push-client.js'
+import {
+  AUDIT_SERVICES,
+  type AuditService,
+  RoleError,
+  type RoleGrant,
+  RoleStore,
+  listAudit,
+  recordAudit,
+} from './roles.js'
 import {
   type EntryView,
   RewardsError,
@@ -41,10 +74,16 @@ const json = (body: unknown) => ({
   body: body as never,
 })
 
-const asXrpcError = (err: unknown) =>
-  err instanceof RewardsError
-    ? new InvalidRequestError(err.message, err.error)
-    : err
+const asXrpcError = (err: unknown) => {
+  if (!(err instanceof RewardsError)) return err
+  if (err.error === 'RateLimitExceeded') {
+    return new XRPCError(ResponseType.RateLimitExceeded, err.message)
+  }
+  if (err.error === 'SmsFailed') {
+    return new XRPCError(ResponseType.UpstreamFailure, err.message, err.error)
+  }
+  return new InvalidRequestError(err.message, err.error)
+}
 
 /** Runs a handler, turning RewardsErrors into XRPC errors */
 const wrap = async <T>(fn: () => Promise<T>) => {
@@ -106,16 +145,44 @@ export type AppOptions = {
   adminDids: Set<string>
   /** May call the KYC admin methods only */
   kycReviewerDids: Set<string>
+  /**
+   * Krao admin roles (M35): the sets above plus roles granted by admins.
+   * Made from the two sets when unset.
+   */
+  roles?: RoleStore
+  /** Handles for the role list (default: from DID documents) */
+  handleOf?: (did: string) => Promise<string | undefined>
   kycProvider: KycProvider | null
   manualReview: ManualReviewConfig
+  /** Phone verification; none without an SMS provider */
+  phone: PhoneService | null
+  /** The push service's device counts, for data exports */
+  pushDevices?: (did: string) => Promise<PushDevices>
+  /** Sets the language of an account's pushes at the push service */
+  pushLanguage?: (did: string, language: string) => Promise<string>
+  /**
+   * Development and rehearsals only: activity days are taken for any day,
+   * and /internal/dev/backdate-account moves sign-ups back (tests)
+   */
+  devMode?: boolean
 }
 
 export function createApp(opts: AppOptions): Express {
   const { service, idResolver, serviceDid } = opts
-  const isAdmin = (did: string) => opts.adminDids.has(did)
-  const isReviewer = (did: string) =>
-    opts.adminDids.has(did) || opts.kycReviewerDids.has(did)
+  const roles =
+    opts.roles ??
+    new RoleStore(service.db, {
+      adminDids: opts.adminDids,
+      kycReviewerDids: opts.kycReviewerDids,
+    })
+  // The rewards screens (codes, rules, points, its log), KYC and analytics
+  const isAdmin = (did: string) => roles.has(did, 'rewards')
+  const isReviewer = (did: string) => roles.has(did, 'kyc')
+  const isAnalyst = (did: string) => roles.has(did, 'analytics')
+  const isRoleAdmin = (did: string) => roles.has(did, 'admin')
   const checkCodeLimit = rateLimiter(30)
+  const getBadgesLimit = rateLimiter(120)
+  const getLeaderboardLimit = rateLimiter(60)
   // Each start is a call (and a cost) at the KYC provider
   const kycStartLimit = rateLimiter(5, 60 * 60_000)
   const server = createServer([], {})
@@ -142,15 +209,24 @@ export function createApp(opts: AppOptions): Express {
   }
 
   const roleAuth =
-    (allowed: (did: string) => boolean) => async (ctx: MethodAuthContext) => {
+    (allowed: (did: string) => Promise<boolean>) =>
+    async (ctx: MethodAuthContext) => {
       const result = await userAuth(ctx)
-      if (!allowed(result.credentials.did)) {
+      if (!(await allowed(result.credentials.did))) {
         throw new ForbiddenError('Only Krao admins may call this')
       }
       return result
     }
+  /** Service auth when a token is sent, else anonymous (credentials null) */
+  const optionalUserAuth = async (ctx: MethodAuthContext) =>
+    ctx.req.headers.authorization
+      ? userAuth(ctx)
+      : { credentials: null as { did: string } | null }
+
   const adminAuth = roleAuth(isAdmin)
   const reviewerAuth = roleAuth(isReviewer)
+  const analyticsAuth = roleAuth(isAnalyst)
+  const roleAdminAuth = roleAuth(isRoleAdmin)
 
   const did = (auth: { credentials: unknown }) =>
     (auth.credentials as { did: string }).did
@@ -271,6 +347,43 @@ export function createApp(opts: AppOptions): Express {
     handler: async ({ auth }) => json(await service.balance(did(auth))),
   })
 
+  // The weekly leaderboard: public, with the viewer's standing when signed in
+  server.add(net.krao.points.getLeaderboard, {
+    auth: optionalUserAuth,
+    handler: async ({ auth, params, req }) => {
+      if (!getLeaderboardLimit(req.ip ?? 'unknown')) {
+        throw new XRPCError(
+          ResponseType.RateLimitExceeded,
+          'Too many leaderboard requests, try again in a minute',
+        )
+      }
+      if (params.period && params.period !== 'week') {
+        throw new InvalidRequestError(
+          'Only the weekly leaderboard exists',
+          'UnknownPeriod',
+        )
+      }
+      const viewer = (auth.credentials as { did: string } | null)?.did
+      const board = await getLeaderboard(service.db, {
+        limit: params.limit ?? 25,
+        viewer,
+      })
+      return json(
+        clean({
+          period: board.period,
+          entries: board.entries,
+          viewer: board.viewer && clean(board.viewer),
+        }),
+      )
+    },
+  })
+
+  server.add(net.krao.points.setLeaderboardOptIn, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      json(await setOptIn(service.db, did(auth), input.body.optIn)),
+  })
+
   server.add(net.krao.points.listEntries, {
     auth: userAuth,
     handler: async ({ auth, params }) => {
@@ -338,19 +451,268 @@ export function createApp(opts: AppOptions): Express {
     },
   })
 
+  // Badges: "human" when a phone or KYC is verified and the account opts in
+  server.add(net.krao.kyc.getBadges, async ({ params, req }) => {
+    if (!getBadgesLimit(req.ip ?? 'unknown')) {
+      throw new XRPCError(
+        ResponseType.RateLimitExceeded,
+        'Too many badge lookups, try again in a minute',
+      )
+    }
+    const humans = await humanDids(service.db, params.dids)
+    return json({
+      actors: params.dids
+        .filter((d, i) => humans.has(d) && params.dids.indexOf(d) === i)
+        .map((d) => ({ did: d, badges: ['human'] })),
+    })
+  })
+
+  server.add(net.krao.kyc.getBadgeVisibility, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json(await getBadgeVisibility(service.db, did(auth))),
+  })
+
+  server.add(net.krao.kyc.setBadgeVisibility, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      json(await setBadgeVisibility(service.db, did(auth), input.body.human)),
+  })
+
+  // Phone
+  // -----
+
+  const phoneService = () => {
+    if (!opts.phone) {
+      throw new InvalidRequestError(
+        'Phone verification is not available yet',
+        'PhoneUnavailable',
+      )
+    }
+    return opts.phone
+  }
+
+  server.add(net.krao.phone.getStatus, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json(
+        clean({
+          ...(opts.phone
+            ? await opts.phone.status(did(auth))
+            : { verified: false }),
+          available: !!opts.phone,
+        }),
+      ),
+  })
+
+  server.add(net.krao.phone.requestCode, {
+    auth: userAuth,
+    handler: async ({ auth, input, req }) =>
+      wrap(async () =>
+        json(
+          await phoneService().requestCode(
+            did(auth),
+            input.body.phone,
+            // Behind a proxy on a private network (trust proxy above)
+            req.ip,
+          ),
+        ),
+      ),
+  })
+
+  server.add(net.krao.phone.verifyCode, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      wrap(async () => {
+        const status = await phoneService().verifyCode(
+          did(auth),
+          input.body.phone,
+          input.body.code,
+        )
+        return json(clean({ ...status, available: true }))
+      }),
+  })
+
+  // Consent and data export
+  // -----------------------
+
+  server.add(net.krao.account.recordConsent, {
+    auth: userAuth,
+    handler: async ({ auth, input }) =>
+      wrap(async () =>
+        json(
+          await recordConsent(
+            service.db,
+            did(auth),
+            input.body.version,
+            input.body.items,
+          ),
+        ),
+      ),
+  })
+
+  server.add(net.krao.account.getConsent, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json({ consents: await listConsents(service.db, did(auth)) }),
+  })
+
+  server.add(net.krao.account.exportData, {
+    auth: userAuth,
+    handler: async ({ auth }) => {
+      const viewer = did(auth)
+      const pushDevices = opts.pushDevices
+      return json({
+        service: 'rewards',
+        did: viewer,
+        exportedAt: new Date().toISOString(),
+        data: await exportRewardsData(
+          service,
+          opts.phone,
+          viewer,
+          pushDevices ? () => pushDevices(viewer) : undefined,
+        ),
+      })
+    },
+  })
+
+  // Push language: the push service is not public, so the app sets it here
+  server.add(net.krao.push.setLanguage, {
+    auth: userAuth,
+    handler: async ({ auth, input }) => {
+      if (!opts.pushLanguage) {
+        throw new InvalidRequestError('Push is not set up', 'PushUnavailable')
+      }
+      try {
+        const language = await opts.pushLanguage(did(auth), input.body.language)
+        return json({ language })
+      } catch (err) {
+        if (err instanceof PushRequestError) {
+          throw new InvalidRequestError(err.message, 'InvalidLanguage')
+        }
+        throw new UpstreamFailureError('Could not reach the push service')
+      }
+    },
+  })
+
+  // Analytics: aggregate numbers only, for the rewards admins
+  // ---------
+
+  server.add(net.krao.analytics.getFunnel, {
+    auth: analyticsAuth,
+    handler: async ({ params }) => {
+      for (const value of [params.since, params.until]) {
+        if (value !== undefined && isNaN(Date.parse(value))) {
+          throw new InvalidRequestError('Invalid datetime')
+        }
+      }
+      return json(
+        await getFunnel(service.db, {
+          since: params.since,
+          until: params.until,
+        }),
+      )
+    },
+  })
+
+  server.add(net.krao.analytics.getRetention, {
+    auth: analyticsAuth,
+    handler: async ({ params }) =>
+      json(await getRetention(service.db, { weeks: params.weeks ?? 8 })),
+  })
+
+  server.add(net.krao.analytics.getSummary, {
+    auth: analyticsAuth,
+    handler: async () => json(await getSummary(service.db)),
+  })
+
   // Admin
   // -----
 
   server.add(net.krao.rewards.getRoles, {
     auth: userAuth,
     handler: async ({ auth }) => {
-      const viewer = did(auth)
-      const roles = [
-        ...(isAdmin(viewer) ? ['admin'] : []),
-        ...(isReviewer(viewer) ? ['kyc_reviewer'] : []),
-      ]
-      return json({ roles })
+      // The rewards screens' own names for the unified roles (M35)
+      const held = await roles.rolesOf(did(auth))
+      return json({
+        roles: [
+          ...(held.includes('rewards') ? ['admin'] : []),
+          ...(held.includes('kyc') ? ['kyc_reviewer'] : []),
+        ],
+      })
     },
+  })
+
+  // Krao admin roles and the shared admin log (M35)
+  // ---------------------------------------------
+
+  const handleCache = new Map<string, { handle?: string; until: number }>()
+  const handleOf =
+    opts.handleOf ??
+    (async (target: string) => {
+      const cached = handleCache.get(target)
+      if (cached && cached.until > Date.now()) return cached.handle
+      const doc = await idResolver.did.resolve(target).catch(() => null)
+      const aka = doc?.alsoKnownAs?.find((a) => a.startsWith('at://'))
+      const handle = aka ? aka.slice('at://'.length) : undefined
+      if (handleCache.size > 10_000) handleCache.clear()
+      handleCache.set(target, { handle, until: Date.now() + 5 * 60_000 })
+      return handle
+    })
+  const memberView = async (member: string, grants: RoleGrant[]) =>
+    clean({
+      did: member,
+      handle: await handleOf(member).catch(() => undefined),
+      roles: grants.map((g) => clean(g)),
+    })
+
+  server.add(net.krao.admin.getMyRoles, {
+    auth: userAuth,
+    handler: async ({ auth }) =>
+      json({ roles: await roles.rolesOf(did(auth)) }),
+  })
+
+  server.add(net.krao.admin.listRoles, {
+    auth: roleAdminAuth,
+    handler: async () => {
+      const members = await roles.members()
+      return json({
+        members: await Promise.all(
+          [...members].map(([member, grants]) => memberView(member, grants)),
+        ),
+      })
+    },
+  })
+
+  server.add(net.krao.admin.setRole, {
+    auth: roleAdminAuth,
+    handler: async ({ auth, input }) => {
+      const { did: target, role, enabled } = input.body
+      try {
+        await roles.set(did(auth), target, role, enabled)
+      } catch (err) {
+        if (err instanceof RoleError) {
+          throw new InvalidRequestError(err.message, err.error)
+        }
+        throw err
+      }
+      return json(await memberView(target, await roles.grantsOf(target)))
+    },
+  })
+
+  server.add(net.krao.admin.getAuditLog, {
+    auth: roleAdminAuth,
+    handler: async ({ params }) =>
+      json(
+        clean(
+          await listAudit(service.db, {
+            service: params.service,
+            actor: params.actor,
+            limit: params.limit ?? 50,
+            cursor: params.cursor,
+          }),
+        ),
+      ),
   })
 
   const admin = net.krao.rewards.admin
@@ -507,25 +869,26 @@ export function createApp(opts: AppOptions): Express {
 
   server.add(admin.upsertRule, {
     auth: adminAuth,
-    handler: async ({ auth, input }) => {
-      const body = input.body
-      const rule = await service.upsertRule(did(auth), {
-        id: body.id,
-        enabled: body.enabled,
-        description: body.description ?? null,
-        event: body.event as Rule['event'],
-        beneficiary: body.beneficiary as Rule['beneficiary'],
-        amount: body.amount,
-        vesting: body.vesting as Rule['vesting'],
-        codeKinds: (body.codeKinds ?? []) as Rule['codeKinds'],
-        campaignId: body.campaignId ?? null,
-        validFrom: body.validFrom ?? null,
-        validUntil: body.validUntil ?? null,
-        capPerBeneficiary: body.capPerBeneficiary ?? null,
-        capPerDay: body.capPerDay ?? null,
-      })
-      return json(ruleView(rule))
-    },
+    handler: async ({ auth, input }) =>
+      wrap(async () => {
+        const body = input.body
+        const rule = await service.upsertRule(did(auth), {
+          id: body.id,
+          enabled: body.enabled,
+          description: body.description ?? null,
+          event: body.event as Rule['event'],
+          beneficiary: body.beneficiary as Rule['beneficiary'],
+          amount: body.amount,
+          vesting: body.vesting as Rule['vesting'],
+          codeKinds: (body.codeKinds ?? []) as Rule['codeKinds'],
+          campaignId: body.campaignId ?? null,
+          validFrom: body.validFrom ?? null,
+          validUntil: body.validUntil ?? null,
+          capPerBeneficiary: body.capPerBeneficiary ?? null,
+          capPerDay: body.capPerDay ?? null,
+        })
+        return json(ruleView(rule))
+      }),
   })
 
   server.add(admin.adjustPoints, {
@@ -613,6 +976,179 @@ export function createApp(opts: AppOptions): Express {
       .then((check) => res.json({ valid: check.valid }))
       .catch(next)
   })
+
+  // The PDS and chat service: may this account post and message?
+  app.get('/internal/phone-status', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({
+      verified: opts.phone ? await opts.phone.isVerified(did) : false,
+    })
+  })
+
+  /*
+   * The indexer and chat: an account's Krao admin roles (`admin` expanded
+   * to every role), which they add to the accounts in their own config
+   */
+  app.get('/internal/roles', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({ roles: await roles.rolesOf(did) })
+  })
+
+  /*
+   * Admin actions of the other services, from their outboxes (retried, so
+   * kept once per `key`): the shared admin log
+   */
+  app.post(
+    '/internal/audit',
+    internalAuth,
+    jsonBody({ limit: '32kb' }),
+    (req, res, next) => {
+      const {
+        service: from,
+        actor,
+        action,
+        subject,
+        details,
+        createdAt,
+        key,
+      } = req.body ?? {}
+      if (
+        !AUDIT_SERVICES.includes(from as AuditService) ||
+        from === 'rewards' ||
+        // The lexicon's `actor` is a DID
+        typeof actor !== 'string' ||
+        actor.length > 2048 ||
+        !isValidDid(actor) ||
+        typeof action !== 'string' ||
+        !action ||
+        action.length > 128 ||
+        (subject !== undefined && typeof subject !== 'string') ||
+        (createdAt !== undefined &&
+          (typeof createdAt !== 'string' || isNaN(Date.parse(createdAt)))) ||
+        (key !== undefined && (typeof key !== 'string' || key.length > 256))
+      ) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      recordAudit(service.db, {
+        service: from as AuditService,
+        actor,
+        action,
+        subject,
+        details,
+        createdAt: createdAt ? new Date(createdAt).toISOString() : undefined,
+        sourceKey: key ? `${from}:${key}` : undefined,
+      })
+        .then((kept) =>
+          res.json({ ok: true, ...(kept ? {} : { duplicate: true }) }),
+        )
+        .catch(next)
+    },
+  )
+
+  // The indexer: "verified" communities and polls (phone or KYC, not taken down)
+  app.get('/internal/human-status', internalAuth, async (req, res) => {
+    const did = typeof req.query.did === 'string' ? req.query.did : ''
+    if (!did.startsWith('did:')) {
+      res.status(400).json({ error: 'InvalidRequest' })
+      return
+    }
+    res.json({ human: await isVerifiedHuman(service.db, did) })
+  })
+
+  /*
+   * The indexer: account events it saw (first verified wallet, first post,
+   * first community, first verified tip), and the days accounts were active
+   * (activity.day, with `day`), from its outbox. Rewarded once per account
+   * and kept once per day, so retries are harmless. A day out of range is
+   * answered ok (ignored), so the outbox does not retry it forever.
+   */
+  app.post(
+    '/internal/events',
+    internalAuth,
+    jsonBody({ limit: '10kb' }),
+    (req, res, next) => {
+      const { type, did, day } = req.body ?? {}
+      if (typeof did !== 'string' || !did.startsWith('did:')) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      if (type === 'activity.day') {
+        if (!isDay(day)) {
+          res.status(400).json({ error: 'InvalidRequest' })
+          return
+        }
+        service
+          .recordActivityDay(did, day, { anyDay: !!opts.devMode })
+          .then((kept) =>
+            res.json({ ok: true, ...(kept ? {} : { ignored: true }) }),
+          )
+          .catch(next)
+        return
+      }
+      if (!INDEXER_EVENTS.includes(type as RewardEvent)) {
+        res.status(400).json({ error: 'InvalidRequest' })
+        return
+      }
+      service
+        .recordAccountEvent(type as RewardEvent, did)
+        .then(() => res.json({ ok: true }))
+        .catch(next)
+    },
+  )
+
+  // Development only: an account's sign-up `days` days earlier (tests of
+  // the first month, see recordActivityDay)
+  if (opts.devMode) {
+    app.post(
+      '/internal/dev/backdate-account',
+      internalAuth,
+      jsonBody({ limit: '10kb' }),
+      (req, res, next) => {
+        const { did, days } = req.body ?? {}
+        if (
+          typeof did !== 'string' ||
+          !did.startsWith('did:') ||
+          !Number.isInteger(days) ||
+          days < 0 ||
+          days > 3650
+        ) {
+          res.status(400).json({ error: 'InvalidRequest' })
+          return
+        }
+        service
+          .backdateAccount(did, days)
+          .then((createdAt) =>
+            createdAt
+              ? res.json({ did, createdAt })
+              : res.status(404).json({ error: 'NotFound' }),
+          )
+          .catch(next)
+      },
+    )
+  }
+
+  // Development only (the log SMS driver): the last code sent to an account
+  const devCodes = opts.phone?.devCodes
+  if (devCodes) {
+    app.get('/internal/dev/last-otp', internalAuth, (req, res) => {
+      const did = typeof req.query.did === 'string' ? req.query.did : ''
+      const code = devCodes.get(did)
+      if (!code) {
+        res.status(404).json({ error: 'NotFound' })
+        return
+      }
+      res.json({ code })
+    })
+  }
 
   app.post(
     '/internal/referrals',

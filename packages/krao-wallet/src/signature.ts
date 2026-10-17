@@ -8,7 +8,8 @@ import type { WalletAccount } from './account.js'
  * Verify that `signature` is the account's signature over `message`.
  *
  * - EVM: an EIP-191 `personal_sign` signature (65 bytes, 0x hex) from an
- *   externally owned account. Contract wallets (ERC-1271) are not supported.
+ *   externally owned account. For contract wallets (ERC-1271, ERC-6492,
+ *   EIP-7702), use `verifyAccountSignature` with an RPC endpoint.
  * - Solana: an ed25519 signature (64 bytes, base58) over the UTF-8 message.
  */
 export function verifySignature(
@@ -42,7 +43,17 @@ export function hashEvmMessage(message: string): Uint8Array {
 
 /** Recover the 0x-prefixed lowercase address that signed `message`. */
 export function recoverEvmAddress(message: string, signature: string): string {
-  const sig = ui8.fromString(signature.replace(/^0x/, ''), 'base16')
+  return recoverEvmAddressFromHash(
+    hashEvmMessage(message),
+    ui8.fromString(signature.replace(/^0x/, '').toLowerCase(), 'base16'),
+  )
+}
+
+/** Recover the address whose 65 byte ECDSA signature `sig` signed `hash`. */
+export function recoverEvmAddressFromHash(
+  hash: Uint8Array,
+  sig: Uint8Array,
+): string {
   if (sig.length !== 65) {
     throw new Error('EVM signature must be 65 bytes')
   }
@@ -53,7 +64,7 @@ export function recoverEvmAddress(message: string, signature: string): string {
   }
   const publicKey = secp256k1.Signature.fromCompact(sig.slice(0, 64))
     .addRecoveryBit(v)
-    .recoverPublicKey(hashEvmMessage(message))
+    .recoverPublicKey(hash)
     .toRawBytes(false)
   return evmAddressFromPublicKey(publicKey)
 }

@@ -18,8 +18,11 @@ x-backend: &backend
     driver: json-file
     options: { max-size: 20m, max-file: '5' }
 
+# DIDs resolve through Krao's PLC mirror (plc-mirror below), which copies
+# KRAO_PLC_URL (plc.directory) and passes writes on to it. To bypass it,
+# set KRAO_PLC_RESOLVE_URL to KRAO_PLC_URL (deploy/plc-mirror.md).
 x-plc: &plc
-  KRAO_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+  KRAO_PLC_URL: ${KRAO_PLC_RESOLVE_URL:-http://plc-mirror:2596}
 
 services:
   postgres:
@@ -48,7 +51,9 @@ services:
       PDS_DATA_DIRECTORY: /data
       PDS_BLOBSTORE_DISK_LOCATION: /data/blocks
       PDS_BLOB_UPLOAD_LIMIT: 104857600
-      PDS_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      # Writes go through the mirror (passed on to plc.directory), so a new
+      # handle is served by the mirror at once
+      PDS_DID_PLC_URL: ${KRAO_PLC_RESOLVE_URL:-http://plc-mirror:2596}
       PDS_JWT_SECRET: ${PDS_JWT_SECRET:?set PDS_JWT_SECRET}
       PDS_ADMIN_PASSWORD: ${PDS_ADMIN_PASSWORD:?set PDS_ADMIN_PASSWORD}
       PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX: ${PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX:?set PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX}
@@ -63,8 +68,15 @@ services:
       PDS_REPORT_SERVICE_DID: ${OZONE_SERVER_DID}
       PDS_INVITE_REQUIRED: 'true'
       PDS_KRAO_INDEXER_URL: http://indexer:2589
+      # Base RPC: smart wallets (ERC-1271/6492) sign in; empty: plain wallets only
+      PDS_KRAO_EVM_RPC_URL: ${KRAO_BASE_RPC_URL:-}
+      PDS_KRAO_EVM_CHAIN_ID: 8453
       PDS_KRAO_REWARDS_URL: http://rewards:2592
       PDS_KRAO_REWARDS_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN:?set KRAO_REWARDS_INTERNAL_TOKEN}
+      # Decree 147: posting needs a phone number verified with rewards
+      PDS_KRAO_PHONE_REQUIRED: 'true'
+      # Repo imports (account migration) are off unless turned on
+      PDS_ACCEPTING_REPO_IMPORTS: ${PDS_ACCEPTING_REPO_IMPORTS:-false}
       PDS_HOME_URL: https://${KRAO_DOMAIN}/
       PDS_TERMS_OF_SERVICE_URL: https://${KRAO_DOMAIN}/terms
       PDS_PRIVACY_POLICY_URL: https://${KRAO_DOMAIN}/privacy
@@ -97,7 +109,7 @@ services:
       BSKY_DB_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
       BSKY_DB_POSTGRES_SCHEMA: bsky
       BSKY_REPO_PROVIDER: ws://pds:3000
-      BSKY_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      BSKY_DID_PLC_URL: ${KRAO_PLC_RESOLVE_URL:-http://plc-mirror:2596}
       BSKY_DATAPLANE_HTTP_VERSION: '1.1'
       BSKY_BSYNC_URL: http://bsync:2585
       BSKY_BSYNC_API_KEY: ${BSYNC_API_KEY:?set BSYNC_API_KEY}
@@ -109,12 +121,17 @@ services:
       BSKY_ADMIN_PASSWORDS: ${BSKY_ADMIN_PASSWORD:?set BSKY_ADMIN_PASSWORD}
       MOD_SERVICE_DID: ${OZONE_SERVER_DID}
       BSKY_LABELS_FROM_ISSUER_DIDS: ${OZONE_SERVER_DID}
+      # Ozone's labels (subscribeLabels) into the data plane (M35)
+      KRAO_LABELER_URL: http://ozone:3000
+      KRAO_LABELER_DID: ${OZONE_SERVER_DID}
       BSKY_VIDEO_PLAYLIST_URL_PATTERN: https://video.${KRAO_DOMAIN}/watch/%s/%s/playlist.m3u8
       BSKY_VIDEO_THUMBNAIL_URL_PATTERN: https://video.${KRAO_DOMAIN}/watch/%s/%s/thumbnail.jpg
       # Suggestions and trending topics come from the Krao indexer
       BSKY_SUGGESTIONS_URL: http://indexer:2589
       BSKY_TOPICS_URL: http://indexer:2589
       BSKY_IRIS_URL: http://indexer:2589
+      # Krao's own verifier accounts (blue check)
+      KRAO_TRUSTED_VERIFIER_DIDS: ${KRAO_TRUSTED_VERIFIER_DIDS:-}
     healthcheck:
       test:
         [
@@ -158,7 +175,7 @@ services:
       OZONE_ADMIN_DIDS: ${OZONE_ADMIN_DIDS:-}
       OZONE_DB_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
       OZONE_DB_POSTGRES_SCHEMA: ozone
-      OZONE_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      OZONE_DID_PLC_URL: ${KRAO_PLC_RESOLVE_URL:-http://plc-mirror:2596}
       OZONE_APPVIEW_URL: http://appview:2584
       OZONE_APPVIEW_DID: did:web:api.${KRAO_DOMAIN}
       OZONE_APPVIEW_PUSH_EVENTS: 'true'
@@ -201,6 +218,35 @@ services:
       KRAO_KLIPY_API_KEY: ${KRAO_KLIPY_API_KEY:-}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN:?set KRAO_PUSH_INTERNAL_TOKEN}
+      # Ozone and the moderators' accounts may read gated content (logged)
+      KRAO_GATE_MODERATOR_DIDS: ${OZONE_SERVER_DID},${KRAO_GATE_MODERATOR_DIDS:-}
+      KRAO_GATE_MODERATION_ACCESS: ${KRAO_GATE_MODERATION_ACCESS:-true}
+      KRAO_PHISHING_LIST_URL: ${KRAO_PHISHING_LIST_URL:-}
+      KRAO_SAFETY_ADMIN_DIDS: ${KRAO_SAFETY_ADMIN_DIDS:-}
+      # Token prices (cashtags): Uniswap v3 pools on Base, read through KRAO_RPC_URLS
+      KRAO_UNISWAP_V3_FACTORY: ${KRAO_UNISWAP_V3_FACTORY:-}
+      KRAO_TOKEN_PRICE_INTERVAL_MS: ${KRAO_TOKEN_PRICE_INTERVAL_MS:-}
+      # Verified communities and polls: phone or KYC, asked of rewards; first
+      # wallets and first posts are reported to it (points)
+      KRAO_REWARDS_URL: http://rewards:2592
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
+      # Verified ENS names next to handles (Basenames use KRAO_RPC_URLS' Base)
+      KRAO_ENS_RPC_URL: ${KRAO_ENS_RPC_URL:-}
+      # "Holders of $X" feeds: the value (USD) a holder's wallets must hold
+      KRAO_HOLDER_FEED_MIN_USD: ${KRAO_HOLDER_FEED_MIN_USD:-}
+      # Official accounts: token pages link only their holders-<symbol> feeds
+      KRAO_OFFICIAL_FEED_DIDS: ${KRAO_OFFICIAL_FEED_DIDS:-}
+      # Transaction previews (net.krao.wallet.simulate): more known contracts
+      # and trusted EIP-7702 delegates. Previews trace with debug_traceCall on
+      # KRAO_RPC_URLS' Base node when it allows it, else decode the calldata.
+      KRAO_KNOWN_CONTRACTS: ${KRAO_KNOWN_CONTRACTS:-}
+      KRAO_KNOWN_7702_DELEGATES: ${KRAO_KNOWN_7702_DELEGATES:-}
+      # Impersonation checks (M35): verifications by these accounts count
+      # (as the AppView's blue check); suspects are labeled and reported in
+      # Ozone with its admin password
+      KRAO_TRUSTED_VERIFIER_DIDS: ${KRAO_TRUSTED_VERIFIER_DIDS:-}
+      KRAO_OZONE_URL: http://ozone:3000
+      KRAO_OZONE_ADMIN_PASSWORD: ${OZONE_ADMIN_PASSWORD}
 
   chat:
     <<: *backend
@@ -216,6 +262,11 @@ services:
       KRAO_CHAT_MODERATOR_DIDS: ${OZONE_SERVER_DID}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      # Decree 147: sending needs a verified phone; deletions come by firehose
+      KRAO_CHAT_PHONE_REQUIRED: 'true'
+      KRAO_REWARDS_URL: http://rewards:2592
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
+      KRAO_FIREHOSE_URL: ws://pds:3000
 
   video:
     <<: *backend
@@ -244,6 +295,9 @@ services:
       KRAO_REWARDS_ADMIN_DIDS: ${KRAO_REWARDS_ADMIN_DIDS:-}
       KRAO_REWARDS_BOOTSTRAP_CODE: ${KRAO_REWARDS_BOOTSTRAP_CODE:-}
       KRAO_KYC_REVIEWER_DIDS: ${KRAO_KYC_REVIEWER_DIDS:-}
+      # Krao admin roles (M35): the indexer's admins, shown as locked roles
+      KRAO_SAFETY_ADMIN_DIDS: ${KRAO_SAFETY_ADMIN_DIDS:-}
+      KRAO_GATE_MODERATOR_DIDS: ${OZONE_SERVER_DID},${KRAO_GATE_MODERATOR_DIDS:-}
       KRAO_KYC_MANUAL_DAILY_LIMIT: ${KRAO_KYC_MANUAL_DAILY_LIMIT:-}
       SUMSUB_APP_TOKEN: ${SUMSUB_APP_TOKEN:-}
       SUMSUB_SECRET_KEY: ${SUMSUB_SECRET_KEY:-}
@@ -251,6 +305,15 @@ services:
       SUMSUB_LEVEL: ${SUMSUB_LEVEL:-}
       KRAO_PUSH_URL: http://push:2593
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      # Phone verification (Decree 147): an SMS gateway (log is dev only)
+      KRAO_SMS_PROVIDER: ${KRAO_SMS_PROVIDER:?set KRAO_SMS_PROVIDER (http)}
+      KRAO_PHONE_ALLOWED_PREFIXES: ${KRAO_PHONE_ALLOWED_PREFIXES:-+84}
+      KRAO_SMS_GLOBAL_HOURLY_CAP: ${KRAO_SMS_GLOBAL_HOURLY_CAP:-500}
+      KRAO_SMS_IP_HOURLY_CAP: ${KRAO_SMS_IP_HOURLY_CAP:-30}
+      KRAO_SMS_HTTP_URL: ${KRAO_SMS_HTTP_URL:-}
+      KRAO_SMS_HTTP_TOKEN: ${KRAO_SMS_HTTP_TOKEN:-}
+      KRAO_PHONE_HMAC_SECRET: ${KRAO_PHONE_HMAC_SECRET:?set KRAO_PHONE_HMAC_SECRET}
+      KRAO_PHONE_ENC_KEY: ${KRAO_PHONE_ENC_KEY:?set KRAO_PHONE_ENC_KEY}
 
   push:
     <<: *backend
@@ -261,7 +324,10 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
+      <<: *plc
       KRAO_PUSH_PORT: 2593
+      # Devices of deleted accounts are dropped (account events only)
+      KRAO_FIREHOSE_URL: ws://pds:3000
       KRAO_PUSH_DB: /data/push.sqlite
       KRAO_PUSH_COURIER_KEY: ${KRAO_PUSH_COURIER_KEY}
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
@@ -274,6 +340,29 @@ services:
       KRAO_PUSH_APNS_TEAM_ID: ${KRAO_PUSH_APNS_TEAM_ID:-}
       KRAO_PUSH_APNS_TOPIC: ${KRAO_PUSH_APNS_TOPIC:-io.krao.app}
       KRAO_PUSH_APNS_PRODUCTION: ${KRAO_PUSH_APNS_PRODUCTION:-true}
+
+  # A checked copy of plc.directory that everything resolves DIDs through
+  # (packages/krao-plc-mirror, deploy/plc-mirror.md)
+  plc-mirror:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-plc-mirror/dist/bin.js]
+    volumes: [plc-mirror:/data]
+    environment:
+      KRAO_PLC_MIRROR_PORT: 2596
+      KRAO_PLC_MIRROR_DB: /data/plc-mirror.sqlite
+      KRAO_PLC_MIRROR_SOURCE: ${KRAO_PLC_URL:-https://plc.directory}
+      KRAO_PLC_MIRROR_POLL_MS: ${KRAO_PLC_MIRROR_POLL_MS:-5000}
+      KRAO_PLC_MIRROR_START_AFTER: ${KRAO_PLC_MIRROR_START_AFTER:-}
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:2596/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      retries: 30
 
   backup:
     <<: *backend
@@ -303,6 +392,37 @@ services:
       AWS_ACCESS_KEY_ID: ${KRAO_S3_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${KRAO_S3_SECRET_ACCESS_KEY:-}
 
+  # Health of every service, disks and backups; alerts to a webhook
+  monitor:
+    <<: *backend
+    command: [node, services/krao/monitor/monitor.mjs]
+    # Only for its disk use (statfs) and the backup archives' age
+    volumes:
+      - postgres:/volumes/postgres:ro
+      - pds:/volumes/pds:ro
+      - indexer:/volumes/indexer:ro
+      - chat:/volumes/chat:ro
+      - video:/volumes/video:ro
+      - rewards:/volumes/rewards:ro
+      - push:/volumes/push:ro
+      - plc-mirror:/volumes/plc-mirror:ro
+      - ${KRAO_BACKUP_DIR:-./backups}:/backups:ro
+    # GET /status on the host only: curl http://127.0.0.1:2594/status
+    ports: ['127.0.0.1:2594:2594']
+    environment:
+      KRAO_DOMAIN: ${KRAO_DOMAIN}
+      KRAO_MONITOR_PORT: 2594
+      KRAO_MONITOR_INTERVAL_SEC: ${KRAO_MONITOR_INTERVAL_SEC:-60}
+      KRAO_MONITOR_DISK_MAX_PERCENT: ${KRAO_MONITOR_DISK_MAX_PERCENT:-85}
+      # A missed backup alerts after two periods
+      KRAO_MONITOR_BACKUP_MAX_AGE_HOURS: ${KRAO_MONITOR_BACKUP_MAX_AGE_HOURS:-48}
+      KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC: ${KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC:-21600}
+      KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC: ${KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC:-600}
+      KRAO_ALERT_WEBHOOK_URL: ${KRAO_ALERT_WEBHOOK_URL:-}
+      KRAO_ALERT_FORMAT: ${KRAO_ALERT_FORMAT:-json}
+      KRAO_ALERT_TELEGRAM_CHAT_ID: ${KRAO_ALERT_TELEGRAM_CHAT_ID:-}
+      KRAO_ALERT_REPEAT_HOURS: ${KRAO_ALERT_REPEAT_HOURS:-6}
+
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -327,4 +447,5 @@ volumes:
   video: {}
   rewards: {}
   push: {}
+  plc-mirror: {}
   caddy: {}

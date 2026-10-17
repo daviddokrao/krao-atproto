@@ -7,13 +7,20 @@
  *
  * The Krao indexer is expected at KRAO_INDEXER_URL (default
  * http://localhost:2589). All accounts below are local test accounts
- * (password: krao-dev-pass).
+ * (password: krao-dev-pass). Each gets a test phone number verified with the
+ * rewards service (KRAO_REWARDS_URL), whose dev-env codes are readable.
  */
+import { createHash } from 'node:crypto'
 
 const PDS =
   process.argv.slice(2).find((a) => !a.startsWith('--')) ||
   'http://localhost:2583'
 const INDEXER = process.env.KRAO_INDEXER_URL || 'http://localhost:2589'
+const REWARDS = process.env.KRAO_REWARDS_URL || 'http://localhost:2592'
+const REWARDS_DID = process.env.KRAO_REWARDS_DID || 'did:web:rewards.krao.test'
+/** The dev-env's PDS <-> rewards token */
+const REWARDS_TOKEN =
+  process.env.KRAO_REWARDS_INTERNAL_TOKEN || 'krao-dev-rewards-token'
 const PASSWORD = 'krao-dev-pass'
 
 const USERS = [
@@ -163,6 +170,53 @@ function createRecord(session, collection, record) {
 
 const now = () => new Date().toISOString()
 
+/** A test number per account: +849 and 8 digits from its DID */
+function testPhone(did) {
+  const n = createHash('sha256').update(did).digest().readUInt32BE(0) % 1e8
+  return `+849${String(n).padStart(8, '0')}`
+}
+
+/**
+ * Posting needs a verified phone (Decree 147): request a code, read it from
+ * the dev-env rewards service, verify. Skipped where codes are not readable.
+ */
+async function verifyPhone(session) {
+  const call = async (method, body) => {
+    const { token } = await xrpc('com.atproto.server.getServiceAuth', {
+      token: session.accessJwt,
+      query: { aud: REWARDS_DID, lxm: method },
+    })
+    const res = await fetch(`${REWARDS}/xrpc/${method}`, {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(`${method}: ${data.error ?? res.status}`)
+    return data
+  }
+  try {
+    const status = await call('net.krao.phone.getStatus')
+    if (status.verified || !status.available) return
+    const phone = testPhone(session.did)
+    await call('net.krao.phone.requestCode', { phone })
+    const res = await fetch(
+      `${REWARDS}/internal/dev/last-otp?did=${encodeURIComponent(session.did)}`,
+      { headers: { authorization: `Bearer ${REWARDS_TOKEN}` } },
+    )
+    if (!res.ok) return
+    const { code } = await res.json()
+    await call('net.krao.phone.verifyCode', { phone, code })
+  } catch (err) {
+    console.log(
+      `⚠️  ${session.handle}: chưa xác thực số điện thoại (${err.message})`,
+    )
+  }
+}
+
 /** Skips the app's age assurance prompt for test accounts. */
 async function setBirthDate(session) {
   const { preferences } = await xrpc('app.bsky.actor.getPreferences', {
@@ -232,6 +286,50 @@ async function publishFeeds(session) {
   }
 }
 
+/**
+ * The dev-env's trusted verifier (krao-verify.test) verifies krao.test, so
+ * the official account shows the blue check. The record names the subject's
+ * handle and display name, which must stay as they are for it to count.
+ */
+async function verifyOfficialAccount(subject, user) {
+  const verifier = await login('krao-verify.test', PASSWORD).catch(() => null)
+  if (!verifier) {
+    console.log(
+      '⚠️  Không có krao-verify.test (dev-env cũ?), bỏ qua huy hiệu xác minh',
+    )
+    return
+  }
+  await xrpc('com.atproto.repo.putRecord', {
+    token: verifier.accessJwt,
+    body: {
+      repo: verifier.did,
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {
+        $type: 'app.bsky.actor.profile',
+        displayName: 'Krao Verify',
+        description: 'Tài khoản xác minh chính thức của Krao.',
+      },
+    },
+  })
+  const { records } = await xrpc('com.atproto.repo.listRecords', {
+    query: {
+      repo: verifier.did,
+      collection: 'app.bsky.graph.verification',
+      limit: 100,
+    },
+  })
+  if (records.some((r) => r.value.subject === subject.did)) return
+  await createRecord(verifier, 'app.bsky.graph.verification', {
+    $type: 'app.bsky.graph.verification',
+    subject: subject.did,
+    handle: user.handle,
+    displayName: user.displayName,
+    createdAt: now(),
+  })
+  console.log(`☑️  ${user.handle} được krao-verify.test xác minh`)
+}
+
 async function main() {
   await xrpc('com.atproto.server.describeServer').catch(() => {
     throw new Error(`Không kết nối được PDS tại ${PDS}. Dev-env đã chạy chưa?`)
@@ -255,14 +353,19 @@ async function main() {
       },
     })
     await setBirthDate(s)
+    await verifyPhone(s)
     console.log(`👤 ${user.handle} (${s.did})`)
   }
   // alice.test is created by the dev-env mock setup
   sessions['alice.test'] = await login('alice.test', 'hunter2').catch(
     () => null,
   )
-  if (sessions['alice.test']) await setBirthDate(sessions['alice.test'])
+  if (sessions['alice.test']) {
+    await setBirthDate(sessions['alice.test'])
+    await verifyPhone(sessions['alice.test'])
+  }
   await publishFeeds(sessions['krao.test'])
+  await verifyOfficialAccount(sessions['krao.test'], USERS[0])
   if (process.argv.includes('--prefs-only')) return
 
   const posts = []

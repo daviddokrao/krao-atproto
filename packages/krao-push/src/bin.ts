@@ -37,6 +37,9 @@ const push = await KraoPush.create({
         production: process.env.KRAO_PUSH_APNS_PRODUCTION !== 'false',
       }
     : undefined,
+  // Drops the devices of accounts deleted on the PDS
+  firehoseUrl: process.env.KRAO_FIREHOSE_URL || undefined,
+  plcUrl: process.env.KRAO_PLC_URL || undefined,
 })
 await push.start()
 console.log(

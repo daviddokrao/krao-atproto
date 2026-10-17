@@ -1,5 +1,6 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Transaction } from 'kysely'
+import { isValidDid } from '@atproto/syntax'
 import type {
   Beneficiary,
   CodeKind,
@@ -13,6 +14,21 @@ import type {
   RewardRuleTable,
   Vesting,
 } from './db.js'
+import {
+  ACCOUNT_EVENTS,
+  DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  DEFAULT_INVITER_CAP_PER_DAY,
+  INDEXER_EVENTS,
+  REWARD_EVENTS,
+} from './db.js'
+import {
+  ACTIVE_MIN_DAYS,
+  acceptableDay,
+  accountCreatedAt,
+  activeDaysInWindow,
+  isDay,
+} from './activity.js'
+import { recordAudit } from './roles.js'
 
 type Db = Database | Transaction<DatabaseSchema>
 
@@ -92,7 +108,7 @@ export const DEFAULT_RULES: RuleInput[] = [
     validFrom: null,
     validUntil: null,
     capPerBeneficiary: null,
-    capPerDay: null,
+    capPerDay: DEFAULT_INVITER_CAP_PER_DAY,
   },
   {
     id: 'referral.invitee',
@@ -109,7 +125,140 @@ export const DEFAULT_RULES: RuleInput[] = [
     capPerBeneficiary: null,
     capPerDay: null,
   },
+  /*
+   * Growth (M32): the account's first verified wallet and first post, once
+   * per account, vesting on its KYC like the referral rewards. The referrer
+   * rules start disabled; admins turn them on (one level, with a daily cap).
+   */
+  {
+    id: 'growth.wallet-linked',
+    enabled: true,
+    description: 'Linking a first verified wallet',
+    event: 'wallet.linked',
+    beneficiary: 'actor',
+    amount: 20,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: null,
+  },
+  {
+    id: 'growth.wallet-linked.referrer',
+    enabled: false,
+    description: 'Someone you invited linked a first wallet',
+    event: 'wallet.linked',
+    beneficiary: 'referrer',
+    amount: 10,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  {
+    id: 'growth.first-post',
+    enabled: true,
+    description: 'Posting for the first time',
+    event: 'post.first',
+    beneficiary: 'actor',
+    amount: 10,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: null,
+  },
+  {
+    id: 'growth.first-post.referrer',
+    enabled: false,
+    description: 'Someone you invited posted for the first time',
+    event: 'post.first',
+    beneficiary: 'referrer',
+    amount: 5,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  /*
+   * Growth (M33): joining a first community of someone else's that already
+   * had 3 other members, and being active on 20 of the first 30 days. Once
+   * per account, vesting on its KYC; the referrer rules start disabled.
+   */
+  {
+    id: 'growth.community-joined',
+    enabled: true,
+    description: 'Joining a first community',
+    event: 'community.joined',
+    beneficiary: 'actor',
+    amount: 10,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: 1,
+  },
+  {
+    id: 'growth.community-joined.referrer',
+    enabled: false,
+    description: 'Someone you invited joined a first community',
+    event: 'community.joined',
+    beneficiary: 'referrer',
+    amount: 5,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
+  {
+    id: 'growth.active-30d',
+    enabled: true,
+    description: 'Active on 20 of the first 30 days',
+    event: 'active.30d',
+    beneficiary: 'actor',
+    amount: 50,
+    vesting: ['kyc:self'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: 1,
+  },
+  {
+    id: 'growth.active-30d.referrer',
+    enabled: false,
+    description: 'Someone you invited was active on 20 of their first 30 days',
+    event: 'active.30d',
+    beneficiary: 'referrer',
+    amount: 20,
+    vesting: ['kyc:self', 'kyc:related'],
+    codeKinds: [],
+    campaignId: null,
+    validFrom: null,
+    validUntil: null,
+    capPerBeneficiary: null,
+    capPerDay: DEFAULT_GROWTH_REFERRER_CAP_PER_DAY,
+  },
 ]
+
+/** Who a rule may reward: referral rewards are one level only (no MLM) */
+const ONE_LEVEL = new Set<string>(['actor', 'referrer'])
 
 export type CodeCheck =
   | { valid: true; code: ReferralCodeTable }
@@ -137,6 +286,18 @@ export class RewardsService {
         createdAt: now(),
       })
       .execute()
+    // Actions of admins (not the system or a KYC provider) go to the
+    // shared admin log too
+    // (the log's `actor` is a DID: `system` and providers stay out)
+    if (isValidDid(actor)) {
+      await recordAudit(db, {
+        service: 'rewards',
+        actor,
+        action,
+        subject,
+        details: data,
+      })
+    }
   }
 
   // Codes
@@ -312,22 +473,14 @@ export class RewardsService {
           ? 'over_limit'
           : 'invalid_code'
       const referrerDid = row?.ownerDid ?? null
-      const referrer2Did = referrerDid
-        ? ((
-            await tx
-              .selectFrom('referral')
-              .select('referrerDid')
-              .where('did', '=', referrerDid)
-              .executeTakeFirst()
-          )?.referrerDid ?? null)
-        : null
       await tx
         .insertInto('referral')
         .values({
           did,
           code,
           referrerDid,
-          referrer2Did,
+          // Referral rewards are one level only: the chain is not kept
+          referrer2Did: null,
           codeKind: row?.kind ?? null,
           campaignId: row?.campaignId ?? null,
           flag,
@@ -343,7 +496,6 @@ export class RewardsService {
           type: 'account.created',
           actorDid: did,
           referrerDid,
-          referrer2Did,
           codeKind: row?.kind ?? null,
           campaignId: row?.campaignId ?? null,
           createdAt,
@@ -355,14 +507,20 @@ export class RewardsService {
   // Rules
   // -----
 
-  /** Adds the default rules to an empty rule table */
+  /**
+   * Adds the default rules that are missing (rules are never deleted, only
+   * disabled, so a missing one is new): all of them to an empty table, and
+   * defaults added later (eg the growth rules) to an existing one
+   */
   async seedRules() {
-    const any = await this.db
-      .selectFrom('reward_rule')
-      .select('id')
-      .executeTakeFirst()
-    if (any) return
-    for (const rule of DEFAULT_RULES) await this.upsertRule('system', rule)
+    const existing = new Set(
+      (await this.db.selectFrom('reward_rule').select('id').execute()).map(
+        (r) => r.id,
+      ),
+    )
+    for (const rule of DEFAULT_RULES) {
+      if (!existing.has(rule.id)) await this.upsertRule('system', rule)
+    }
   }
 
   async listRules() {
@@ -396,6 +554,18 @@ export class RewardsService {
   }
 
   async upsertRule(admin: string, input: RuleInput) {
+    if (!ONE_LEVEL.has(input.beneficiary)) {
+      throw new RewardsError(
+        'MultiLevelReferral',
+        'Referral rewards are one level only: the beneficiary must be the actor or its referrer',
+      )
+    }
+    if (!REWARD_EVENTS.includes(input.event)) {
+      throw new RewardsError(
+        'InvalidRequest',
+        `The event must be one of: ${REWARD_EVENTS.join(', ')}`,
+      )
+    }
     return this.db.transaction().execute(async (tx) => {
       const old = await tx
         .selectFrom('reward_rule')
@@ -447,7 +617,6 @@ export class RewardsService {
       type: RewardEvent
       actorDid: string
       referrerDid: string | null
-      referrer2Did: string | null
       codeKind: CodeKind | null
       campaignId: string | null
       createdAt: string
@@ -483,7 +652,6 @@ export class RewardsService {
     const beneficiaries: Record<Beneficiary, string | null> = {
       actor: event.actorDid,
       referrer: event.referrerDid,
-      referrer2: event.referrer2Did,
     }
     const touched = new Set<string>([event.actorDid])
     for (const rule of rules) {
@@ -496,7 +664,10 @@ export class RewardsService {
         continue
       }
       if (rule.campaignId && rule.campaignId !== event.campaignId) continue
-      const did = beneficiaries[rule.beneficiary]
+      // Rules from before referrals became one level may name others
+      const did = ONE_LEVEL.has(rule.beneficiary)
+        ? beneficiaries[rule.beneficiary]
+        : null
       if (!did || (await this.isTakenDown(tx, did))) continue
       // The other side of a referral, for kyc:related
       const relatedDid =
@@ -704,6 +875,7 @@ export class RewardsService {
             eb('eventId', 'in', [
               `account.created:${did}`,
               `kyc.approved:${did}`,
+              ...ACCOUNT_EVENTS.map((type) => `${type}:${did}`),
             ]),
           ]),
         )
@@ -818,26 +990,143 @@ export class RewardsService {
           ]),
         )
         .execute()
+      // Its phone number is free again (a takedown keeps it reserved). The
+      // send log stays until pruned, so the per-number limits still count
+      await tx.deleteFrom('phone_verification').where('did', '=', did).execute()
+      await tx.deleteFrom('phone_otp').where('did', '=', did).execute()
+      await tx.deleteFrom('badge_pref').where('did', '=', did).execute()
+      await tx.deleteFrom('leaderboard_pref').where('did', '=', did).execute()
+      await tx.deleteFrom('activity_day').where('did', '=', did).execute()
       await this.audit(tx, 'system', 'account.deleted', did)
     })
   }
 
   /** Runs the kyc.approved rules for `did` (once per account) */
   private async runKycApproved(tx: Db, did: string) {
+    await this.runAccountEvent(tx, 'kyc.approved', did)
+  }
+
+  /**
+   * Runs the rules of an event that happens once per account, with the
+   * account's referral (for referrer rules); the event id is `<type>:<did>`
+   */
+  private async runAccountEvent(tx: Db, type: RewardEvent, did: string) {
     const referral = await tx
       .selectFrom('referral')
       .selectAll()
       .where('did', '=', did)
       .executeTakeFirst()
     await this.handleEvent(tx, {
-      id: `kyc.approved:${did}`,
-      type: 'kyc.approved',
+      id: `${type}:${did}`,
+      type,
       actorDid: did,
       referrerDid: referral?.referrerDid ?? null,
-      referrer2Did: referral?.referrer2Did ?? null,
       codeKind: referral?.codeKind ?? null,
       campaignId: referral?.campaignId ?? null,
       createdAt: now(),
+    })
+  }
+
+  /**
+   * An account event reported by the indexer (its first verified wallet,
+   * its first post). Rewarded once per account, whatever happens to the
+   * wallet or post later: the event id is the account's. Reports for
+   * accounts that are taken down or deleted are dropped.
+   */
+  async recordAccountEvent(type: RewardEvent, did: string) {
+    if (!INDEXER_EVENTS.includes(type)) {
+      throw new RewardsError('InvalidRequest', `Unknown event: ${type}`)
+    }
+    await this.db
+      .transaction()
+      .execute((tx) => this.runAccountEvent(tx, type, did))
+  }
+
+  /**
+   * A day (YYYY-MM-DD, Vietnam time) the account created a record, as the
+   * indexer saw it. Kept once per account and day; an account active on
+   * ACTIVE_MIN_DAYS days of its first 30 earns active.30d (once). Days
+   * after tomorrow or before the day before its sign-up are ignored, unless
+   * `anyDay` (development: lets tests make up a month of activity). Taken
+   * down and deleted accounts are ignored. Resolves to whether it was kept.
+   */
+  async recordActivityDay(
+    did: string,
+    day: string,
+    opts: { anyDay?: boolean; now?: number } = {},
+  ): Promise<boolean> {
+    if (!isDay(day)) {
+      throw new RewardsError('InvalidRequest', 'The day must be YYYY-MM-DD')
+    }
+    return this.db.transaction().execute(async (tx) => {
+      if (await this.isTakenDown(tx, did)) return false
+      const createdAt = await accountCreatedAt(tx, did)
+      if (
+        !opts.anyDay &&
+        !acceptableDay(day, { now: opts.now ?? Date.now(), createdAt })
+      ) {
+        return false
+      }
+      await tx
+        .insertInto('activity_day')
+        .values({ did, day })
+        .onConflict((oc) => oc.doNothing())
+        .execute()
+      await this.checkActive30d(tx, did, createdAt)
+      return true
+    })
+  }
+
+  /** Runs active.30d for the account if its first 30 days qualify */
+  private async checkActive30d(tx: Db, did: string, createdAt?: string) {
+    // Accounts without a sign-up event (eg made before referrals) never earn it
+    if (!createdAt) return
+    const done = await tx
+      .selectFrom('reward_event')
+      .select('id')
+      .where('id', '=', `active.30d:${did}`)
+      .executeTakeFirst()
+    if (done) return
+    if ((await activeDaysInWindow(tx, did, createdAt)) >= ACTIVE_MIN_DAYS) {
+      await this.runAccountEvent(tx, 'active.30d', did)
+    }
+  }
+
+  /**
+   * Development only: moves the account's sign-up (its account.created event
+   * and its referral) `days` days back, so tests can play its first month.
+   * Resolves to the new time, or undefined without a sign-up event.
+   */
+  async backdateAccount(did: string, days: number) {
+    return this.db.transaction().execute(async (tx) => {
+      const createdAt = await accountCreatedAt(tx, did)
+      if (!createdAt) return undefined
+      const shift = (iso: string) =>
+        new Date(Date.parse(iso) - days * 24 * 60 * 60 * 1000).toISOString()
+      const moved = shift(createdAt)
+      await tx
+        .updateTable('reward_event')
+        .set({ createdAt: moved })
+        .where('id', '=', `account.created:${did}`)
+        .execute()
+      const referral = await tx
+        .selectFrom('referral')
+        .select('createdAt')
+        .where('did', '=', did)
+        .executeTakeFirst()
+      if (referral) {
+        await tx
+          .updateTable('referral')
+          .set({ createdAt: shift(referral.createdAt) })
+          .where('did', '=', did)
+          .execute()
+      }
+      await this.audit(tx, 'system', 'dev.backdate', did, {
+        days,
+        createdAt: moved,
+      })
+      await this.checkActive30d(tx, did, moved)
+      return moved
     })
   }
 

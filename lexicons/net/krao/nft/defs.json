@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.nft.defs",
+  "description": "Krao's approved NFT collections: the NFTs of these contracts show on profiles' on-chain tab (net.krao.actor.getOnchainProfile).",
+  "defs": {
+    "collectionView": {
+      "type": "object",
+      "required": ["chain", "contract", "addedAt"],
+      "properties": {
+        "chain": {
+          "type": "string",
+          "description": "CAIP-2 chain id, eg 'eip155:8453'.",
+          "maxLength": 128
+        },
+        "contract": {
+          "type": "string",
+          "description": "Lowercase contract address.",
+          "maxLength": 128
+        },
+        "name": { "type": "string", "maxLength": 640 },
+        "standard": {
+          "type": "string",
+          "description": "What the indexer found on chain: 'erc721-enumerable' (tokens listed one by one), 'erc721' (a balance per collection) or 'erc1155' (only shown as an NFT avatar).",
+          "knownValues": ["erc721-enumerable", "erc721", "erc1155"],
+          "maxLength": 32
+        },
+        "addedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

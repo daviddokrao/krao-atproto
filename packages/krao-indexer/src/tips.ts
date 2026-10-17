@@ -1,6 +1,7 @@
 import { parseAccountId } from '@krao/wallet'
 import { type EvmRpc, parseAssetId } from './chain.js'
 import { type Database, type TipTable, visibleDid } from './db.js'
+import { txUsedByPayment } from './membership.js'
 import { ownedEvmAddresses } from './wallets.js'
 
 export const TIP_COLLECTION = 'net.krao.feed.tip'
@@ -29,6 +30,7 @@ export function tipRowFromRecord(
     fromAccount: str(value.from),
     toAccount: str(value.to),
     message: str(value.message),
+    anonymous: value.anonymous === true ? 1 : 0,
     status: 'pending',
     nextCheckAt: null,
     pendingSince: now,
@@ -178,6 +180,13 @@ async function checkTip(
     return {
       status: 'invalid',
       reason: 'Transaction already used by another tip',
+    }
+  }
+  // Nor can it back a tip and a membership payment (see membership.ts)
+  if (await txUsedByPayment(db, tip.txHash)) {
+    return {
+      status: 'invalid',
+      reason: 'Transaction already used by a membership payment',
     }
   }
   const earlier = claims.some(

@@ -1,5 +1,5 @@
 import type { AppviewClient } from './appview.js'
-import { excerpt, nameOf } from './compose.js'
+import { excerpt, kraoText, nameOf } from './compose.js'
 import type { PushMessage } from './senders.js'
 import type { PushService } from './service.js'
 
@@ -109,6 +109,8 @@ export async function pushKraoEvent(
     return push.deliver(did, msg)
   }
   let sent = 0
+  const langs = await push.languages([...withDevices])
+  const langOf = (did: string) => langs.get(did) ?? 'en'
   switch (evt.kind) {
     case 'chat': {
       const sender = (await appview.profiles([evt.senderDid])).get(
@@ -116,14 +118,13 @@ export async function pushKraoEvent(
       )
       if (!sender) return 0
       const name = nameOf(sender)
-      const title = evt.groupName ? `${name} in ${evt.groupName}` : name
-      const body = evt.reaction
-        ? `Reacted ${evt.reaction} to your message`
-        : excerpt(evt.text) || 'Sent a message'
       for (const did of withDevices) {
+        const lang = langOf(did)
         sent += await send(did, {
-          title,
-          body,
+          title: kraoText.chatTitle(lang, name, evt.groupName),
+          body: evt.reaction
+            ? kraoText.chatReaction(lang, evt.reaction)
+            : excerpt(evt.text) || kraoText.chatMessage(lang),
           data: {
             reason: evt.reaction ? 'chat-reaction' : 'chat-message',
             convoId: evt.convoId,
@@ -145,8 +146,9 @@ export async function pushKraoEvent(
       )
       if (!sender) return 0
       if (!withDevices.has(evt.recipientDid)) return 0
+      const lang = langOf(evt.recipientDid)
       return send(evt.recipientDid, {
-        title: `${nameOf(sender)} sent you a tip`,
+        title: kraoText.tipTitle(lang, nameOf(sender, lang)),
         body: excerpt(evt.message),
         data: {
           reason: 'krao-tip',
@@ -158,21 +160,21 @@ export async function pushKraoEvent(
     }
     case 'points':
       return send(evt.recipientDid, {
-        title: 'Your points were approved',
-        body: `+${evt.points} points`,
+        title: kraoText.pointsTitle(langOf(evt.recipientDid)),
+        body: kraoText.pointsBody(langOf(evt.recipientDid), evt.points),
         data: { reason: 'krao-points' },
         threadId: 'krao-rewards',
       })
     case 'kyc':
       return send(evt.recipientDid, {
-        title:
-          evt.status === 'approved'
-            ? 'Your identity is verified'
-            : 'Identity verification was not approved',
-        body:
-          evt.status === 'approved'
-            ? 'Pending referral points can now be approved.'
-            : 'Open Krao to see what to do next.',
+        title: kraoText.kycTitle(
+          langOf(evt.recipientDid),
+          evt.status === 'approved',
+        ),
+        body: kraoText.kycBody(
+          langOf(evt.recipientDid),
+          evt.status === 'approved',
+        ),
         data: { reason: 'krao-kyc' },
         threadId: 'krao-rewards',
       })

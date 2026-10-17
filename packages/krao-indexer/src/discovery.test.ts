@@ -77,6 +77,7 @@ describe('with a database', () => {
         did,
         indexedAt: new Date().toISOString(),
         createdAt: null,
+        vi: 0,
       })
       .execute()
 

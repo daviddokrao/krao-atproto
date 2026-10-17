@@ -1,20 +1,46 @@
 import { once } from 'node:events'
 import type http from 'node:http'
+import { rpcForChains } from '@krao/wallet'
 import { IdResolver } from '@atproto/identity'
+import {
+  AdminAuditOutbox,
+  RewardsAuditSender,
+  RewardsRoles,
+  roleCheck,
+} from './admin-roles.js'
 import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
+import { HolderFeeds } from './holders.js'
 import { FirehoseIndexer } from './indexer.js'
+import { RewardsHumanCheck } from './human.js'
+import { ImpersonationWatcher, OzoneAdminClient } from './impersonation.js'
+import { RewardsEventsClient } from './rewards-events.js'
 import { createApp } from './server.js'
 import { type S3MediaConfig, S3MediaStore } from './media-store.js'
 import { createPushClient } from './push-client.js'
+import { SafetyList } from './safety.js'
+import { TokenCatalog } from './token.js'
 
 export * from './db.js'
 export * from './wallets.js'
 export * from './tips.js'
+export * from './membership.js'
+export * from './creator.js'
 export * from './chain.js'
 export * from './nft.js'
 export * from './gate.js'
 export * from './feed.js'
+export * from './safety.js'
+export * from './address-check.js'
+export * from './token.js'
+export * from './names.js'
+export * from './language.js'
+export * from './onchain.js'
+export * from './holders.js'
+export * from './miniapp.js'
+export * from './admin-roles.js'
+export * from './impersonation.js'
+export * from './lookalike.js'
 
 export type KraoIndexerConfig = {
   port: number
@@ -30,7 +56,10 @@ export type KraoIndexerConfig = {
   handleResolverUrl?: string
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
-  /** JSON-RPC endpoints by CAIP-2 chain id, used to verify tips */
+  /**
+   * JSON-RPC endpoints by CAIP-2 chain id, used to verify tips and smart
+   * contract wallet links
+   */
   rpcUrls?: Record<string, string>
   /** AppView used to hydrate tip senders' profiles */
   appviewUrl?: string
@@ -59,17 +88,163 @@ export type KraoIndexerConfig = {
   feedPdsUrl?: string
   /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
   discoveryCacheMs?: number
+  /**
+   * Moderator accounts and moderation services (eg Krao's Ozone) that may
+   * read gated content, with every read logged
+   */
+  gateModeratorDids?: string[]
+  /** Whether moderators may read gated content (default true) */
+  gateModerationAccess?: boolean
+  /**
+   * Open phishing list to sync every 6 hours, in the shape of MetaMask's
+   * eth-phishing-detect config.json. Unset: only built-in and admin entries.
+   */
+  phishingListUrl?: string
+  /** Accounts that may change the unsafe domain list */
+  safetyAdminDids?: string[]
+  /**
+   * Krao's rewards service, asked whether an account verified a phone or
+   * passed KYC ("verified" communities and polls), and told about first
+   * wallets and first posts (/internal/events). Also the source of Krao
+   * admin roles (safety, moderator) beyond the DIDs above, and keeper of
+   * the shared admin log (M35). Unset: nobody counts as verified, no
+   * events are sent, only the DIDs above are admins.
+   */
+  rewards?: { url: string; token: string }
+  /**
+   * Ethereum mainnet JSON-RPC, for verified ENS names next to handles
+   * (default: rpcUrls['eip155:1']). Unset: Basenames only.
+   */
+  ensRpcUrl?: string
+  /**
+   * Token catalog prices: the Uniswap v3 factory on Base whose pools price
+   * the tokens (default Uniswap's), and how often prices are read (default
+   * 5 minutes). Prices need an RPC for eip155:8453 in rpcUrls.
+   */
+  tokens?: { factory?: string; sampleIntervalMs?: number }
+  /**
+   * The holders-<symbol> feeds: the value in US dollars a holder's wallets
+   * must hold (default 1), and how long balances are reused (default 15
+   * minutes, 0: off)
+   */
+  holderFeed?: { minUsd?: number; cacheMs?: number }
+  /**
+   * Krao's official accounts (eg krao.net's): only holders-<symbol> feed
+   * generators they publish are linked from token pages. Empty: none are.
+   */
+  officialFeedDids?: string[]
+  /**
+   * Development: Mini Apps may be served from http://localhost (any port).
+   * Never in production.
+   */
+  devMode?: boolean
+  /**
+   * Krao's PDS over http(s), where Mini App icons are read from (default:
+   * the firehose URL as http)
+   */
+  pdsUrl?: string
+  /** Transaction previews: contracts Krao knows beyond its token and NFT catalogs */
+  knownContracts?: string[]
+  /** Transaction previews: EIP-7702 delegate contracts Krao trusts (none by default) */
+  knownDelegates?: string[]
+  /** How long the on-chain profile tab reuses NFT holdings (default 10 min, 0: off) */
+  onchainCacheMs?: number
+  /**
+   * Impersonation checks (M35): accounts whose verifications count
+   * (KRAO_TRUSTED_VERIFIER_DIDS, as the AppView's), and Krao's Ozone, which
+   * labels and reports suspects (its admin password). Without Ozone there
+   * are no checks.
+   */
+  trustedVerifierDids?: string[]
+  ozone?: { url: string; adminPassword: string }
 }
 
 export class KraoIndexer {
   private server?: http.Server
+  private auditTimer?: NodeJS.Timeout
+  private auditRunning = false
 
   private constructor(
     public cfg: KraoIndexerConfig,
     public db: Database,
     public indexer: FirehoseIndexer,
     private app: ReturnType<typeof createApp>,
-  ) {}
+    private gateModerators: Set<string>,
+    public safety: SafetyList,
+    private safetyAdmins: Set<string>,
+    public tokens: TokenCatalog,
+    private officialFeedDids: Set<string>,
+    public audit: AdminAuditOutbox,
+    private trustedVerifiers: Set<string>,
+    public impersonation?: ImpersonationWatcher,
+  ) {
+    audit.onQueued = () => this.deliverAudit()
+    if (impersonation) {
+      impersonation.onQueued = () => this.kickImpersonation()
+    }
+  }
+
+  /** Makes an account a trusted verifier (eg one made at startup) */
+  async addTrustedVerifier(did: string) {
+    if (this.trustedVerifiers.has(did)) return
+    this.trustedVerifiers.add(did)
+    await this.impersonation?.verifiersChanged()
+  }
+
+  private impersonationRunning = false
+  private impersonationAgain = false
+  private impersonationTimer?: NodeJS.Timeout
+
+  /** Runs the impersonation checks and Ozone updates in the background */
+  private kickImpersonation() {
+    const watcher = this.impersonation
+    if (!watcher) return
+    if (this.impersonationRunning) {
+      this.impersonationAgain = true
+      return
+    }
+    this.impersonationRunning = true
+    void (async () => {
+      do {
+        this.impersonationAgain = false
+        await watcher
+          .round()
+          .catch((err: unknown) =>
+            console.error('Krao indexer: impersonation round failed', err),
+          )
+      } while (this.impersonationAgain)
+      this.impersonationRunning = false
+    })()
+  }
+
+  /** Sends queued admin log entries to the rewards service */
+  private deliverAudit() {
+    if (this.auditRunning) return
+    this.auditRunning = true
+    this.audit
+      .deliver()
+      .catch((err: unknown) =>
+        console.error('Krao indexer: admin log delivery failed', err),
+      )
+      .finally(() => {
+        this.auditRunning = false
+      })
+  }
+
+  /** Makes an account official for token holder feeds (eg one made at startup) */
+  addOfficialFeedDid(did: string) {
+    this.officialFeedDids.add(did)
+  }
+
+  /** Lets an account read gated content as a moderator (eg one made at startup) */
+  addGateModerator(did: string) {
+    this.gateModerators.add(did)
+  }
+
+  /** Lets an account change the unsafe domain list (eg one made at startup) */
+  addSafetyAdmin(did: string) {
+    this.safetyAdmins.add(did)
+  }
 
   static async create(cfg: KraoIndexerConfig): Promise<KraoIndexer> {
     const db = createDb(cfg.dbLocation)
@@ -98,6 +273,63 @@ export class KraoIndexer {
       : undefined
     indexer.mediaBlobs = mediaBlobs
     indexer.push = createPushClient(cfg.push?.url, cfg.push?.token)
+    indexer.walletRpc = rpcForChains(cfg.rpcUrls ?? {})
+    const safety = new SafetyList(db, {
+      listUrl: cfg.phishingListUrl,
+      allowHttp: cfg.insecureFetch,
+    })
+    await safety.init()
+    indexer.safety = safety
+    const human = cfg.rewards
+      ? new RewardsHumanCheck(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    indexer.human = human
+    // First verified wallet and first post, rewarded by the rewards service
+    indexer.rewardsEvents = cfg.rewards
+      ? new RewardsEventsClient(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    const ensRpcUrl = cfg.ensRpcUrl ?? cfg.rpcUrls?.['eip155:1']
+    indexer.ensRpc = ensRpcUrl ? new EvmRpc(ensRpcUrl) : undefined
+    // Mini Apps may not be served from Krao's own web app origin
+    indexer.miniAppRules = {
+      devMode: cfg.devMode,
+      webOrigins: [cfg.webUrl ?? 'https://krao.net'],
+    }
+    const tokens = new TokenCatalog(db, {
+      rpc: rpcs.get('eip155:8453'),
+      factory: cfg.tokens?.factory,
+      sampleIntervalMs: cfg.tokens?.sampleIntervalMs,
+    })
+    await tokens.init()
+    indexer.tokens = tokens
+    const gateModerators = new Set(cfg.gateModeratorDids ?? [])
+    const safetyAdmins = new Set(cfg.safetyAdminDids ?? [])
+    // M35: roles granted in the app (rewards service) count too
+    const roles = cfg.rewards
+      ? new RewardsRoles(cfg.rewards.url, cfg.rewards.token)
+      : undefined
+    const audit = new AdminAuditOutbox(
+      db,
+      cfg.rewards
+        ? new RewardsAuditSender(cfg.rewards.url, cfg.rewards.token)
+        : undefined,
+    )
+    const officialFeedDids = new Set(cfg.officialFeedDids ?? [])
+    const trustedVerifiers = new Set(cfg.trustedVerifierDids ?? [])
+    const impersonation = cfg.ozone
+      ? new ImpersonationWatcher(db, {
+          verifiers: trustedVerifiers,
+          pdsUrl: cfg.pdsUrl ?? cfg.firehoseUrl.replace(/^ws/, 'http'),
+          idResolver,
+          moderator: new OzoneAdminClient(
+            cfg.ozone.url,
+            cfg.ozone.adminPassword,
+            cfg.gateDid ?? 'did:web:gate.krao.net',
+          ),
+          audit,
+        })
+      : undefined
+    indexer.impersonation = impersonation
     return new KraoIndexer(
       cfg,
       db,
@@ -113,7 +345,33 @@ export class KraoIndexer {
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
         discoveryCacheMs: cfg.discoveryCacheMs,
+        gateModerators: roleCheck(gateModerators, 'moderator', roles),
+        gateModerationAccess: cfg.gateModerationAccess,
+        safety,
+        safetyAdmins: roleCheck(safetyAdmins, 'safety', roles),
+        audit,
+        replayFailedEvents: (limit) => indexer.replayFailedEvents(limit),
+        human,
+        tokens,
+        holderFeeds: new HolderFeeds(db, {
+          rpc: rpcs.get('eip155:8453'),
+          minUsd: cfg.holderFeed?.minUsd,
+          cacheMs: cfg.holderFeed?.cacheMs,
+        }),
+        officialFeedDids,
+        onchainCacheMs: cfg.onchainCacheMs,
+        pdsUrl: cfg.pdsUrl ?? cfg.firehoseUrl.replace(/^ws/, 'http'),
+        knownContracts: cfg.knownContracts,
+        knownDelegates: cfg.knownDelegates,
       }),
+      gateModerators,
+      safety,
+      safetyAdmins,
+      tokens,
+      officialFeedDids,
+      audit,
+      trustedVerifiers,
+      impersonation,
     )
   }
 
@@ -123,13 +381,45 @@ export class KraoIndexer {
 
   async start(): Promise<http.Server> {
     this.indexer.start()
+    this.safety.start()
+    this.tokens.start()
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
+    // Retries of the admin log (entries are sent as soon as they are queued)
+    this.auditTimer = setInterval(() => this.deliverAudit(), 15_000)
+    this.auditTimer.unref()
+    if (this.impersonation) {
+      const watcher = this.impersonation
+      void (async () => {
+        // Accounts from before this feature (the PDS may start later)
+        for (let delay = 5_000; ; delay = Math.min(delay * 2, 300_000)) {
+          try {
+            await watcher.backfill()
+            break
+          } catch (err) {
+            console.error('Krao indexer: impersonation backfill failed', err)
+            await new Promise((resolve) => setTimeout(resolve, delay).unref())
+            if (!this.server?.listening) return
+          }
+        }
+        this.kickImpersonation()
+      })()
+      // Retries of Ozone calls
+      this.impersonationTimer = setInterval(
+        () => this.kickImpersonation(),
+        10_000,
+      )
+      this.impersonationTimer.unref()
+    }
     return this.server
   }
 
   async destroy(): Promise<void> {
+    clearInterval(this.auditTimer)
+    clearInterval(this.impersonationTimer)
     await this.indexer.destroy()
+    await this.safety.destroy()
+    await this.tokens.destroy()
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

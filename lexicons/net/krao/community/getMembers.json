@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.getMembers",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Members of a community in good standing: the owner and moderators first, then members, the most recent first. Public and rate limited.",
+      "parameters": {
+        "type": "params",
+        "required": ["community"],
+        "properties": {
+          "community": { "type": "string", "format": "at-uri" },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["members"],
+          "properties": {
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.community.defs#memberView"
+              }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}

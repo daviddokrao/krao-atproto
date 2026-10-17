@@ -1,0 +1,25 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.ban",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Bans an account from a community: its membership stops counting and its posts leave the feed. Counts in the repo of the owner, or of a current moderator for accounts that are not moderators. Delete the record to lift the ban.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["community", "subject", "createdAt"],
+        "properties": {
+          "community": { "type": "string", "format": "at-uri" },
+          "subject": { "type": "string", "format": "did" },
+          "reason": {
+            "type": "string",
+            "maxGraphemes": 300,
+            "maxLength": 3000
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

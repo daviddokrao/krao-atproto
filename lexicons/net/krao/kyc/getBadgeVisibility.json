@@ -1,0 +1,17 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.getBadgeVisibility",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Whether the viewer shows the \"human\" badge, and whether it has earned it. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.kyc.defs#badgeVisibility"
+        }
+      }
+    }
+  }
+}

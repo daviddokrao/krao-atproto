@@ -43,6 +43,73 @@ const indexer = await KraoIndexer.create({
         token: process.env.KRAO_PUSH_INTERNAL_TOKEN ?? '',
       }
     : undefined,
+  // Verified communities and polls ask the rewards service (phone or KYC);
+  // first wallets and first posts are reported to it
+  rewards: process.env.KRAO_REWARDS_URL
+    ? {
+        url: process.env.KRAO_REWARDS_URL,
+        token: process.env.KRAO_REWARDS_INTERNAL_TOKEN ?? '',
+      }
+    : undefined,
+  // Ethereum mainnet, for verified ENS names (Basenames need only Base)
+  ensRpcUrl: process.env.KRAO_ENS_RPC_URL || undefined,
+  // Moderators (accounts, or Ozone's service DID) who may read gated content
+  gateModeratorDids: (process.env.KRAO_GATE_MODERATOR_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  gateModerationAccess: process.env.KRAO_GATE_MODERATION_ACCESS !== 'false',
+  // eg MetaMask's https://raw.githubusercontent.com/MetaMask/eth-phishing-detect/main/src/config.json
+  phishingListUrl: process.env.KRAO_PHISHING_LIST_URL || undefined,
+  // Accounts that may add and remove unsafe domains (and catalog tokens)
+  safetyAdminDids: (process.env.KRAO_SAFETY_ADMIN_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  // Impersonation checks (M35): verifications by these accounts count, and
+  // suspects are labeled and reported in Krao's Ozone (admin password)
+  trustedVerifierDids: (process.env.KRAO_TRUSTED_VERIFIER_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  ozone:
+    process.env.KRAO_OZONE_URL && process.env.KRAO_OZONE_ADMIN_PASSWORD
+      ? {
+          url: process.env.KRAO_OZONE_URL,
+          adminPassword: process.env.KRAO_OZONE_ADMIN_PASSWORD,
+        }
+      : undefined,
+  // Token prices: Uniswap v3 pools on Base, read through KRAO_RPC_URLS
+  tokens: {
+    factory: process.env.KRAO_UNISWAP_V3_FACTORY || undefined,
+    sampleIntervalMs: process.env.KRAO_TOKEN_PRICE_INTERVAL_MS
+      ? Number(process.env.KRAO_TOKEN_PRICE_INTERVAL_MS)
+      : undefined,
+  },
+  // "Holders of $X" feeds: the US dollar value a holder's wallets must hold
+  holderFeed: {
+    minUsd: process.env.KRAO_HOLDER_FEED_MIN_USD
+      ? Number(process.env.KRAO_HOLDER_FEED_MIN_USD)
+      : undefined,
+  },
+  // Official accounts whose holders-<symbol> feeds token pages link to
+  officialFeedDids: (process.env.KRAO_OFFICIAL_FEED_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
+  // Development only: Mini Apps served from http://localhost
+  devMode: process.env.KRAO_DEV_MODE === 'true',
+  // Krao's PDS (Mini App icons); default: KRAO_FIREHOSE_URL as http
+  pdsUrl: process.env.KRAO_PDS_URL || undefined,
+  // Transaction previews: more known contracts, trusted EIP-7702 delegates
+  knownContracts: (process.env.KRAO_KNOWN_CONTRACTS ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean),
+  knownDelegates: (process.env.KRAO_KNOWN_7702_DELEGATES ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean),
 })
 await indexer.start()
 console.log(`Krao indexer listening on ${indexer.url}`)

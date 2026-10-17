@@ -1,4 +1,5 @@
 import { InvalidRequestError } from '@atproto/xrpc-server'
+import { findSecrets } from '@krao/wallet'
 import { sql } from 'kysely'
 import { countGraphemes } from 'unicode-segmenter/grapheme'
 import type { Appview, AppviewProfile } from './appview.js'
@@ -34,6 +35,22 @@ const T = {
 export const GROUP_MEMBER_LIMIT = 50
 /** Distinct reactions one account may put on one message */
 const REACTION_LIMIT = 5
+
+/**
+ * Krao: seed phrases and private keys are never sent. Nobody legitimate asks
+ * for them, and a message cannot be taken back once the other side has it.
+ */
+export function assertNoWalletSecret(text: string) {
+  const found = findSecrets(text)
+  if (found.length) {
+    throw new InvalidRequestError(
+      found[0] === 'seedPhrase'
+        ? 'This message looks like a seed phrase. Never share it: anyone who has it can take everything in the wallet'
+        : 'This message looks like a private key. Never share it: anyone who has it can take everything in the wallet',
+      'SensitiveSecret',
+    )
+  }
+}
 
 export type MessageInput = {
   text: string
@@ -280,6 +297,7 @@ export class ChatService {
 
   /** Stores a user message and logs it to every active member */
   async sendMessage(convoId: string, sender: string, input: MessageInput) {
+    assertNoWalletSecret(input.text)
     const { convo, member } = await this.getConvoForViewer(convoId, sender)
     if (await isChatDisabled(this.db, sender)) {
       throw new InvalidRequestError(

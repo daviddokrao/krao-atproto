@@ -11,14 +11,26 @@ import {
   AuthRequiredError,
   ForbiddenError,
   InvalidRequestError,
+  type Server,
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { utf8Prefix } from './abi-decode.js'
+import type { AdminAuditLog, RoleCheck } from './admin-roles.js'
+import { InvalidAddressError, checkAddresses } from './address-check.js'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
+import {
+  getCommunity,
+  getCommunityFeed,
+  isCommunityMember,
+} from './community.js'
+import { addCommunityRoutes } from './community-routes.js'
+import { addCreatorRoutes } from './creator-routes.js'
 import type { Database } from './db.js'
 import {
   POPULAR_FEED_RKEY,
+  VIETNAMESE_FEED_RKEY,
   getLatestPosts,
   getPopularPosts,
   rankPopularPosts,
@@ -51,9 +63,22 @@ import {
   readBounded,
   sniffMediaType,
 } from './gate-media.js'
+import { exportIndexerData } from './export.js'
+import {
+  type HolderFeeds,
+  communityFeedSlug,
+  holderFeedKey,
+  holderFeedUri,
+} from './holders.js'
+import { addMiniAppIconRoute, addMiniAppRoutes } from './miniapp-routes.js'
+import { addOnchainRoutes } from './onchain-routes.js'
+import { addGateModerationRoutes, moderatorAuth } from './gate-moderation.js'
 import { addGifRoutes } from './gifs.js'
+import { ChainClock, isActiveMember } from './membership.js'
+import type { HumanCheck } from './human.js'
 import { app as bskyApp, net } from './lexicons/index.js'
 import { extractLinkMeta, fetchPreviewImage } from './link-meta.js'
+import { getPrimaryNames, nameAddresses } from './names.js'
 import { fetchNftImageAsPng } from './nft-image.js'
 import {
   erc1155BalanceOf,
@@ -65,7 +90,11 @@ import {
 import { cachedValue } from './cache.js'
 import { keyedLimit, rateLimit } from './rate-limit.js'
 import { SafeFetchError } from './safe-fetch.js'
+import { InvalidDomainError, type SafetyList } from './safety.js'
 import { addStarterPackRoutes } from './starter-packs.js'
+import { BASE_CHAIN, type TokenCatalog } from './token.js'
+import { addTokenRoutes } from './token-routes.js'
+import { addWalletRoutes } from './wallet-routes.js'
 import {
   listTips,
   tipTotals,
@@ -84,6 +113,7 @@ import type { MediaBlobStore } from './media-store.js'
 type ChainProfileView = net.krao.actor.defs.ChainProfileView
 type WalletView = net.krao.actor.defs.WalletView
 type NftAvatarView = net.krao.actor.defs.NftAvatarView
+type PrimaryNameView = net.krao.actor.defs.PrimaryNameView
 type Badge = net.krao.actor.defs.Badge
 type TipView = net.krao.feed.defs.TipView
 type RuleView = net.krao.gate.defs.RuleView
@@ -111,6 +141,39 @@ export function createApp(
     mediaBlobs?: MediaBlobStore
     /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
     discoveryCacheMs?: number
+    /** Moderators who may read gated content (a live set, M35 roles) */
+    gateModerators?: RoleCheck
+    /** Whether they may (KRAO_GATE_MODERATION_ACCESS, default true) */
+    gateModerationAccess?: boolean
+    /** The unsafe domain list (checkLinks, its admin methods) */
+    safety?: SafetyList
+    /** Who may change the unsafe domain list (a live set, M35 roles) */
+    safetyAdmins?: RoleCheck
+    /** The shared admin log at the rewards service (M35) */
+    audit?: AdminAuditLog
+    /** Indexes the failed firehose events again (for the safety admins) */
+    replayFailedEvents?: (
+      limit: number,
+    ) => Promise<{ replayed: number; failed: number; remaining: number }>
+    /** Krao's verification, for "verified" communities and polls */
+    human?: HumanCheck
+    /** The token catalog (net.krao.token.*); its admins are the safety admins */
+    tokens?: TokenCatalog
+    /** The holders-<symbol> feeds; empty without it */
+    holderFeeds?: HolderFeeds
+    /**
+     * Krao's official accounts (a live set): only their holders-<symbol>
+     * generators are linked from token pages
+     */
+    officialFeedDids?: Set<string>
+    /** How long the on-chain tab reuses NFT holdings (default 10 min, 0: off) */
+    onchainCacheMs?: number
+    /** Krao's PDS, where Mini App icons are read from */
+    pdsUrl?: string
+    /** Transaction previews: contracts Krao knows beyond its catalogs */
+    knownContracts?: string[]
+    /** Transaction previews: EIP-7702 delegates Krao trusts (none by default) */
+    knownDelegates?: string[]
   },
 ): Express {
   const {
@@ -129,6 +192,9 @@ export function createApp(
   const globalAccountScores = cachedValue(cacheMs, () => accountScores(db))
   const trending = cachedValue(cacheMs, () => trendingTags(db, 50))
   const topTags = async (limit = 10) => (await trending()).slice(0, limit)
+  const checks = { rpcs, human: opts.human }
+  // Memberships are judged on Base's clock (see membership.ts)
+  const clock = new ChainClock(rpcs.get(BASE_CHAIN))
   const baseUrl = (req: {
     protocol: string
     get(name: string): string | undefined
@@ -192,9 +258,15 @@ export function createApp(
           'NotFound',
         )
       }
-      if (!(await isEligible(db, rpcs, rule, viewer))) {
+      const eligible = await isEligible(db, rpcs, rule, viewer, {
+        isCommunityMember: (community, did) =>
+          isCommunityMember(db, checks, community, did),
+        isCreatorMember: async (creator, plan, did) =>
+          isActiveMember(db, creator, did, await clock.now(), plan),
+      })
+      if (!eligible) {
         throw new ForbiddenError(
-          'Your linked wallets do not meet the conditions of this post',
+          'You do not meet the conditions of this post',
           'NotEligible',
         )
       }
@@ -318,19 +390,141 @@ export function createApp(
     },
   })
 
+  addGateModerationRoutes(server, db, {
+    idResolver,
+    gateDid,
+    moderators: opts.gateModerators ?? new Set(),
+    audit: opts.audit,
+    enabled: opts.gateModerationAccess ?? true,
+    mediaUrl: (req, id) => mediaSigner.url(baseUrl(req), id),
+  })
+
+  addSafetyRoutes(server, db, {
+    idResolver,
+    gateDid,
+    safety: opts.safety,
+    admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
+  })
+
+  addCommunityRoutes(server, db, { idResolver, gateDid, checks, feedGenDid })
+
+  addCreatorRoutes(server, db, {
+    idResolver,
+    gateDid,
+    clock,
+    resolveDid: async (actor) =>
+      (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
+    appviewUrl,
+    follows: !!feedGenDid,
+  })
+
+  if (opts.tokens) {
+    addTokenRoutes(server, {
+      tokens: opts.tokens,
+      idResolver,
+      gateDid,
+      admins: opts.safetyAdmins ?? new Set(),
+      audit: opts.audit,
+      holderFeed: feedGenDid
+        ? (key) => holderFeedUri(db, key, opts.officialFeedDids ?? new Set())
+        : undefined,
+    })
+  }
+
+  addOnchainRoutes(server, db, {
+    rpcs,
+    idResolver,
+    gateDid,
+    admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
+    clock,
+    resolveDid: async (actor) =>
+      (await resolveActors(idResolver, [actor], handleResolverUrl))[0],
+    baseUrl: (req) => baseUrl(req),
+    cacheMs: opts.onchainCacheMs,
+  })
+
+  // Mini Apps: reviewed by the safety admins (M34)
+  addMiniAppRoutes(server, db, {
+    idResolver,
+    gateDid,
+    admins: opts.safetyAdmins ?? new Set(),
+    audit: opts.audit,
+    safety: opts.safety,
+    baseUrl: (req) => baseUrl(req),
+  })
+
+  // Transaction and signature previews (M34)
+  addWalletRoutes(server, {
+    db,
+    rpcs,
+    isUnsafe: (url) => !!opts.safety?.check(url).unsafe,
+    knownContracts: (opts.knownContracts ?? []).map((a) => a.toLowerCase()),
+    knownDelegates: (opts.knownDelegates ?? []).map((a) => a.toLowerCase()),
+    serviceAuth: (lxm) => serviceAuth(lxm),
+    webOrigins: [webUrl],
+  })
+
+  // Operations: the safety admins also run the indexer's admin methods
+  server.add(net.krao.indexer.admin.replayFailedEvents, {
+    auth: moderatorAuth(
+      {
+        idResolver,
+        gateDid,
+        moderators: opts.safetyAdmins ?? new Set(),
+      },
+      net.krao.indexer.admin.replayFailedEvents.$lxm,
+    ),
+    handler: async ({ auth, input }) => {
+      if (!opts.replayFailedEvents) {
+        throw new InvalidRequestError('Replay is not available')
+      }
+      const result = await opts.replayFailedEvents(input.body.limit ?? 100)
+      await opts.audit?.record({
+        actor: (auth.credentials as { did: string }).did,
+        action: 'indexer.replayFailedEvents',
+        details: result,
+      })
+      return { encoding: 'application/json' as const, body: result }
+    },
+  })
+
+  // Krao: a copy of what the indexer holds about the account (Decree 13)
+  server.add(net.krao.account.exportData, {
+    auth: serviceAuth(net.krao.account.exportData.$lxm),
+    handler: async ({ auth, req }) => {
+      const viewer = (auth.credentials as { did: string }).did
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          service: 'indexer',
+          did: viewer as `did:${string}:${string}`,
+          exportedAt: new Date().toISOString() as DatetimeString,
+          data: (await exportIndexerData(db, viewer, (id) =>
+            mediaSigner.url(baseUrl(req), id),
+          )) as never,
+        },
+      }
+    },
+  })
+
   server.add(net.krao.actor.getChainProfiles, async ({ params }) => {
     const dids = await resolveActors(
       idResolver,
       params.actors,
       handleResolverUrl,
     )
-    const [rows, tipCounts, sentCounts, nftAvatars, owned] = await Promise.all([
-      getWalletsForDids(db, dids).then(uniqueWallets),
-      verifiedTipCounts(db, dids),
-      verifiedTipsSentCounts(db, dids),
-      getNftAvatarsForDids(db, dids),
-      Promise.all(dids.map((did) => ownedEvmAddresses(db, did))),
-    ])
+    const [allRows, tipCounts, sentCounts, nftAvatars, owned, names] =
+      await Promise.all([
+        getWalletsForDids(db, dids),
+        verifiedTipCounts(db, dids),
+        verifiedTipsSentCounts(db, dids),
+        getNftAvatarsForDids(db, dids),
+        Promise.all(dids.map((did) => ownedEvmAddresses(db, did))),
+        getPrimaryNames(db, dids),
+      ])
+    const rows = uniqueWallets(allRows)
     const profiles = dids
       .map((did, i) => {
         const wallets = rows
@@ -353,6 +547,7 @@ export function createApp(
                     ? utf8Prefix(row.reason, 300)
                     : undefined
                   : undefined,
+              showPrimaryName: row.showPrimaryName === 0 ? false : undefined,
               createdAt: row.createdAt as WalletView['createdAt'],
             }
           })
@@ -379,10 +574,21 @@ export function createApp(
         if (nft?.status === 'verified') badges.push({ id: 'nft-avatar' })
         if (sent > 0) badges.push({ id: 'tipper', count: sent })
         if (received > 0) badges.push({ id: 'supported', count: received })
+        // As last checked, while its wallet is still linked, owned and shown
+        const name = names.get(did)
+        const primaryName: PrimaryNameView | undefined =
+          name &&
+          nameAddresses(
+            allRows.filter((row) => row.did === did),
+            owned[i],
+          ).includes(name.address)
+            ? { name: name.name, source: name.source, address: name.address }
+            : undefined
         return {
           did: did as ChainProfileView['did'],
           wallets,
           nftAvatar,
+          primaryName,
           tipsReceivedCount: received,
           badges,
         }
@@ -489,7 +695,7 @@ export function createApp(
   })
 
   /*
-   * Feed generator for Krao's "latest" and "popular" feeds. AppViews call it with service
+   * Feed generator for Krao's "latest", "popular" and "vietnamese" feeds. AppViews call it with service
    * auth, but the feed is the same for everyone so the token is not checked.
    */
   if (feedGenDid) {
@@ -508,10 +714,16 @@ export function createApp(
       if (!feeds.includes(params.feed)) {
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
-      // The record's rkey picks the ranking: "popular", else newest first
+      // The record's rkey picks the ranking: "popular", "vietnamese" (newest
+      // Vietnamese posts), "holders-<symbol>" (posts of token holders),
+      // "community-<slug>" (a community's public posts), else newest first
       const limit = params.limit ?? 50
+      const feedUri = new AtUri(params.feed)
+      const rkey = feedUri.rkey
+      const holderKey = holderFeedKey(rkey)
+      const slug = communityFeedSlug(rkey)
       const page =
-        params.feed.split('/').pop() === POPULAR_FEED_RKEY
+        rkey === POPULAR_FEED_RKEY
           ? getPopularPosts(
               db,
               limit,
@@ -519,7 +731,16 @@ export function createApp(
               undefined,
               await popularRanking(),
             )
-          : getLatestPosts(db, limit, params.cursor)
+          : holderKey
+            ? (async () =>
+                getLatestPosts(db, limit, params.cursor, {
+                  dids: (await opts.holderFeeds?.holders(holderKey)) ?? [],
+                }))()
+            : slug
+              ? communityFeedPosts(feedUri.host, slug, limit, params.cursor)
+              : getLatestPosts(db, limit, params.cursor, {
+                  vietnamese: rkey === VIETNAMESE_FEED_RKEY,
+                })
       const { posts, cursor } = await page.catch(() => {
         throw new InvalidRequestError('Malformed cursor')
       })
@@ -531,6 +752,27 @@ export function createApp(
         },
       }
     })
+  }
+
+  /**
+   * A community's feed generator: the public posts of the community whose
+   * owner published it (another repo's generator gives nothing)
+   */
+  async function communityFeedPosts(
+    owner: string,
+    slug: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ posts: string[]; cursor?: string }> {
+    const community = await getCommunity(
+      db,
+      `at://${owner}/net.krao.community.profile/${slug}`,
+    )
+    if (!community) return { posts: [] }
+    const page = await getCommunityFeed(db, community.uri, limit, cursor, {
+      publicOnly: true,
+    })
+    return { posts: page.feed.map((item) => item.post), cursor: page.cursor }
   }
 
   /*
@@ -668,6 +910,25 @@ export function createApp(
   app.use('/v1/image', rateLimit(120))
   app.use('/nft-image', rateLimit(30))
   app.use('/xrpc/net.krao.actor.resolveNft', rateLimit(30))
+  // Cheap, but each call takes 20 items: enough for a client checking a feed
+  app.use('/xrpc/net.krao.safety.checkLinks', rateLimit(120))
+  app.use('/xrpc/net.krao.safety.checkAddresses', rateLimit(60))
+  // Communities and polls: cheap reads, but member counts and feeds are joins
+  app.use('/xrpc/net.krao.community.', rateLimit(300))
+  app.use('/xrpc/net.krao.poll.', rateLimit(300))
+  // Token pages: cheap reads (prices come from the database, not the chain)
+  app.use('/xrpc/net.krao.token.', rateLimit(300))
+  // Memberships and creator numbers: database reads
+  app.use('/xrpc/net.krao.membership.', rateLimit(300))
+  app.use('/xrpc/net.krao.creator.', rateLimit(300))
+  // The on-chain tab reads NFTs on chain (cached); its history is a database read
+  app.use('/xrpc/net.krao.actor.getOnchainProfile', rateLimit(60))
+  app.use('/xrpc/net.krao.actor.getSupportHistory', rateLimit(300))
+  app.use('/xrpc/net.krao.nft.', rateLimit(300))
+  // Previews run calls on the node (and 30 a minute per account)
+  app.use('/xrpc/net.krao.wallet.', rateLimit(60))
+  app.use('/xrpc/net.krao.miniapp.', rateLimit(300))
+  app.use('/miniapp-icon', rateLimit(120))
   app.use('/gifs', rateLimit(240))
   app.use('/klipy', rateLimit(120))
   app.post('/s/link', rateLimit(20))
@@ -748,6 +1009,7 @@ export function createApp(
    */
   addGatedMediaRoute(app, db, mediaSigner, opts.mediaBlobs)
   addGifRoutes(app, klipyApiKey)
+  addMiniAppIconRoute(app, db, { pdsUrl: opts.pdsUrl })
   addStarterPackRoutes(app, db, { webUrl, publicUrl, appviewUrl })
 
   // The feed generator as did:web:<this host>, so production needs no PLC entry
@@ -835,6 +1097,155 @@ export function createApp(
   return app
 }
 
+/*
+ * Krao safety: link checks against the unsafe domain list, its admin
+ * methods (safety admins, with an audit log), and address poisoning checks.
+ */
+function addSafetyRoutes(
+  server: Server,
+  db: Database,
+  opts: {
+    idResolver: IdResolver
+    gateDid: string
+    safety?: SafetyList
+    admins: RoleCheck
+    audit?: AdminAuditLog
+  },
+) {
+  const safety = net.krao.safety
+  const list = () => {
+    if (!opts.safety) throw new InvalidRequestError('Link checks are off')
+    return opts.safety
+  }
+  const adminAuth = (lxm: string) =>
+    moderatorAuth(
+      {
+        idResolver: opts.idResolver,
+        gateDid: opts.gateDid,
+        moderators: opts.admins,
+      },
+      lxm,
+    )
+  const did = (auth: { credentials: unknown }) =>
+    (auth.credentials as { did: string }).did
+
+  server.add(safety.checkLinks, async ({ input }) => ({
+    encoding: 'application/json' as const,
+    body: {
+      results: input.body.urls.map((url) => {
+        const verdict = list().check(url)
+        return {
+          url,
+          unsafe: verdict.unsafe,
+          ...(verdict.domain ? { domain: verdict.domain } : {}),
+          ...(verdict.reason ? { reason: verdict.reason } : {}),
+        }
+      }),
+    },
+  }))
+
+  server.add(safety.checkAddresses, async ({ input }) => {
+    try {
+      const results = await checkAddresses(
+        db,
+        input.body.addresses,
+        input.body.expectedDid,
+      )
+      return {
+        encoding: 'application/json' as const,
+        body: {
+          results: results.map((r) => ({
+            ...r,
+            owner: r.owner as `did:${string}:${string}` | undefined,
+            lookalikes: r.lookalikes.map((l) => ({
+              address: l.address,
+              did: l.did as `did:${string}:${string}`,
+            })),
+          })),
+        },
+      }
+    } catch (err) {
+      if (err instanceof InvalidAddressError) {
+        throw new InvalidRequestError(err.message, 'InvalidAddress')
+      }
+      throw err
+    }
+  })
+
+  const domainView = (row: {
+    domain: string
+    source: string
+    reason: string | null
+    addedAt: string
+  }) => ({
+    domain: row.domain,
+    source: row.source,
+    ...(row.reason ? { reason: row.reason } : {}),
+    addedAt: row.addedAt as DatetimeString,
+  })
+
+  server.add(safety.admin.addDomain, {
+    auth: adminAuth(safety.admin.addDomain.$lxm),
+    handler: async ({ auth, input }) => {
+      try {
+        const row = await list().addDomain(
+          did(auth),
+          input.body.domain,
+          input.body.reason,
+          input.body.mode === 'allow' ? 'allow' : 'block',
+        )
+        await opts.audit?.record({
+          actor: did(auth),
+          action: input.body.mode === 'allow' ? 'domain.allow' : 'domain.add',
+          subject: row.domain,
+          ...(row.reason ? { details: { reason: row.reason } } : {}),
+        })
+        return { encoding: 'application/json' as const, body: domainView(row) }
+      } catch (err) {
+        if (err instanceof InvalidDomainError) {
+          throw new InvalidRequestError(err.message, 'InvalidDomain')
+        }
+        throw err
+      }
+    },
+  })
+
+  server.add(safety.admin.removeDomain, {
+    auth: adminAuth(safety.admin.removeDomain.$lxm),
+    handler: async ({ auth, input }) => {
+      const removed = await list().removeDomain(did(auth), input.body.domain)
+      if (removed) {
+        await opts.audit?.record({
+          actor: did(auth),
+          action: 'domain.remove',
+          subject: input.body.domain,
+        })
+      }
+      return { encoding: 'application/json' as const, body: { removed } }
+    },
+  })
+
+  server.add(safety.admin.listDomains, {
+    auth: adminAuth(safety.admin.listDomains.$lxm),
+    handler: async ({ params }) => {
+      const page = await list()
+        .listDomains({
+          source: params.source,
+          query: params.query,
+          limit: params.limit ?? 50,
+          cursor: params.cursor,
+        })
+        .catch(() => {
+          throw new InvalidRequestError('Malformed cursor')
+        })
+      return {
+        encoding: 'application/json' as const,
+        body: { domains: page.domains.map(domainView), cursor: page.cursor },
+      }
+    },
+  })
+}
+
 async function resolveActors(
   idResolver: IdResolver,
   actors: string[],
@@ -919,18 +1330,4 @@ function publicFetchError(err: unknown): string {
   return err instanceof SafeFetchError
     ? err.message
     : 'Could not fetch the image'
-}
-
-/** The longest prefix of `text` that fits in `maxBytes` of UTF-8 */
-function utf8Prefix(text: string, maxBytes: number): string {
-  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
-  let out = ''
-  let bytes = 0
-  for (const char of text) {
-    const size = Buffer.byteLength(char, 'utf8')
-    if (bytes + size > maxBytes) break
-    out += char
-    bytes += size
-  }
-  return out
 }

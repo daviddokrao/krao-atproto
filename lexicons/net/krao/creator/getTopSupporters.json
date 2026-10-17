@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.creator.getTopSupporters",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The accounts that gave the most to an actor over the last 90 days, through verified tips and membership payments, the most first. Tips whose record set 'anonymous' are counted as an anonymous supporter, without a DID. Public.",
+      "parameters": {
+        "type": "params",
+        "required": ["actor"],
+        "properties": {
+          "actor": { "type": "string", "format": "at-identifier" },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["supporters"],
+          "properties": {
+            "supporters": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.creator.defs#supporterView"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

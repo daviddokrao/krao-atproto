@@ -1,0 +1,149 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.defs",
+  "description": "Krao communities: a community is a net.krao.community.profile record in its owner's repo; members, moderators and posts are records in the repos of the accounts involved, indexed by Krao's indexer.",
+  "defs": {
+    "access": {
+      "type": "object",
+      "description": "Who may join. 'open': anyone; 'approval': the owner or a moderator approves each member; 'condition': the member's linked wallets meet the conditions (checked again from time to time); 'verified': the member verified a phone number or passed KYC with Krao.",
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "knownValues": ["open", "approval", "condition", "verified"],
+          "maxLength": 32
+        },
+        "conditions": {
+          "type": "array",
+          "description": "For 'condition': the same conditions as token gates.",
+          "items": {
+            "type": "union",
+            "refs": [
+              "net.krao.gate.defs#tokenBalance",
+              "net.krao.gate.defs#nftHolding"
+            ]
+          },
+          "maxLength": 5
+        },
+        "match": {
+          "type": "string",
+          "description": "Whether all conditions must be met or any one of them. Defaults to 'all'.",
+          "knownValues": ["all", "any"],
+          "maxLength": 16
+        }
+      }
+    },
+    "communityView": {
+      "type": "object",
+      "required": [
+        "uri",
+        "owner",
+        "slug",
+        "name",
+        "rules",
+        "access",
+        "memberCount",
+        "createdAt",
+        "indexedAt"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "owner": { "type": "string", "format": "did" },
+        "slug": {
+          "type": "string",
+          "description": "The record key of the profile record.",
+          "maxLength": 64
+        },
+        "name": { "type": "string", "maxLength": 640 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "avatar": {
+          "type": "string",
+          "format": "cid",
+          "description": "CID of the avatar blob in the owner's repo."
+        },
+        "rules": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 3000 }
+        },
+        "access": { "type": "ref", "ref": "#access" },
+        "chatJoinLink": { "type": "string", "format": "uri" },
+        "memberCount": {
+          "type": "integer",
+          "description": "Members in good standing, including the owner and moderators."
+        },
+        "moderators": {
+          "type": "array",
+          "items": { "type": "string", "format": "did" }
+        },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "indexedAt": { "type": "string", "format": "datetime" },
+        "feed": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The community's feed generator (rkey community-<slug> in the owner's repo, served by the indexer), when the owner published one. It lists the community's public posts."
+        },
+        "viewer": { "type": "ref", "ref": "#viewerState" }
+      }
+    },
+    "viewerState": {
+      "type": "object",
+      "description": "The viewer's place in the community. 'member': in good standing; 'pending': joined, waiting for approval (or for the first check of the conditions); 'ineligible': joined, but does not meet the conditions or is not verified; 'banned'; 'none': has not joined.",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "knownValues": ["member", "pending", "ineligible", "banned", "none"],
+          "maxLength": 32
+        },
+        "role": {
+          "type": "string",
+          "knownValues": ["owner", "moderator", "member"],
+          "maxLength": 32
+        },
+        "eligible": {
+          "type": "boolean",
+          "description": "For 'condition' and 'verified' communities: whether the viewer meets the requirement now (also when they have not joined)."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the viewer is not a member, eg 'NotVerified', 'ConditionsNotMet', 'AwaitingApproval', 'Banned'.",
+          "maxLength": 128
+        },
+        "membership": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The viewer's net.krao.community.membership record, if any."
+        }
+      }
+    },
+    "memberView": {
+      "type": "object",
+      "required": ["did", "role"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "role": {
+          "type": "string",
+          "knownValues": ["owner", "moderator", "member"],
+          "maxLength": 32
+        },
+        "membership": { "type": "string", "format": "at-uri" },
+        "joinedAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "feedItem": {
+      "type": "object",
+      "required": ["post", "submission", "author"],
+      "properties": {
+        "post": { "type": "string", "format": "at-uri" },
+        "submission": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The net.krao.community.submission record that put the post in the community."
+        },
+        "author": { "type": "string", "format": "did" },
+        "indexedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

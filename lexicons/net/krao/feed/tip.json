@@ -46,6 +46,10 @@
             "maxLength": 3000,
             "maxGraphemes": 300
           },
+          "anonymous": {
+            "type": "boolean",
+            "description": "Count this tip as an anonymous supporter in public supporter lists (net.krao.creator.getTopSupporters). The record itself stays public in the sender's repo."
+          },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

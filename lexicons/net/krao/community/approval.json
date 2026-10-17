@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.approval",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Approves a member of a community whose access mode is 'approval'. Counts in the repo of the owner or a current moderator.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["community", "subject", "createdAt"],
+        "properties": {
+          "community": { "type": "string", "format": "at-uri" },
+          "subject": { "type": "string", "format": "did" },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

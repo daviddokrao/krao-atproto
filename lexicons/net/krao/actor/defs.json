@@ -29,6 +29,10 @@
           "maxLength": 300,
           "description": "Why the wallet does not count, when its status is invalid (for example: another account linked it first)."
         },
+        "showPrimaryName": {
+          "type": "boolean",
+          "description": "False when the owner chose not to show this wallet's Basename/ENS name (the record's showPrimaryName). Absent means shown."
+        },
         "createdAt": {
           "type": "string",
           "format": "datetime"
@@ -87,6 +91,10 @@
           "type": "ref",
           "ref": "#nftAvatarView"
         },
+        "primaryName": {
+          "type": "ref",
+          "ref": "#primaryNameView"
+        },
         "tipsReceivedCount": {
           "type": "integer",
           "description": "Number of verified tips this account has received."
@@ -99,6 +107,155 @@
             "ref": "#badge"
           }
         }
+      }
+    },
+    "primaryNameView": {
+      "type": "object",
+      "description": "A verified Basename or ENS name of one of the account's verified wallets: the wallet's reverse record names it, and the name resolves to the same address. At most one per account, Basenames first.",
+      "required": ["name", "source", "address"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Lowercase ASCII name, eg alice.base.eth."
+        },
+        "source": {
+          "type": "string",
+          "knownValues": ["basename", "ens"]
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 42,
+          "description": "The wallet address (lowercase 0x hex) the name belongs to."
+        }
+      }
+    },
+    "onchainWalletView": {
+      "type": "object",
+      "description": "A verified wallet the account owns (no other account linked it first).",
+      "required": ["chain", "address"],
+      "properties": {
+        "chain": {
+          "type": "string",
+          "description": "CAIP-2 chain id of the link, eg 'eip155:8453'.",
+          "maxLength": 128
+        },
+        "address": {
+          "type": "string",
+          "description": "The address as linked (lowercase 0x hex for EVM wallets).",
+          "maxLength": 128
+        },
+        "label": { "type": "string", "maxLength": 640, "maxGraphemes": 64 }
+      }
+    },
+    "onchainNftView": {
+      "type": "object",
+      "description": "NFTs the account's owned wallets hold. Enumerable ERC-721 collections list one item per token; others one item per collection with the balance. The verified NFT avatar is always listed, with isAvatar.",
+      "required": ["chain", "contract", "balance", "isAvatar"],
+      "properties": {
+        "chain": { "type": "string", "maxLength": 128 },
+        "contract": {
+          "type": "string",
+          "description": "Lowercase contract address.",
+          "maxLength": 128
+        },
+        "tokenId": {
+          "type": "string",
+          "description": "Decimal token id, when the item is one token.",
+          "maxLength": 78
+        },
+        "balance": {
+          "type": "string",
+          "description": "How many the wallets hold, decimal ('1' for a single token).",
+          "maxLength": 78
+        },
+        "collectionName": { "type": "string", "maxLength": 640 },
+        "name": { "type": "string", "maxLength": 640 },
+        "image": {
+          "type": "string",
+          "format": "uri",
+          "description": "The token's image through Krao's NFT image proxy (never a third-party host)."
+        },
+        "isAvatar": { "type": "boolean" }
+      }
+    },
+    "supportSummaryView": {
+      "type": "object",
+      "description": "Totals of verified public support: tips (anonymous ones left out) and active memberships. USD at current catalog prices, USDC as one dollar.",
+      "required": [
+        "tipsSentUsd",
+        "tipsReceivedUsd",
+        "tipsSent",
+        "tipsReceived",
+        "membershipsActive",
+        "membersActive"
+      ],
+      "properties": {
+        "tipsSentUsd": { "type": "string", "maxLength": 64 },
+        "tipsReceivedUsd": { "type": "string", "maxLength": 64 },
+        "tipsSent": { "type": "integer", "minimum": 0 },
+        "tipsReceived": { "type": "integer", "minimum": 0 },
+        "membershipsActive": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Creators the account is an active member of."
+        },
+        "membersActive": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Active members of the account (as a creator)."
+        }
+      }
+    },
+    "supportAsset": {
+      "type": "object",
+      "required": ["symbol", "decimals", "chain"],
+      "properties": {
+        "symbol": { "type": "string", "maxLength": 16 },
+        "decimals": { "type": "integer", "minimum": 0, "maximum": 36 },
+        "chain": { "type": "string", "maxLength": 128 },
+        "address": {
+          "type": "string",
+          "description": "Token contract; absent for the chain's native coin.",
+          "maxLength": 128
+        }
+      }
+    },
+    "supportItemView": {
+      "type": "object",
+      "required": [
+        "kind",
+        "uri",
+        "from",
+        "to",
+        "amount",
+        "asset",
+        "txHash",
+        "createdAt"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "knownValues": ["tip", "membership"],
+          "maxLength": 32
+        },
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The net.krao.feed.tip or net.krao.membership.payment record."
+        },
+        "cid": { "type": "string", "format": "cid" },
+        "from": { "type": "string", "format": "did" },
+        "to": { "type": "string", "format": "did" },
+        "amount": {
+          "type": "string",
+          "description": "In the asset's smallest unit, decimal.",
+          "maxLength": 78
+        },
+        "asset": { "type": "ref", "ref": "#supportAsset" },
+        "usd": { "type": "string", "maxLength": 64 },
+        "txHash": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "datetime" }
       }
     },
     "badge": {

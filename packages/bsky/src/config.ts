@@ -129,6 +129,8 @@ export interface ServerConfigValues {
   debugFieldAllowedDids: Set<string>
   draftsLimit: number
   searchV2OverrideHeader?: string
+  /** Krao: serve searchPostsV2 without a feature gate service */
+  searchV2Enabled?: boolean
 }
 
 export class ServerConfig {
@@ -394,6 +396,9 @@ export class ServerConfig {
     const searchV2OverrideHeader =
       process.env.BSKY_SEARCH_V2_OVERRIDE_HEADER || undefined
 
+    // Krao has no feature gate service, so search v2 is on unless turned off
+    const searchV2Enabled = process.env.BSKY_SEARCH_V2_ENABLED !== 'false'
+
     return new ServerConfig({
       version,
       debugMode,
@@ -479,6 +484,7 @@ export class ServerConfig {
       debugFieldAllowedDids,
       draftsLimit,
       searchV2OverrideHeader,
+      searchV2Enabled,
       ...noUndefinedVals(overrides ?? {}),
     })
   }
@@ -818,6 +824,10 @@ export class ServerConfig {
 
   get searchV2OverrideHeader() {
     return this.cfg.searchV2OverrideHeader
+  }
+
+  get searchV2Enabled() {
+    return this.cfg.searchV2Enabled ?? true
   }
 
   get externalRecordsSafeDomains() {

@@ -1,5 +1,8 @@
+import type { EvmRpcForChain } from '@krao/wallet'
 import type { IdResolver } from '@atproto/identity'
+import { type Cid, type LexMap, lexParse } from '@atproto/lex'
 import { type Event, Firehose } from '@atproto/sync'
+import { AtUri } from '@atproto/syntax'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
@@ -31,9 +34,97 @@ import {
   setPostTags,
   upsertFeedFollow,
 } from './discovery.js'
+import {
+  COMMUNITY_COLLECTION,
+  COMMUNITY_COLLECTIONS,
+  APPROVAL_COLLECTION,
+  MEMBERSHIP_COLLECTION,
+  MODERATOR_COLLECTION,
+  SUBMISSION_COLLECTION,
+  actionRowFromRecord,
+  communityRowFromRecord,
+  deleteCommunity,
+  deleteCommunityDataForDid,
+  deleteCommunityRecord,
+  deleteSubmissionsForPost,
+  isActionCollection,
+  isRewardableJoin,
+  membershipRowFromRecord,
+  recheckMemberships,
+  submissionRowFromRecord,
+  upsertAction,
+  upsertCommunity,
+  upsertMembership,
+  upsertSubmission,
+} from './community.js'
+import {
+  deleteFollowerLossesForDid,
+  pruneFollowerLosses,
+  recordFollowerLoss,
+} from './creator.js'
 import { deleteOrphanedMedia } from './gate-media.js'
+import type { HumanCheck } from './human.js'
+import {
+  type ImpersonationWatcher,
+  PROFILE_COLLECTION,
+  VERIFICATION_COLLECTION,
+} from './impersonation.js'
+import {
+  type NameRpc,
+  deletePrimaryName,
+  markPrimaryNameStale,
+  markPrimaryNamesStaleForAddresses,
+  refreshPrimaryNames,
+} from './names.js'
+import {
+  type AccountEvent,
+  type RewardsEventSender,
+  deleteAccountEventsForDid,
+  deliverAccountEvents,
+  pruneSentActivityDays,
+  queueAccountEvent,
+  queueActivityDay,
+  queueWalletLinked,
+  vnDay,
+} from './rewards-events.js'
+import {
+  PAYMENT_COLLECTION,
+  PLAN_COLLECTION,
+  deleteMembershipDataForDid,
+  deletePayment,
+  deletePlan,
+  getPaymentsByUri,
+  getPendingPayments,
+  paymentRowFromRecord,
+  planRowFromRecord,
+  upsertPayment,
+  upsertPlan,
+  verifyPayment,
+} from './membership.js'
 import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
+import {
+  POLL_COLLECTION,
+  VOTE_COLLECTION,
+  deletePoll,
+  deletePollDataForDid,
+  deletePollsForPost,
+  deleteVote,
+  indexPoll,
+  indexVote,
+  pollRowFromRecord,
+} from './poll.js'
 import type { PushClient } from './push-client.js'
+import {
+  type SafetyList,
+  deletePostLinks,
+  postLinkHosts,
+  setPostLinks,
+} from './safety.js'
+import {
+  type TokenCatalog,
+  deleteCashtagsForDid,
+  deletePostCashtags,
+} from './token.js'
 import {
   GATE_RULE_COLLECTION,
   deleteContentWithoutRule,
@@ -43,6 +134,14 @@ import {
   gateRuleRowFromRecord,
   upsertGateRule,
 } from './gate.js'
+import {
+  MINIAPP_COLLECTION,
+  type MiniAppRules,
+  deleteMiniApp,
+  deleteMiniAppsForDid,
+  miniAppRowFromRecord,
+  upsertMiniApp,
+} from './miniapp.js'
 import {
   NFT_AVATAR_COLLECTION,
   deleteNftAvatar,
@@ -66,6 +165,7 @@ import {
   WALLET_COLLECTION,
   deleteWallet,
   deleteWalletsForDid,
+  getWalletOwners,
   upsertWallet,
   walletRowFromRecord,
 } from './wallets.js'
@@ -83,6 +183,9 @@ const EVENT_RETRY_DELAYS_MS = [200, 1_000, 5_000]
 
 /** Invalid NFT avatars are re-checked this many times less often */
 const INVALID_NFT_RECHECK_FACTOR = 6
+
+/** Activity days remembered as queued, to spare the database a write */
+const ACTIVITY_MEMORY = 50_000
 
 export type FeedIndexingOptions = {
   /** DID of the feed generator service; posts are only indexed when set */
@@ -118,6 +221,15 @@ export class FirehoseIndexer {
         GATE_RULE_COLLECTION,
         // Always: a deleted post takes its gated content with it
         POST_COLLECTION,
+        ...COMMUNITY_COLLECTIONS,
+        POLL_COLLECTION,
+        VOTE_COLLECTION,
+        PLAN_COLLECTION,
+        PAYMENT_COLLECTION,
+        MINIAPP_COLLECTION,
+        // Impersonation checks (M35): names, avatars and verifications
+        PROFILE_COLLECTION,
+        VERIFICATION_COLLECTION,
         ...(feed.did
           ? [
               FEED_GENERATOR_COLLECTION,
@@ -128,7 +240,10 @@ export class FirehoseIndexer {
             ]
           : []),
       ],
-      excludeIdentity: true,
+      // Handle changes, for impersonation checks (M35); handles are read
+      // from DID documents there, not verified here
+      excludeIdentity: false,
+      unauthenticatedHandles: true,
       excludeSync: true,
       getCursor: () => this.getCursor(),
       handleEvent: (evt) => this.handleEvent(evt),
@@ -140,9 +255,25 @@ export class FirehoseIndexer {
   private cleanupTimer?: NodeJS.Timeout
   /** Tips indexed since the last round, checked before the backlog */
   private freshTips = new Set<string>()
-  // Separate rounds: slow NFT metadata must not hold up tips, and back
-  private tipRound = new Round('tip', () => this.verifyPendingTips())
+  /** Membership payments indexed since the last round, likewise */
+  private freshPayments = new Set<string>()
+  // Separate rounds: slow NFT metadata must not hold up tips, and back.
+  // Tips and membership payments share one: one transaction backs only one
+  // of them, which checking them one at a time keeps true.
+  private tipRound = new Round('tip', async () => {
+    await this.verifyPendingTips()
+    await this.verifyPendingPayments()
+  })
   private nftRound = new Round('NFT avatar', () => this.recheckNftAvatars())
+  private membershipRound = new Round('community membership', () =>
+    this.recheckMemberships(),
+  )
+  private nameRound = new Round('primary name', () =>
+    this.refreshPrimaryNames(),
+  )
+  private rewardsRound = new Round('rewards event', () =>
+    this.deliverRewardsEvents(),
+  )
 
   start() {
     void this.firehose.start()
@@ -156,6 +287,8 @@ export class FirehoseIndexer {
           .then(() => deleteOrphanedMedia(this.db))
           .then(() => purgeMediaTrash(this.db, this.mediaBlobs))
           .then(() => pruneOldDiscoveryData(this.db))
+          .then(() => pruneFollowerLosses(this.db))
+          .then(() => pruneSentActivityDays(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
           ),
@@ -167,6 +300,30 @@ export class FirehoseIndexer {
   mediaBlobs?: MediaBlobStore
   /** Tells tip recipients when set */
   push?: PushClient
+  /** Flags posts that link to unsafe domains when set */
+  safety?: SafetyList
+  /** Indexes cashtags of catalog tokens in posts when set */
+  tokens?: TokenCatalog
+  /** Checks smart contract wallet links on chain when set */
+  walletRpc?: EvmRpcForChain
+  /**
+   * Krao's verification (rewards service), for "verified" communities and
+   * polls; without it nobody counts as verified
+   */
+  human?: HumanCheck
+  /** How often memberships of condition and verified communities are re-checked */
+  membershipRecheckMs = 10 * 60 * 1000
+  /**
+   * Where account events (first verified wallet, first post) go: the
+   * rewards service. Unset, none are queued.
+   */
+  rewardsEvents?: RewardsEventSender
+  /** Ethereum mainnet, for ENS names (Basenames use the Base RPC) */
+  ensRpc?: NameRpc
+  /** What Mini App records must follow (Krao's web origins, dev mode) */
+  miniAppRules: MiniAppRules = { webOrigins: [] }
+  /** Impersonation checks (M35); profiles and verifications are skipped without */
+  impersonation?: ImpersonationWatcher
 
   private destroyed = false
 
@@ -239,11 +396,95 @@ export class FirehoseIndexer {
   kickVerification() {
     this.tipRound.kick()
     this.nftRound.kick()
+    this.membershipRound.kick()
+    this.nameRound.kick()
+    this.rewardsRound.kick()
   }
 
   /** Resolves once the current verification rounds, if any, are done */
   async verificationIdle() {
-    await Promise.all([this.tipRound.idle(), this.nftRound.idle()])
+    await Promise.all([
+      this.tipRound.idle(),
+      this.nftRound.idle(),
+      this.membershipRound.idle(),
+      this.nameRound.idle(),
+      this.rewardsRound.idle(),
+    ])
+  }
+
+  /** Basename/ENS names of accounts whose wallets changed, and daily */
+  async refreshPrimaryNames() {
+    await refreshPrimaryNames(this.db, {
+      base: this.rpcs.get('eip155:8453'),
+      ens: this.ensRpc,
+    })
+  }
+
+  /** Sends queued account events to the rewards service */
+  async deliverRewardsEvents() {
+    if (this.rewardsEvents) {
+      await deliverAccountEvents(this.db, this.rewardsEvents)
+    }
+  }
+
+  /** Queues an account event for the rewards service (once per account) */
+  private async queueRewardsEvent(type: AccountEvent, did: string) {
+    if (!this.rewardsEvents) return
+    if (await queueAccountEvent(this.db, type, did)) this.rewardsRound.kick()
+  }
+
+  /** `did:day` of activity days queued lately */
+  private activitySeen = new Set<string>()
+
+  /**
+   * A Krao account created a record at `time` (the firehose event's time):
+   * the day it falls on (Vietnam time) is a day the account was active
+   */
+  private async noteActivity(did: string, time: string) {
+    if (!this.rewardsEvents) return
+    const at = Date.parse(time)
+    const when = isNaN(at) ? Date.now() : at
+    const key = `${did}:${vnDay(when)}`
+    if (this.activitySeen.has(key)) return
+    if (!(await this.isKraoAccount(did))) return
+    if (await queueActivityDay(this.db, did, when)) this.rewardsRound.kick()
+    if (this.activitySeen.size >= ACTIVITY_MEMORY) this.activitySeen.clear()
+    this.activitySeen.add(key)
+  }
+
+  /**
+   * `did` may have just become a member of `community`: its first such
+   * community, if it counts (see isRewardableJoin), is rewarded
+   */
+  private async communityJoined(community: string, did: string) {
+    if (!this.rewardsEvents) return
+    // Membership rechecks call this for every eligible member: skip the
+    // member count (a scan of the community) when it cannot matter
+    const queued = await this.db
+      .selectFrom('rewards_outbox')
+      .select('id')
+      .where('id', '=', `community.joined:${did}`)
+      .executeTakeFirst()
+    if (queued) return
+    if (!(await this.isKraoAccount(did))) return
+    if (!(await isRewardableJoin(this.db, community, did))) return
+    await this.queueRewardsEvent('community.joined', did)
+  }
+
+  /** What community and poll checks need */
+  get checks() {
+    return {
+      rpcs: this.rpcs,
+      human: this.human,
+      onEligible: (community: string, did: string) =>
+        this.communityJoined(community, did),
+    }
+  }
+
+  /** New memberships right away, others every `membershipRecheckMs` */
+  async recheckMemberships() {
+    const due = new Date(Date.now() - this.membershipRecheckMs).toISOString()
+    await recheckMemberships(this.db, this.checks, due)
   }
 
   /**
@@ -281,6 +522,12 @@ export class FirehoseIndexer {
           return tip.status
         },
       )
+      // The sender's first verified tip (for the analytics funnel)
+      if (status === 'verified' && tip.status !== 'verified') {
+        if (await this.isKraoAccount(tip.did)) {
+          await this.queueRewardsEvent('tip.first', tip.did)
+        }
+      }
       // Only news: not tips found again when the firehose is replayed
       if (
         status === 'verified' &&
@@ -296,6 +543,23 @@ export class FirehoseIndexer {
           ...(tip.message ? { message: tip.message } : {}),
         })
       }
+    }
+  }
+
+  /** Membership payments, as verifyPendingTips does for tips */
+  async verifyPendingPayments() {
+    const fresh = [...this.freshPayments]
+    this.freshPayments.clear()
+    const rows = [
+      ...(await getPaymentsByUri(this.db, fresh)),
+      ...(await getPendingPayments(this.db)).filter(
+        (p) => !fresh.includes(p.uri),
+      ),
+    ]
+    for (const payment of rows) {
+      await verifyPayment(this.db, this.rpcs, payment).catch((err: unknown) =>
+        console.error('Krao indexer: payment check failed', payment.uri, err),
+      )
     }
   }
 
@@ -321,6 +585,121 @@ export class FirehoseIndexer {
     await this.setCursor(evt.seq)
   }
 
+  /**
+   * Indexes the events in `failed_event` again, oldest first, from the
+   * current state of the PDS this indexer follows: a record that still exists
+   * is indexed as an update, one that is gone as a delete, and an account
+   * event from the account's current status. Rows that index are removed;
+   * rows that fail again keep their place with the new error.
+   */
+  async replayFailedEvents(
+    limit = 100,
+  ): Promise<{ replayed: number; failed: number; remaining: number }> {
+    const rows = await this.db
+      .selectFrom('failed_event')
+      .selectAll()
+      .orderBy('id', 'asc')
+      .limit(limit)
+      .execute()
+    let replayed = 0
+    let failed = 0
+    for (const row of rows) {
+      try {
+        const evt = await this.currentEvent(row)
+        if (evt) await this.indexEvent(evt)
+        await this.db
+          .deleteFrom('failed_event')
+          .where('id', '=', row.id)
+          .execute()
+        replayed++
+      } catch (err) {
+        await this.db
+          .updateTable('failed_event')
+          .set({
+            error: String((err as Error)?.message ?? err).slice(0, 1000),
+            failedAt: new Date().toISOString(),
+          })
+          .where('id', '=', row.id)
+          .execute()
+        failed++
+      }
+    }
+    const left = await this.db
+      .selectFrom('failed_event')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .executeTakeFirst()
+    // Still in the table, including the rows that failed again
+    return { replayed, failed, remaining: Number(left?.count ?? 0) }
+  }
+
+  /** The event to index now in place of a failed one (undefined: nothing) */
+  private async currentEvent(row: {
+    seq: number
+    did: string
+    event: string
+    uri: string | null
+  }): Promise<Event | undefined> {
+    const base = this.service.replace(/^ws/, 'http')
+    const time = new Date().toISOString()
+    if (row.event === 'account') {
+      const url = new URL('/xrpc/com.atproto.sync.getRepoStatus', base)
+      url.searchParams.set('did', row.did)
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+      const body = (await res.json().catch(() => ({}))) as {
+        active?: boolean
+        status?: string
+        error?: string
+      }
+      if (!res.ok && body.error !== 'RepoNotFound') {
+        throw new Error(`getRepoStatus: HTTP ${res.status}`)
+      }
+      return {
+        seq: row.seq,
+        time,
+        event: 'account',
+        did: row.did,
+        active: res.ok ? body.active !== false : false,
+        status: res.ok ? body.status : 'deleted',
+      } as Event
+    }
+    if (!row.uri) return undefined
+    const uri = new AtUri(row.uri)
+    const url = new URL('/xrpc/com.atproto.repo.getRecord', base)
+    url.searchParams.set('repo', uri.host)
+    url.searchParams.set('collection', uri.collection)
+    url.searchParams.set('rkey', uri.rkey)
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    const body = (await res.json().catch(() => ({}))) as {
+      cid?: string
+      value?: unknown
+      error?: string
+    }
+    const meta = {
+      seq: row.seq,
+      time,
+      uri,
+      did: row.did,
+      collection: uri.collection,
+      rkey: uri.rkey,
+    }
+    if (!res.ok) {
+      if (body.error === 'RecordNotFound' || body.error === 'RepoNotFound') {
+        return { ...meta, event: 'delete' } as unknown as Event
+      }
+      throw new Error(`getRecord: HTTP ${res.status}`)
+    }
+    // As the firehose has it: CIDs and bytes as objects, not JSON
+    const parsed = lexParse<{ value: LexMap; cid: Cid }>(
+      JSON.stringify({ value: body.value, cid: { $link: body.cid } }),
+    )
+    return {
+      ...meta,
+      event: 'update',
+      record: parsed.value,
+      cid: parsed.cid,
+    } as unknown as Event
+  }
+
   private async recordFailedEvent(evt: Event, err: unknown) {
     const uri = 'uri' in evt ? evt.uri.toString() : null
     await this.db
@@ -337,19 +716,65 @@ export class FirehoseIndexer {
   }
 
   private async indexEvent(evt: Event): Promise<void> {
+    // Any record an account creates makes it active that day (M33)
+    if (evt.event === 'create') await this.noteActivity(evt.did, evt.time)
     if (evt.event === 'create' || evt.event === 'update') {
       if (evt.collection === WALLET_COLLECTION) {
-        await upsertWallet(
-          this.db,
-          walletRowFromRecord(evt.uri.toString(), evt.did, evt.record),
+        const row = await walletRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          this.walletRpc,
         )
+        await upsertWallet(this.db, row)
         await markNftAvatarStale(this.db, evt.did)
+        await markPrimaryNameStale(this.db, evt.did)
+        this.nameRound.kick()
+        // The account's first verified wallet, unless another account
+        // linked it first or it earned another account its reward before
+        // (one wallet cannot earn for many accounts, even one at a time)
+        if (
+          this.rewardsEvents &&
+          row.status === 'verified' &&
+          (await this.isKraoAccount(evt.did)) &&
+          (await getWalletOwners(this.db, row.account)).includes(evt.did) &&
+          (await queueWalletLinked(
+            this.db,
+            evt.did,
+            row.evmAddress ?? row.account,
+          ))
+        ) {
+          this.rewardsRound.kick()
+        }
       } else if (evt.collection === TIP_COLLECTION) {
         const row = tipRowFromRecord(evt.uri.toString(), evt.did, evt.record)
         await upsertTip(this.db, row)
         // Verified by the background worker: a slow RPC must not stall indexing
         this.freshTips.add(row.uri)
         this.tipRound.kick()
+      } else if (evt.collection === PLAN_COLLECTION) {
+        const row = planRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.cid.toString(),
+          evt.record,
+        )
+        if (row) await upsertPlan(this.db, row)
+        else await deletePlan(this.db, evt.uri.toString())
+      } else if (evt.collection === PAYMENT_COLLECTION) {
+        const row = paymentRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+        )
+        if (row) {
+          await upsertPayment(this.db, row)
+          this.freshPayments.add(row.uri)
+          this.tipRound.kick()
+        } else {
+          await deletePayment(this.db, evt.uri.toString())
+        }
       } else if (evt.collection === GATE_RULE_COLLECTION) {
         const row = gateRuleRowFromRecord(
           evt.uri.toString(),
@@ -367,6 +792,10 @@ export class FirehoseIndexer {
         await upsertNftAvatar(this.db, row)
         this.nftRound.kick()
       } else if (evt.collection === POST_COLLECTION) {
+        // Any post (replies too) of a Krao account: its first one is rewarded
+        if (await this.isKraoAccount(evt.did)) {
+          await this.queueRewardsEvent('post.first', evt.did)
+        }
         if (await this.isFeedAuthor(evt.did)) {
           const row = feedPostRowFromRecord(
             evt.uri.toString(),
@@ -381,6 +810,14 @@ export class FirehoseIndexer {
             evt.did,
             postTags(evt.record),
           )
+          await setPostLinks(
+            this.db,
+            evt.uri.toString(),
+            evt.did,
+            postLinkHosts(evt.record),
+            this.safety?.matcher,
+          )
+          await this.tokens?.indexPost(evt.uri.toString(), evt.did, evt.record)
         }
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
         if (await this.isFeedAuthor(evt.did)) {
@@ -408,6 +845,53 @@ export class FirehoseIndexer {
           )
           if (row) await upsertFeedInteraction(this.db, row)
         }
+      } else if (COMMUNITY_COLLECTIONS.includes(evt.collection)) {
+        await this.indexCommunityRecord(
+          evt.collection,
+          evt.uri.toString(),
+          evt.cid.toString(),
+          evt.did,
+          evt.record,
+        )
+      } else if (evt.collection === POLL_COLLECTION) {
+        const row = pollRowFromRecord(
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+          this.rpcs,
+        )
+        if (row) await indexPoll(this.db, this.checks, row)
+      } else if (evt.collection === VOTE_COLLECTION) {
+        await indexVote(
+          this.db,
+          this.checks,
+          evt.uri.toString(),
+          evt.did,
+          evt.record,
+          evt.time,
+        )
+      } else if (evt.collection === MINIAPP_COLLECTION) {
+        await upsertMiniApp(
+          this.db,
+          miniAppRowFromRecord(
+            evt.uri.toString(),
+            evt.did,
+            evt.cid.toString(),
+            evt.record,
+            this.miniAppRules,
+          ),
+        )
+      } else if (
+        evt.collection === PROFILE_COLLECTION ||
+        evt.collection === VERIFICATION_COLLECTION
+      ) {
+        await this.impersonation?.onRecord(
+          evt.did,
+          evt.collection,
+          evt.uri.toString(),
+          evt.record,
+        )
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         const record = (evt.record ?? {}) as Record<string, unknown>
         if (record.did === this.feed.did) {
@@ -421,10 +905,25 @@ export class FirehoseIndexer {
       }
     } else if (evt.event === 'delete') {
       if (evt.collection === WALLET_COLLECTION) {
+        const gone = await this.db
+          .selectFrom('wallet')
+          .select('evmAddress')
+          .where('uri', '=', evt.uri.toString())
+          .executeTakeFirst()
         await deleteWallet(this.db, evt.uri.toString())
         await markNftAvatarStale(this.db, evt.did)
+        await markPrimaryNameStale(this.db, evt.did)
+        // Another account linking the same wallet may own it now
+        await markPrimaryNamesStaleForAddresses(this.db, [
+          gone?.evmAddress ?? null,
+        ])
+        this.nameRound.kick()
       } else if (evt.collection === TIP_COLLECTION) {
         await deleteTip(this.db, evt.uri.toString())
+      } else if (evt.collection === PLAN_COLLECTION) {
+        await deletePlan(this.db, evt.uri.toString())
+      } else if (evt.collection === PAYMENT_COLLECTION) {
+        await deletePayment(this.db, evt.uri.toString())
       } else if (evt.collection === NFT_AVATAR_COLLECTION) {
         await deleteNftAvatar(this.db, evt.did)
       } else if (evt.collection === GATE_RULE_COLLECTION) {
@@ -432,8 +931,21 @@ export class FirehoseIndexer {
       } else if (evt.collection === POST_COLLECTION) {
         await deleteFeedPost(this.db, evt.uri.toString())
         await deletePostTags(this.db, evt.uri.toString())
+        await deletePostLinks(this.db, evt.uri.toString())
+        await deletePostCashtags(this.db, evt.uri.toString())
         await deleteGateDataForSubject(this.db, evt.uri.toString())
+        await deleteSubmissionsForPost(this.db, evt.uri.toString())
+        await deletePollsForPost(this.db, evt.uri.toString())
+      } else if (evt.collection === COMMUNITY_COLLECTION) {
+        await deleteCommunity(this.db, evt.uri.toString())
+      } else if (COMMUNITY_COLLECTIONS.includes(evt.collection)) {
+        await deleteCommunityRecord(this.db, evt.collection, evt.uri.toString())
+      } else if (evt.collection === POLL_COLLECTION) {
+        await deletePoll(this.db, evt.uri.toString())
+      } else if (evt.collection === VOTE_COLLECTION) {
+        await deleteVote(this.db, evt.uri.toString())
       } else if (evt.collection === FOLLOW_COLLECTION) {
+        await recordFollowerLoss(this.db, evt.uri.toString())
         await deleteFeedFollow(this.db, evt.uri.toString())
       } else if (evt.collection === STARTER_PACK_COLLECTION) {
         await deleteStarterPack(this.db, evt.uri.toString())
@@ -444,7 +956,20 @@ export class FirehoseIndexer {
         await deleteFeedInteraction(this.db, evt.uri.toString())
       } else if (evt.collection === FEED_GENERATOR_COLLECTION) {
         await deleteFeedGenerator(this.db, evt.uri.toString())
+      } else if (evt.collection === MINIAPP_COLLECTION) {
+        await deleteMiniApp(this.db, evt.uri.toString())
+      } else if (
+        evt.collection === PROFILE_COLLECTION ||
+        evt.collection === VERIFICATION_COLLECTION
+      ) {
+        await this.impersonation?.onDelete(
+          evt.did,
+          evt.collection,
+          evt.uri.toString(),
+        )
       }
+    } else if (evt.event === 'identity') {
+      await this.impersonation?.onIdentity(evt.did)
     } else if (evt.event === 'account') {
       if (evt.active) {
         await this.db
@@ -470,12 +995,75 @@ export class FirehoseIndexer {
           .deleteFrom('hidden_actor')
           .where('did', '=', evt.did)
           .execute()
+        const gone = await this.db
+          .selectFrom('wallet')
+          .select('evmAddress')
+          .where('did', '=', evt.did)
+          .execute()
         await deleteWalletsForDid(this.db, evt.did)
+        // Others linking the same wallets may own them now
+        await markPrimaryNamesStaleForAddresses(
+          this.db,
+          gone.map((w) => w.evmAddress),
+        )
         await deleteTipsForDid(this.db, evt.did)
         await deleteNftAvatar(this.db, evt.did)
         await deleteGateDataForDid(this.db, evt.did)
         await deleteFeedDataForDid(this.db, evt.did)
+        await deleteCashtagsForDid(this.db, evt.did)
         await deleteDiscoveryDataForDid(this.db, evt.did)
+        await deleteCommunityDataForDid(this.db, evt.did)
+        await deletePollDataForDid(this.db, evt.did)
+        await deleteMembershipDataForDid(this.db, evt.did)
+        await deleteFollowerLossesForDid(this.db, evt.did)
+        await deletePrimaryName(this.db, evt.did)
+        await deleteAccountEventsForDid(this.db, evt.did)
+        await deleteMiniAppsForDid(this.db, evt.did)
+        await this.impersonation?.onAccountDeleted(evt.did)
+      }
+    }
+  }
+
+  /** A community record; one that breaks the rules is not (or no longer) indexed */
+  private async indexCommunityRecord(
+    collection: string,
+    uri: string,
+    cid: string,
+    did: string,
+    record: unknown,
+  ) {
+    if (collection === COMMUNITY_COLLECTION) {
+      const row = communityRowFromRecord(uri, did, cid, record)
+      if (row) await upsertCommunity(this.db, row)
+      else await deleteCommunityRecord(this.db, collection, uri)
+    } else if (collection === MEMBERSHIP_COLLECTION) {
+      const row = membershipRowFromRecord(uri, did, record)
+      if (row) {
+        await upsertMembership(this.db, row)
+        // Open communities: a member now. Condition and verified ones are
+        // checked by the next round (onEligible)
+        await this.communityJoined(row.community, did)
+        this.membershipRound.kick()
+      } else {
+        await deleteCommunityRecord(this.db, collection, uri)
+      }
+    } else if (collection === SUBMISSION_COLLECTION) {
+      const row = submissionRowFromRecord(uri, did, record)
+      if (row) await upsertSubmission(this.db, row)
+      else await deleteCommunityRecord(this.db, collection, uri)
+    } else if (isActionCollection(collection)) {
+      const row = actionRowFromRecord(collection, uri, did, record)
+      if (row) {
+        await upsertAction(this.db, collection, row)
+        // Approved, or made a moderator: the subject may be a member now
+        if (
+          collection === APPROVAL_COLLECTION ||
+          collection === MODERATOR_COLLECTION
+        ) {
+          await this.communityJoined(row.community, row.subject)
+        }
+      } else {
+        await deleteCommunityRecord(this.db, collection, uri)
       }
     }
   }
@@ -483,6 +1071,14 @@ export class FirehoseIndexer {
   /** Whether the account's posts belong in the feed (see FeedIndexingOptions) */
   private async isFeedAuthor(did: string): Promise<boolean> {
     if (!this.feed.did) return false
+    return this.isKraoAccount(did)
+  }
+
+  /**
+   * Whether the account is hosted on Krao's PDS (FeedIndexingOptions.pdsUrl);
+   * every account counts when it is not set (the firehose is Krao's PDS)
+   */
+  private async isKraoAccount(did: string): Promise<boolean> {
     if (!this.feed.pdsUrl) return true
     if (!this.pdsByDid.has(did)) {
       const data = await this.idResolver.did

@@ -109,6 +109,13 @@ export class Quotas {
     usage.bytes += bytes
   }
 
+  /** Counts a video already accepted (a job resumed after a restart) */
+  charge(did: string, bytes: number) {
+    const usage = this.usage(did)
+    usage.videos += 1
+    usage.bytes += bytes
+  }
+
   release(did: string, bytes: number) {
     const usage = this.usage(did)
     usage.videos = Math.max(0, usage.videos - 1)

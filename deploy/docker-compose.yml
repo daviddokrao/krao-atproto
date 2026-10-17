@@ -19,6 +19,9 @@ services:
       KRAO_DEV_VIDEO_URL: https://video.krao.net
       KRAO_DEV_RPC_URL: http://kraonet-backend-anvil:8545
       KRAO_RPC_URL: http://kraonet-backend-anvil:8545
+      # Testers cannot read the dev-env's SMS codes (they go to the log), so
+      # the demo does not ask for a phone before posting or chatting
+      KRAO_DEV_PHONE_REQUIRED: 'false'
     volumes:
       - ./:/app/deploy:ro
     expose: ['2583', '2584', '2589', '2590', '2591', '2592']

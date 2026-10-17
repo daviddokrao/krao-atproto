@@ -1,0 +1,14 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.phone.getStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Whether the viewer has a verified phone number. Requires service auth for the rewards service.",
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "net.krao.phone.defs#status" }
+      }
+    }
+  }
+}

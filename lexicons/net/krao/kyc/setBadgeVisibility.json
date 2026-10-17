@@ -1,0 +1,27 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.setBadgeVisibility",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Show or hide the viewer's \"human\" badge. It shows only once the account has a verified phone number or approved KYC. Requires service auth for the rewards service.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["human"],
+          "properties": {
+            "human": { "type": "boolean" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.kyc.defs#badgeVisibility"
+        }
+      }
+    }
+  }
+}

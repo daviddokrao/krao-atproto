@@ -18,6 +18,11 @@
             "maxLength": 640,
             "maxGraphemes": 64
           },
+          "showPrimaryName": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether the wallet's verified Basename/ENS name may be shown next to the handle."
+          },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

@@ -78,10 +78,19 @@ services:
     environment: *trust
   rewards:
     volumes: [rewards:/data, *trust-volume]
-    environment: *trust
+    environment:
+      <<: *trust
+      # SMS codes go to the log and to /internal/dev/last-otp, for smoke.mjs
+      KRAO_SMS_PROVIDER: log
+      KRAO_DEV_MODE: 'true'
   push:
     volumes: [push:/data, ./secrets:/secrets:ro, *trust-volume]
     environment: *trust
+  plc-mirror:
+    volumes: [plc-mirror:/data, *trust-volume]
+    environment:
+      <<: *trust
+      KRAO_PLC_MIRROR_POLL_MS: '1000'
   backup:
     volumes: [*trust-volume]
     environment:
@@ -89,6 +98,7 @@ services:
       # For smoke.mjs, which runs in this container
       KRAO_DOMAIN: ${KRAO_DOMAIN}
       KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
       KRAO_REWARDS_BOOTSTRAP_CODE: ${KRAO_REWARDS_BOOTSTRAP_CODE}
       KRAO_GATE_MEDIA_S3_BUCKET: ${KRAO_GATE_MEDIA_S3_BUCKET}
       KRAO_GATE_MEDIA_S3_ENDPOINT: ${KRAO_GATE_MEDIA_S3_ENDPOINT}

@@ -1,0 +1,63 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.token.admin.putToken",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add a Base token to Krao's catalog, or change one (by symbol). Its price is read from a Uniswap v3 pool against USDC or WETH: the given pool, or else the pool of the factory with the most liquidity. The pool and the token's decimals are checked on-chain. Token admins (the indexer's safety admins) only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["symbol", "name", "address"],
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Cashtag symbol: a letter, then letters and digits (2-10 characters).",
+              "maxLength": 17
+            },
+            "name": { "type": "string", "maxLength": 100 },
+            "address": {
+              "type": "string",
+              "description": "ERC-20 contract on Base.",
+              "maxLength": 42
+            },
+            "quote": {
+              "type": "string",
+              "description": "What the pool prices the token in. 'usd': a fixed 1 dollar (USD stablecoins), no pool.",
+              "knownValues": ["USDC", "WETH", "usd"],
+              "default": "USDC",
+              "maxLength": 8
+            },
+            "pool": {
+              "type": "string",
+              "description": "Uniswap v3 pool of the token and the quote token. Default: found through the factory.",
+              "maxLength": 42
+            },
+            "logo": { "type": "string", "format": "uri" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["token"],
+          "properties": {
+            "token": { "type": "ref", "ref": "net.krao.token.defs#tokenView" }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidToken",
+          "description": "Bad symbol or address, or the contract is not an ERC-20 on Base."
+        },
+        {
+          "name": "NoPool",
+          "description": "No usable pool for the token and the quote token."
+        }
+      ]
+    }
+  }
+}

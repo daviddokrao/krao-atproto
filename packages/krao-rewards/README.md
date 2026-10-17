@@ -44,13 +44,52 @@ have no monetary value; they may be converted to a token later.
 - Stored in `reward_rule`; admins change them with
   `net.krao.rewards.admin.upsertRule`, no deploy needed. A change bumps the
   version and applies from then on.
-- A rule: event (`account.created`, `kyc.approved`), beneficiary (`actor`,
-  `referrer`, `referrer2`), amount, vesting, and optional filters (code kinds,
-  campaign, validity window) and caps (per account in total, per day).
+- A rule: event (`account.created`, `kyc.approved`), beneficiary (`actor`
+  or `referrer`: referrals are **one level only**, anything else is refused
+  with `MultiLevelReferral`), amount, vesting, and optional filters (code
+  kinds, campaign, validity window) and caps (per account in total, per day).
 - Defaults (seeded into an empty table): `referral.inviter` +100 to the
-  referrer and `referral.invitee` +50 to the new account, both vesting on
-  `kyc:self` and `kyc:related`.
+  referrer (at most 20 a day: 2,000 points) and `referral.invitee` +50 to
+  the new account, both vesting on `kyc:self` and `kyc:related`.
+- Growth defaults: `growth.wallet-linked` +20 (`wallet.linked`, the
+  account's first verified wallet) and `growth.first-post` +10
+  (`post.first`), vesting on `kyc:self`; their `.referrer` twins start
+  disabled (one level, 20 a day). The indexer reports these events to
+  `POST /internal/events` (`{type, did}`, internal token) from its outbox.
+  The event id is `<type>:<did>`, so each is rewarded once per account,
+  whatever happens to the wallet or post later.
+- M33: `growth.community-joined` +10 (`community.joined`: first accepted
+  membership of someone else's community that had 3 other members) and
+  `growth.active-30d` +50 (`active.30d`: active on 20 of the 30 days from
+  the account's `account.created`), vesting on `kyc:self`, at most once a
+  day; `.referrer` twins disabled. The indexer also reports `tip.first`
+  (first verified tip sent; no default rule) and `activity.day`
+  (`{type, did, day}`, a Vietnam-time day the account created a record),
+  kept in `activity_day`. Days after tomorrow or before the day before the
+  sign-up are ignored, except with `devMode`, which also adds
+  `POST /internal/dev/backdate-account {did, days}` (moves the sign-up back).
+- Missing default rules are added on every start (rules are never deleted,
+  only disabled); existing rules keep their settings.
+- Points have no monetary value.
 - Events are stored in `reward_event`, once per id.
+
+## Weekly leaderboard
+
+- `net.krao.points.getLeaderboard` (auth optional) and
+  `net.krao.points.setLeaderboardOptIn` (off by default). Only accounts that
+  opted in are listed and ranked, by the points they earned this week (not
+  their balance): non-void entries created in the week, reversals
+  subtracting. Equal points share a rank.
+- Weeks are ISO weeks in Vietnam's time: Monday 00:00 UTC+7 (Sunday 17:00
+  UTC) to the next Monday.
+- The choice is in the data export and is deleted with the account.
+
+## Analytics
+
+- `net.krao.analytics.getFunnel` (sign-ups in a window: phone, KYC, wallet,
+  first tip), `getRetention` (sign-up weeks, d1 / d7 (days 6-8) / d30
+  (days 28-32), Vietnam time) and `getSummary` (accounts, active today /
+  7 / 30 days). Admins only; counts only, no DIDs, nothing leaves Krao.
 
 ## KYC
 
@@ -70,6 +109,37 @@ have no monetary value; they may be converted to a token later.
     (`KRAO_KYC_REQUIRE_SECOND_APPROVER`);
   - logged in `audit_log`, like every admin and KYC change.
 
+## Phone verification (Decree 147)
+
+- `net.krao.phone.{requestCode,verifyCode,getStatus}`. The PDS
+  (`PDS_KRAO_PHONE_REQUIRED`) and chat (`KRAO_CHAT_PHONE_REQUIRED`) ask
+  `GET /internal/phone-status?did=` before posts and messages.
+- Numbers: E.164 (Vietnamese `0xxxxxxxxx` becomes `+84…`); stored as an
+  HMAC (unique: one number, one account) and AES-256-GCM (kept while the
+  account exists). Deleting the account frees the number; a takedown keeps
+  it reserved.
+- Codes: 6 digits, stored as HMACs, 5 minutes, 5 tries (counted atomically;
+  the code is dropped after the last), one a minute, 5 an hour per account
+  and per number, `KRAO_SMS_IP_HOURLY_CAP` per client address and
+  `KRAO_SMS_GLOBAL_HOURLY_CAP` in total, checked and recorded in one
+  `BEGIN IMMEDIATE` transaction. Only `KRAO_PHONE_ALLOWED_PREFIXES` (`+84`).
+- A number another account holds: `requestCode` answers as usual but sends
+  nothing (and the request counts); `verifyCode` then says `PhoneTaken`.
+- SMS: `SmsProvider` adapter; `log` (dev, rehearsals: refused without
+  `KRAO_DEV_MODE=true`) or `http` (POST `{to, text}` with a bearer token).
+  With `log`, `GET /internal/dev/last-otp?did=` returns the last code
+  (internal token).
+
+## Consent and data export
+
+- `net.krao.account.recordConsent` / `getConsent`: versioned consents
+  (`terms`, `privacy`, `kyc`, `phone`, `wallet`). Kept after deletion as
+  evidence (DID, version, time only).
+- `net.krao.account.exportData`: code, referrals (DIDs), points, KYC outcome,
+  phone (masked), consents, and push devices by platform (asked from the
+  push service, which is not public). The indexer and chat answer the same
+  method for their own data.
+
 ## Auth
 
 - Users and admins call with atproto service auth addressed to
@@ -79,25 +149,35 @@ have no monetary value; they may be converted to a token later.
 
 ## Config
 
-| Variable                                | Default                    |
-| --------------------------------------- | -------------------------- |
-| `KRAO_REWARDS_PORT`                     | `2592`                     |
-| `KRAO_REWARDS_DID`                      | `did:web:rewards.krao.net` |
-| `KRAO_REWARDS_PUBLIC_URL`               | (serves `did.json` if set) |
-| `KRAO_REWARDS_DB`                       | `krao-rewards.sqlite`      |
-| `KRAO_PLC_URL`                          | `https://plc.directory`    |
-| `KRAO_REWARDS_INTERNAL_TOKEN`           | required                   |
-| `KRAO_REWARDS_ADMIN_DIDS`               |                            |
-| `KRAO_KYC_REVIEWER_DIDS`                |                            |
-| `SUMSUB_APP_TOKEN`, `SUMSUB_SECRET_KEY` | (no KYC provider if unset) |
-| `SUMSUB_LEVEL`                          | `basic-kyc-level`          |
-| `SUMSUB_WEBHOOK_SECRET`                 | required with Sumsub       |
-| `KRAO_KYC_MANUAL_DAILY_LIMIT`           | `5`                        |
-| `KRAO_KYC_REQUIRE_SECOND_APPROVER`      | `false`                    |
+| Variable                                   | Default                    |
+| ------------------------------------------ | -------------------------- |
+| `KRAO_REWARDS_PORT`                        | `2592`                     |
+| `KRAO_REWARDS_DID`                         | `did:web:rewards.krao.net` |
+| `KRAO_REWARDS_PUBLIC_URL`                  | (serves `did.json` if set) |
+| `KRAO_REWARDS_DB`                          | `krao-rewards.sqlite`      |
+| `KRAO_PLC_URL`                             | `https://plc.directory`    |
+| `KRAO_REWARDS_INTERNAL_TOKEN`              | required                   |
+| `KRAO_REWARDS_ADMIN_DIDS`                  |                            |
+| `KRAO_KYC_REVIEWER_DIDS`                   |                            |
+| `SUMSUB_APP_TOKEN`, `SUMSUB_SECRET_KEY`    | (no KYC provider if unset) |
+| `SUMSUB_LEVEL`                             | `basic-kyc-level`          |
+| `SUMSUB_WEBHOOK_SECRET`                    | required with Sumsub       |
+| `KRAO_KYC_MANUAL_DAILY_LIMIT`              | `5`                        |
+| `KRAO_KYC_REQUIRE_SECOND_APPROVER`         | `false`                    |
+| `KRAO_SMS_PROVIDER`                        | `none` (`log`, `http`)     |
+| `KRAO_SMS_HTTP_URL`, `KRAO_SMS_HTTP_TOKEN` | required with `http`       |
+| `KRAO_PHONE_HMAC_SECRET`                   | required with a provider   |
+| `KRAO_PHONE_ENC_KEY`                       | required with a provider   |
+| `KRAO_PHONE_ALLOWED_PREFIXES`              | `+84`                      |
+| `KRAO_SMS_GLOBAL_HOURLY_CAP`               | `500`                      |
+| `KRAO_SMS_IP_HOURLY_CAP`                   | `30`                       |
+| `KRAO_DEV_MODE`                            | `false`                    |
 
 ## Dev-env
 
 Runs on port 2592 with DID `did:web:rewards.krao.test` and no KYC provider.
 It creates the campaign code `KRAO-DEV` (the seed script and e2e tests sign
 up with it) and the admin account `rewards-admin.test` / `krao-dev-pass`.
-Codes become required once the dev-env's own accounts exist.
+Codes become required once the dev-env's own accounts exist, and so do
+verified phones for posting and chat (`KRAO_DEV_PHONE_REQUIRED=false` turns
+that off); SMS codes are logged and readable at `/internal/dev/last-otp`.

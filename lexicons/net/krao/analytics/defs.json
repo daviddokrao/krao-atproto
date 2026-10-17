@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.analytics.defs",
+  "description": "Krao's own aggregate analytics, computed by the rewards service from what Krao's services report to it. Counts only: no DIDs, nothing sent to third parties.",
+  "defs": {
+    "funnelStep": {
+      "type": "object",
+      "required": ["id", "count"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "knownValues": [
+            "registered",
+            "phoneVerified",
+            "kycApproved",
+            "walletLinked",
+            "firstTip"
+          ],
+          "maxLength": 32
+        },
+        "count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "cohort": {
+      "type": "object",
+      "description": "Accounts created in one week (Monday to Monday, Vietnam time). dN counts those active on day N after the day they were created (d1: day 1; d7: days 6-8; d30: days 28-32); absent until every account of the cohort is past the window.",
+      "required": ["week", "size"],
+      "properties": {
+        "week": {
+          "type": "string",
+          "description": "The Monday the week starts on, YYYY-MM-DD (Vietnam time).",
+          "maxLength": 10
+        },
+        "size": { "type": "integer", "minimum": 0 },
+        "d1": { "type": "integer", "minimum": 0 },
+        "d7": { "type": "integer", "minimum": 0 },
+        "d30": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

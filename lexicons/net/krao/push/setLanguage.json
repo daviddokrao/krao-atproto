@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.push.setLanguage",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Set the language of the account's push notifications, usually the app's language. Pushes are in Vietnamese for 'vi' tags and in English otherwise (also before this is called). Answered by the Krao rewards service, which passes it on to the push service (not public); requires service auth for the rewards service.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["language"],
+          "properties": {
+            "language": {
+              "type": "string",
+              "format": "language",
+              "maxLength": 35,
+              "description": "BCP-47 language tag, eg 'vi' or 'en-US'."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["language"],
+          "properties": {
+            "language": {
+              "type": "string",
+              "knownValues": ["en", "vi"],
+              "description": "The language pushes will be written in."
+            }
+          }
+        }
+      }
+    }
+  }
+}

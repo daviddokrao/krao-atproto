@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.miniapp.listApproved",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Approved Mini Apps, most recently approved first.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 25
+          },
+          "cursor": { "type": "string", "maxLength": 512 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["apps"],
+          "properties": {
+            "apps": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.miniapp.defs#miniAppView"
+              }
+            },
+            "cursor": { "type": "string", "maxLength": 512 }
+          }
+        }
+      }
+    }
+  }
+}

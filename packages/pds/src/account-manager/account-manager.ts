@@ -47,6 +47,7 @@ import * as authorizedClientHelper from './helpers/authorized-client.js'
 import * as emailAuthFactor from './helpers/email-auth-factor.js'
 import * as emailToken from './helpers/email-token.js'
 import * as invite from './helpers/invite.js'
+import { KraoPhoneGate } from './helpers/krao-phone.js'
 import { KraoReferral } from './helpers/krao-referral.js'
 import * as password from './helpers/password.js'
 import * as repo from './helpers/repo.js'
@@ -116,6 +117,8 @@ export class AccountManager {
   readonly db: AccountDb
   /** Set when invite codes are Krao referral codes (see KraoReferral) */
   readonly kraoReferral?: KraoReferral
+  /** Krao: posting may need a verified phone (see KraoPhoneGate) */
+  readonly kraoPhone?: KraoPhoneGate
 
   constructor(
     readonly cfg: ServerConfig,
@@ -130,6 +133,7 @@ export class AccountManager {
     this.db = getDb(cfg.db.accountDbLoc, cfg.db.disableWalAutoCheckpoint)
     if (cfg.kraoRewards) {
       this.kraoReferral = new KraoReferral(this.db, cfg.kraoRewards)
+      this.kraoPhone = new KraoPhoneGate(cfg.kraoRewards)
     }
   }
 
@@ -570,6 +574,11 @@ export class AccountManager {
     expiresAt: string
   }): Promise<void> {
     await walletChallenge.create(this.db, challenge)
+  }
+
+  /** Whether the challenge is pending (not used, not expired); keeps it */
+  async hasWalletChallenge(nonce: string, account: string): Promise<boolean> {
+    return walletChallenge.exists(this.db, nonce, account)
   }
 
   async consumeWalletChallenge(

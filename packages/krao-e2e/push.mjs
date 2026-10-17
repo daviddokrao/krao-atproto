@@ -13,8 +13,10 @@ import {
   createRecord,
   deleteRecord,
   login,
+  rewardsCall,
   serviceAuth,
   sleep,
+  verifyPhone,
   xrpc,
 } from './lib.mjs'
 
@@ -46,6 +48,8 @@ async function signUp(name) {
     },
   })
   if (!res.ok) throw new Error(`createAccount: ${res.data.message}`)
+  // Posting and chat need a verified phone in the dev-env
+  await verifyPhone(res.data)
   // A display name, for the push titles
   await create(
     res.data,
@@ -235,7 +239,11 @@ const convoId = convo.data.convo?.id
 const sent = await chat(bao, 'chat.bsky.convo.sendMessage', {
   body: { convoId, message: { text: 'Hi Ana, coffee?' } },
 })
-check('Bao messages Ana', sent.ok, JSON.stringify(sent.data))
+check(
+  'Bao messages Ana',
+  sent.ok,
+  JSON.stringify(convoId ? sent.data : convo.data),
+)
 const message = await waitForPush(
   anaToken,
   (m) => m.data.reason === 'chat-message',
@@ -284,6 +292,32 @@ check(
   'a KYC decision is pushed',
   kyc?.title === 'Your identity is verified',
   JSON.stringify(kyc),
+)
+
+// The app's language is Vietnamese: pushes follow (through rewards, since
+// the push service is not public)
+const lang = await rewardsCall(ana, 'net.krao.push.setLanguage', {
+  body: { language: 'vi-VN' },
+})
+check(
+  'the app sets the push language through rewards',
+  lang.ok && lang.data.language === 'vi',
+  JSON.stringify(lang.data),
+)
+await create(bao, 'app.bsky.feed.post', {
+  $type: 'app.bsky.feed.post',
+  text: 'Xin chào Ana',
+  reply: {
+    root: { uri: post.uri, cid: post.cid },
+    parent: { uri: post.uri, cid: post.cid },
+  },
+  createdAt: new Date().toISOString(),
+})
+const viReply = await waitForPush(anaToken, (m) => m.body === 'Xin chào Ana')
+check(
+  'pushes are in Vietnamese after setLanguage',
+  viReply?.title === 'Bao đã trả lời bạn',
+  JSON.stringify(viReply),
 )
 
 // After unregistering, nothing more arrives
