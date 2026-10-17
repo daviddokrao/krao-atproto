@@ -86,6 +86,11 @@ services:
   push:
     volumes: [push:/data, ./secrets:/secrets:ro, *trust-volume]
     environment: *trust
+  plc-mirror:
+    volumes: [plc-mirror:/data, *trust-volume]
+    environment:
+      <<: *trust
+      KRAO_PLC_MIRROR_POLL_MS: '1000'
   backup:
     volumes: [*trust-volume]
     environment:

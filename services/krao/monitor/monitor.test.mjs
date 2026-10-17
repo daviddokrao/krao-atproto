@@ -106,6 +106,37 @@ describe('reading health answers', () => {
     assert.ok(fresh.every((r) => r.ok))
   })
 
+  it('reads the PLC mirror lag and refused operations', () => {
+    const [main, lag, rejected] = readHealth(
+      'plc-mirror',
+      {
+        status: 200,
+        body: {
+          ok: true,
+          lagSeconds: 1200,
+          rejected: 2,
+          lastError: 'HTTP 429',
+        },
+      },
+      { plcMirrorMaxLagSec: 600 },
+    )
+    assert.equal(main.ok, true)
+    assert.equal(lag.name, 'plc-mirror-lag')
+    assert.equal(lag.ok, false)
+    assert.match(lag.detail, /behind.*HTTP 429/)
+    assert.equal(rejected.ok, false)
+    const syncing = readHealth('plc-mirror', {
+      status: 200,
+      body: { ok: true, lagSeconds: null, rejected: 0, ops: 42 },
+    })
+    assert.ok(syncing.every((r) => r.ok))
+    assert.match(syncing[1].detail, /first sync running \(42/)
+    assert.match(
+      readHealth('plc-mirror', { error: 'ECONNREFUSED' })[0].detail,
+      /DIDs do not resolve/,
+    )
+  })
+
   it('reads disks and backups', () => {
     assert.equal(
       readDisk({ path: '/volumes/pds', total: 100, free: 10 }, 85).ok,

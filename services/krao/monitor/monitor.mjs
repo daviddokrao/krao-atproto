@@ -20,6 +20,7 @@
  *   KRAO_MONITOR_BACKUP_MAX_AGE_HOURS  (48)
  *   KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC  indexer silence alert (21600)
  *   KRAO_MONITOR_MAX_FAILED_EVENTS     indexer failed events allowed (0)
+ *   KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC  PLC mirror behind alert (600)
  *   KRAO_ALERT_WEBHOOK_URL         where alerts go (unset: logged only)
  *   KRAO_ALERT_FORMAT              json (default) or telegram
  *   KRAO_ALERT_TELEGRAM_CHAT_ID    chat for the telegram format
@@ -61,6 +62,7 @@ export function configFromEnv() {
     limits: {
       firehoseMaxAgeSec: num('KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC', 6 * 3600),
       maxFailedEvents: num('KRAO_MONITOR_MAX_FAILED_EVENTS', 0),
+      plcMirrorMaxLagSec: num('KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC', 600),
     },
     alert: {
       webhookUrl: env.KRAO_ALERT_WEBHOOK_URL || null,

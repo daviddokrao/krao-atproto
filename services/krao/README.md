@@ -13,6 +13,7 @@ Everything Krao runs, on one host, from one image:
 | `video`                 | video uploads and HLS                                                                | `video.<domain>`                     |
 | `rewards`               | referral codes, points, KYC                                                          | `rewards.<domain>`                   |
 | `push`                  | device tokens and push notifications (in place of Bluesky's courier)                 | –                                    |
+| `plc-mirror`            | checked copy of plc.directory that DIDs resolve through (`deploy/plc-mirror.md`)     | –                                    |
 | `backup`                | daily backups                                                                        | –                                    |
 | `monitor`               | health checks and alerts (`monitor/`)                                                | `127.0.0.1:2594` on the host         |
 | `postgres`              | AppView, bsync and Ozone data                                                        | –                                    |
@@ -72,7 +73,12 @@ Postgres ones too. Updates are `git pull` then `up -d --build`.
    can ask for `include:net.krao.authWeb3` / `authMiniApp`. Mini Apps are
    reviewed by the safety admins (`docs/krao/miniapps.md`).
 4. **Moderation.** Publish the labeler record for Ozone's DID and add the
-   moderators, following Ozone's own setup guide.
+   moderators, following Ozone's own setup guide. Then add Krao's own labels
+   (`labeler-labels.json`, eg `impersonation-suspect` from the indexer's
+   impersonation checks):
+   `docker run --rm --env-file .env -e KRAO_LABELER_PASSWORD=... krao-backend node services/krao/set-labeler-labels.mjs`.
+   Admin roles beyond `.env` are granted in the app (Krao admin > Roles);
+   every admin action is in its log (`net.krao.admin.getAuditLog`).
 5. **The app** builds against these settings (`krao-app/.env`):
 
    ```
@@ -141,6 +147,8 @@ docker compose up -d
   `chat`, `video`, `rewards` and `push`. **`rewards` down is urgent:**
   sign-up (referral codes) and phone verification fail closed, so nobody
   can sign up, post or chat;
+- the PLC mirror's lag behind plc.directory
+  (`KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC`) and operations it refused;
 - the indexer's firehose freshness (no event for
   `KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC`; a quiet network looks the same) and
   its failed events;

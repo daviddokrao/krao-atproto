@@ -14,6 +14,8 @@ const IMPACT = {
   video: 'video uploads and playback fail',
   push: 'push notifications stop',
   ozone: 'reports and moderation are down',
+  'plc-mirror':
+    'DIDs do not resolve: sign-in, sign-up, handles and feeds break (bypass: KRAO_PLC_RESOLVE_URL, see deploy/plc-mirror.md)',
 }
 
 /**
@@ -30,6 +32,7 @@ export const DEFAULT_TARGETS = {
   video: 'http://video:2591/_health',
   rewards: 'http://rewards:2592/_health',
   push: 'http://push:2593/_health',
+  'plc-mirror': 'http://plc-mirror:2596/_health',
 }
 
 export function parseTargets(text) {
@@ -89,6 +92,30 @@ export function readHealth(name, res, limits = {}) {
         (failed > maxFailed
           ? ', replay with net.krao.indexer.admin.replayFailedEvents'
           : ''),
+    })
+  }
+  if (name === 'plc-mirror') {
+    // How far behind plc.directory it may be (null: first sync running)
+    const maxLag = limits.plcMirrorMaxLagSec ?? 600
+    const lag = body.lagSeconds
+    results.push({
+      name: 'plc-mirror-lag',
+      ok: typeof lag !== 'number' || lag <= maxLag,
+      detail:
+        typeof lag === 'number'
+          ? `${formatDuration(lag * 1000)} behind the PLC directory` +
+            (lag > maxLag
+              ? ` (${body.lastError ?? 'no error'}; see deploy/plc-mirror.md)`
+              : '')
+          : `first sync running (${body.ops ?? 0} operations so far)`,
+    })
+    const rejected = Number(body.rejected ?? 0)
+    results.push({
+      name: 'plc-mirror-rejected',
+      ok: rejected === 0,
+      detail:
+        `${rejected} operation(s) from the directory failed their checks` +
+        (rejected ? ' since start (see the plc-mirror logs)' : ''),
     })
   }
   return results

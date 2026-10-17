@@ -22,7 +22,7 @@ RUN pnpm run --recursive --stream --workspace-concurrency 1 \
   --filter 'bsync-service...' --filter 'ozone-service...' \
   --filter '@krao/indexer...' --filter '@krao/chat...' \
   --filter '@krao/video...' --filter '@krao/rewards...' \
-  --filter '@krao/push...' \
+  --filter '@krao/push...' --filter '@krao/plc-mirror...' \
   build -- --force
 
 # With the dev dependencies, for one-off jobs such as the local PLC of a
