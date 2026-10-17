@@ -14,6 +14,9 @@
  *   KRAO_TRUSTED_VERIFIER_DIDS comma-separated accounts whose
  *                              app.bsky.graph.verification records count
  *                              (blue check); when set, the only ones
+ *   KRAO_LABELER_URL           Krao's labeler (its Ozone, eg http://ozone:3000)
+ *   KRAO_LABELER_DID           its DID: its labels (subscribeLabels) go into
+ *                              the data plane, where views read them
  */
 import assert from 'node:assert'
 import {
@@ -21,6 +24,7 @@ import {
   BsyncSubscription,
   DataPlaneServer,
   Database,
+  KraoLabelSubscription,
   RepoSubscription,
   ServerConfig,
 } from '@atproto/bsky'
@@ -95,15 +99,26 @@ const main = async () => {
     },
   })
 
+  // Labels from Krao's labeler: Bluesky fills the label table with another
+  // service; without this, no label of Krao's Ozone reaches the views
+  const labelerUrl = process.env.KRAO_LABELER_URL
+  const labelerDid = process.env.KRAO_LABELER_DID
+  const labelSub =
+    labelerUrl && labelerDid
+      ? new KraoLabelSubscription({ db, service: labelerUrl, labelerDid })
+      : undefined
+
   await server.start()
   bsyncSub.start()
   void sub.start()
+  labelSub?.start()
   console.log(`Krao AppView listening on ${config.port}`)
 
   const shutdown = async () => {
     await server.destroy()
     await bsyncSub.destroy()
     await sub.destroy()
+    await labelSub?.destroy()
     await dataplane.destroy()
     await db.close()
     process.exit(0)

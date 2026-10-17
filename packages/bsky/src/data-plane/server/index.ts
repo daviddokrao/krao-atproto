@@ -10,6 +10,7 @@ import createRoutes from './routes/index.js'
 export type { DatabaseSchema }
 
 export { BsyncSubscription } from './bsync-subscription.js'
+export { KraoLabelSubscription } from './krao-label-subscription.js'
 export { RepoSubscription, type SubscriptionCursor } from './subscription.js'
 
 export class DataPlaneServer {

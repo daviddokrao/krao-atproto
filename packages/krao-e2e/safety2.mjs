@@ -6,6 +6,7 @@
 import { deflateSync } from 'node:zlib'
 import {
   ACCOUNTS,
+  APPVIEW,
   GATE_DID,
   INDEXER,
   PDS,
@@ -155,6 +156,29 @@ async function labeled(did) {
   return !ours[ours.length - 1].neg
 }
 
+// The labeler's DID (Ozone's): what the app sends in atproto-accept-labelers
+let labelerDid = process.env.KRAO_LABELER_DID
+
+/** Whether the AppView shows the label on the profile, as the app asks */
+async function shownByAppview(did) {
+  if (!labelerDid) {
+    const res = await ozone('com.atproto.label.queryLabels', {
+      uriPatterns: did,
+      limit: '50',
+    })
+    labelerDid = res.data.labels?.find((l) => l.val === LABEL)?.src
+  }
+  const url = new URL('/xrpc/app.bsky.actor.getProfile', APPVIEW)
+  url.searchParams.set('actor', did)
+  const res = await fetch(url, {
+    headers: labelerDid ? { 'atproto-accept-labelers': labelerDid } : {},
+  })
+  const body = await res.json().catch(() => ({}))
+  return (body.labels ?? []).some(
+    (l) => l.val === LABEL && l.src === labelerDid,
+  )
+}
+
 async function events(did, type) {
   const res = await ozone('tools.ozone.moderation.queryEvents', {
     subject: did,
@@ -200,6 +224,11 @@ check(
   'the lookalike gets impersonation-suspect within 60 seconds',
   await waitFor(() => labeled(fake.did)),
 )
+check(
+  'and the AppView shows it on the profile (atproto-accept-labelers)',
+  await waitFor(() => shownByAppview(fake.did), 30_000),
+  labelerDid,
+)
 const reports = await waitFor(async () => {
   const found = await events(
     fake.did,
@@ -222,7 +251,10 @@ check(
   statuses.data.subjectStatuses?.[0]?.reviewState,
 )
 check('another name and picture: no label', !(await labeled(other.did)))
-check('the verified brand is never labeled', !(await labeled(brand.did)))
+check(
+  'the verified brand is never labeled',
+  !(await labeled(brand.did)) && !(await shownByAppview(brand.did)),
+)
 
 // The labeled account appeals through the existing flow (PDS → Ozone)
 const appeal = await xrpc(PDS, 'com.atproto.moderation.createReport', {
@@ -258,6 +290,10 @@ await setProfile(
 check(
   'renaming takes the label off within 60 seconds',
   await waitFor(async () => !(await labeled(fake.did))),
+)
+check(
+  'and the AppView no longer shows it',
+  await waitFor(async () => !(await shownByAppview(fake.did)), 30_000),
 )
 const unlabelLog = await waitFor(async () => {
   const log = await rewardsCall(admin, 'net.krao.admin.getAuditLog', {
@@ -443,11 +479,9 @@ check(
 )
 // The AppView resolves through the mirror: it knows the new handle
 const profile = await waitFor(async () => {
-  const res = await xrpc(
-    process.env.KRAO_APPVIEW_URL ?? 'http://localhost:2584',
-    'app.bsky.actor.getProfile',
-    { query: { actor: fresh.did } },
-  )
+  const res = await xrpc(APPVIEW, 'app.bsky.actor.getProfile', {
+    query: { actor: fresh.did },
+  })
   return res.data.handle === handle ? res.data : undefined
 }, 20_000)
 check('the AppView (resolving through the mirror) shows it', !!profile)

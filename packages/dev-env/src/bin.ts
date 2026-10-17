@@ -5,6 +5,7 @@ import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
 import { KraoPlcMirror } from '@krao/plc-mirror'
+import { KraoLabelSubscription } from '@atproto/bsky'
 import { KraoPush } from '@krao/push'
 import { KraoRewards, LogSmsProvider } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
@@ -162,6 +163,12 @@ const run = async () => {
   console.log(`🔄 Bsync server http://localhost:${network.bsync.port}`)
   console.log(`🌅 Bsky Appview http://localhost:${network.bsky.port}`)
   console.log(`🌅 Bsky Appview DID ${network.bsky.serverDid}`)
+  // Krao: the dev Ozone's labels reach the AppView, as in production (M35)
+  new KraoLabelSubscription({
+    db: network.bsky.db,
+    service: network.ozone.url,
+    labelerDid: network.ozone.ctx.cfg.service.did,
+  }).start()
   for (const fg of network.feedGens) {
     console.log(`🤖 Feed Generator (${fg.did}) http://localhost:${fg.port}`)
   }
