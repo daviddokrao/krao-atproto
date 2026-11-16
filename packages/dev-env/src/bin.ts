@@ -53,6 +53,11 @@ const KRAO_DEV_PHONE_SECRETS = {
  * KRAO_DEV_PHONE_REQUIRED=false turns it off (eg a public demo).
  */
 const PHONE_REQUIRED = process.env.KRAO_DEV_PHONE_REQUIRED !== 'false'
+/*
+ * Sign-up needs a referral code, as in production.
+ * KRAO_DEV_INVITE_REQUIRED=false opens sign-up to anyone (eg a public demo).
+ */
+const INVITE_REQUIRED = process.env.KRAO_DEV_INVITE_REQUIRED !== 'false'
 
 /*
  * Public hostname of the main PDS, for hosting the dev-env as a sandbox (eg
@@ -331,8 +336,10 @@ const run = async () => {
    * sign-up keeps the setting it started with.
    */
   Object.assign(network.pds.ctx.cfg, {
-    invites: { required: true, interval: null, epoch: 0 },
+    invites: { required: INVITE_REQUIRED, interval: null, epoch: 0 },
   })
+  if (!INVITE_REQUIRED)
+    console.log('🔓 Sign-up is open: no referral code needed')
   const admin = await createKraoAccount(network.pds.url, 'rewards-admin')
   kraoRewards.addAdmin(admin)
   kraoIndexer.addGateModerator(admin)

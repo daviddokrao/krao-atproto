@@ -178,6 +178,8 @@ have no monetary value; they may be converted to a token later.
 Runs on port 2592 with DID `did:web:rewards.krao.test` and no KYC provider.
 It creates the campaign code `KRAO-DEV` (the seed script and e2e tests sign
 up with it) and the admin account `rewards-admin.test` / `krao-dev-pass`.
-Codes become required once the dev-env's own accounts exist, and so do
-verified phones for posting and chat (`KRAO_DEV_PHONE_REQUIRED=false` turns
-that off); SMS codes are logged and readable at `/internal/dev/last-otp`.
+Codes become required once the dev-env's own accounts exist
+(`KRAO_DEV_INVITE_REQUIRED=false` keeps sign-up open; a valid code sent with
+the sign-up is still credited), and so do verified phones for posting and chat
+(`KRAO_DEV_PHONE_REQUIRED=false` turns that off); SMS codes are logged and
+readable at `/internal/dev/last-otp`.
