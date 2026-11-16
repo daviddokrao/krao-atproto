@@ -383,6 +383,11 @@ for (let i = 0; i < 30; i++) {
   if (camConvo.data.convo?.id) break
   await sleep(500)
 }
+check(
+  'Krao starts a chat with Cam',
+  !!camConvo.data.convo?.id,
+  JSON.stringify(camConvo.data),
+)
 const camText = `Tin nhắn của Cam ${stamp}`
 const camConvoId = camConvo.data.convo?.id
 await chat(krao, 'chat.bsky.convo.sendMessage', {
