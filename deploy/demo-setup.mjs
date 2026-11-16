@@ -20,20 +20,26 @@ async function waitFor(name, ready) {
 
 await waitFor('PDS', async () => (await fetch(`${L.PDS}/xrpc/_health`)).ok)
 await waitFor('indexer', async () => (await fetch(`${L.INDEXER}/_health`)).ok)
-// The dev-env's own mock data must finish before seeding on top of it
-await waitFor(
-  'mock data',
-  async () =>
-    (
-      await L.xrpc(L.PDS, 'com.atproto.identity.resolveHandle', {
-        query: { handle: 'carla.test' },
-      })
-    ).ok,
-)
-await L.sleep(10_000)
+/*
+ * The dev-env must finish before seeding on top of it: its mock data, then
+ * its own Krao accounts, the official krao.test last (the seed fills it in,
+ * and verifies it with krao-verify.test)
+ */
+const resolves = (handle) => async () =>
+  (
+    await L.xrpc(L.PDS, 'com.atproto.identity.resolveHandle', {
+      query: { handle },
+    })
+  ).ok
+await waitFor('mock data', resolves('carla.test'))
+await waitFor('Krao verifier', resolves('krao-verify.test'))
+await waitFor('official account', resolves('krao.test'))
+await L.sleep(3_000)
 
 const seed = spawnSync(process.execPath, ['deploy/seed-local.mjs', L.PDS], {
   stdio: 'inherit',
+  // The sample Mini App's port is not public on the demo
+  env: { ...process.env, KRAO_SEED_MINIAPP: 'false' },
 })
 if (seed.status !== 0) throw new Error('seed-local failed')
 

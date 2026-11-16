@@ -242,7 +242,8 @@ async function setBirthDate(session) {
  * Krao's feeds: feed generator records in krao.test's repo, served by the
  * Krao indexer. "popular" is the app's Discover feed, found by handle as
  * at://krao.test/app.bsky.feed.generator/popular; "latest" lists everything
- * newest first.
+ * newest first; "vietnamese" ("Tiếng Việt") lists Vietnamese posts newest
+ * first; "holders-usdc" and "holders-eth" list posts of token holders.
  */
 const FEEDS = [
   {
@@ -254,6 +255,25 @@ const FEEDS = [
     rkey: 'latest',
     displayName: 'Mới nhất',
     description: 'Bài mới nhất từ cộng đồng Krao.',
+  },
+  {
+    rkey: 'vietnamese',
+    displayName: 'Tiếng Việt',
+    description: 'Bài viết tiếng Việt mới nhất trên Krao.',
+  },
+  // "Holders of $X" (M33): posts of accounts whose verified wallets hold the
+  // token; the rkey is holders-<symbol in lower case>
+  {
+    rkey: 'holders-usdc',
+    displayName: 'Người giữ $USDC',
+    description:
+      'Bài mới nhất của những người đang giữ USDC trong ví đã xác minh.',
+  },
+  {
+    rkey: 'holders-eth',
+    displayName: 'Người giữ $ETH',
+    description:
+      'Bài mới nhất của những người đang giữ ETH trong ví đã xác minh.',
   },
 ]
 
@@ -292,7 +312,12 @@ async function publishFeeds(session) {
  * handle and display name, which must stay as they are for it to count.
  */
 async function verifyOfficialAccount(subject, user) {
-  const verifier = await login('krao-verify.test', PASSWORD).catch(() => null)
+  // The dev-env creates krao-verify.test a little after its services answer
+  let verifier = null
+  for (let i = 0; i < 15 && !verifier; i++) {
+    verifier = await login('krao-verify.test', PASSWORD).catch(() => null)
+    if (!verifier) await new Promise((r) => setTimeout(r, 2000))
+  }
   if (!verifier) {
     console.log(
       '⚠️  Không có krao-verify.test (dev-env cũ?), bỏ qua huy hiệu xác minh',
@@ -328,6 +353,115 @@ async function verifyOfficialAccount(subject, user) {
     createdAt: now(),
   })
   console.log(`☑️  ${user.handle} được krao-verify.test xác minh`)
+}
+
+/**
+ * Krao's sample Mini App (M34), served by the dev-env at :2595: registered
+ * in krao.test's repo, approved by the dev-env's safety admin
+ * (rewards-admin.test) and shown in a post of krao.test. Done once per
+ * dev-env run: an unchanged record is left alone.
+ */
+const MINIAPP_URL =
+  process.env.KRAO_MINIAPP_SAMPLE_URL || 'http://localhost:2595/'
+const GATE_DID = process.env.KRAO_GATE_DID || 'did:web:gate.krao.test'
+// A 1x1 PNG, enough for the icon proxy
+const MINIAPP_ICON = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+async function seedMiniApp(session) {
+  const rkey = 'bo-phieu-nhanh'
+  const existing = await xrpc('com.atproto.repo.getRecord', {
+    query: { repo: session.did, collection: 'net.krao.miniapp.app', rkey },
+  }).catch(() => null)
+  let ref = existing && { uri: existing.uri, cid: existing.cid }
+  if (!existing || existing.value.url !== MINIAPP_URL) {
+    const upload = await fetch(
+      new URL('/xrpc/com.atproto.repo.uploadBlob', PDS),
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          authorization: `Bearer ${session.accessJwt}`,
+        },
+        body: MINIAPP_ICON,
+      },
+    ).then((res) => res.json())
+    ref = await xrpc('com.atproto.repo.putRecord', {
+      token: session.accessJwt,
+      body: {
+        repo: session.did,
+        collection: 'net.krao.miniapp.app',
+        rkey,
+        record: {
+          $type: 'net.krao.miniapp.app',
+          name: 'Bỏ phiếu nhanh',
+          description:
+            'Mini App mẫu của Krao: biết bạn là ai, kết nối ví, ký phiếu và ủng hộ bằng ETH.',
+          url: MINIAPP_URL,
+          ...(upload.blob ? { icon: upload.blob } : {}),
+          permissions: ['identity', 'wallet', 'sign', 'transaction'],
+          chains: ['eip155:8453'],
+          createdAt: now(),
+        },
+      },
+    })
+  }
+
+  // Approved by the safety admin, once the indexer has the record
+  const admin = await login('rewards-admin.test', PASSWORD).catch(() => null)
+  if (!admin) {
+    console.log('⚠️  Không có rewards-admin.test, Mini App mẫu chưa được duyệt')
+    return
+  }
+  let app
+  for (let i = 0; i < 20; i++) {
+    const res = await fetch(
+      `${INDEXER}/xrpc/net.krao.miniapp.getApp?uri=${encodeURIComponent(ref.uri)}`,
+    ).catch(() => null)
+    app = res?.ok ? (await res.json()).app : undefined
+    if (app?.cid === ref.cid) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  if (app?.cid !== ref.cid) {
+    console.log('⚠️  Indexer chưa thấy Mini App mẫu, bỏ qua bước duyệt')
+    return
+  }
+  if (app.status !== 'approved') {
+    const method = 'net.krao.miniapp.admin.approve'
+    const { token } = await xrpc('com.atproto.server.getServiceAuth', {
+      token: admin.accessJwt,
+      query: { aud: GATE_DID, lxm: method },
+    })
+    const res = await fetch(`${INDEXER}/xrpc/${method}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ uri: ref.uri, cid: ref.cid }),
+    })
+    if (!res.ok) {
+      console.log(`⚠️  Duyệt Mini App mẫu lỗi: ${(await res.json()).message}`)
+      return
+    }
+  }
+
+  // One post per dev-env run showing it
+  if (app.status !== 'approved') {
+    await createRecord(session, 'app.bsky.feed.post', {
+      $type: 'app.bsky.feed.post',
+      text: 'Thử Mini App đầu tiên trên Krao: Bỏ phiếu nhanh 🗳️',
+      langs: ['vi'],
+      embed: {
+        $type: 'net.krao.embed.miniapp',
+        app: { uri: ref.uri, cid: ref.cid },
+      },
+      createdAt: now(),
+    })
+  }
+  console.log(`🧩 Mini App "Bỏ phiếu nhanh" (${ref.uri}) đã duyệt`)
 }
 
 async function main() {
@@ -366,6 +500,12 @@ async function main() {
   }
   await publishFeeds(sessions['krao.test'])
   await verifyOfficialAccount(sessions['krao.test'], USERS[0])
+  // The krao.net demo does not expose the sample's port: no broken embed there
+  if (process.env.KRAO_SEED_MINIAPP !== 'false') {
+    await seedMiniApp(sessions['krao.test']).catch((err) =>
+      console.log(`⚠️  Mini App mẫu: ${err.message}`),
+    )
+  }
   if (process.argv.includes('--prefs-only')) return
 
   const posts = []
