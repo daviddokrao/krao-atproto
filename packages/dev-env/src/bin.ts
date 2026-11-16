@@ -427,7 +427,19 @@ async function createKraoAccount(pdsUrl: string, name: string) {
     accessJwt?: string
     message?: string
   }
-  if (!body.did) throw new Error(`Could not create ${name}: ${body.message}`)
+  if (!body.did) {
+    /*
+     * The krao.net demo seeds its accounts (krao.test among them) during the
+     * mock setup, before this runs: reuse the account then
+     */
+    if (body.message?.includes('Handle already taken')) {
+      const found = await fetch(
+        `${pdsUrl}/xrpc/com.atproto.identity.resolveHandle?handle=${name}.test`,
+      ).then((r) => r.json() as Promise<{ did?: string }>)
+      if (found.did) return found.did
+    }
+    throw new Error(`Could not create ${name}: ${body.message}`)
+  }
   // A birth date, or the app asks for one before anything else
   await fetch(`${pdsUrl}/xrpc/app.bsky.actor.putPreferences`, {
     method: 'POST',
