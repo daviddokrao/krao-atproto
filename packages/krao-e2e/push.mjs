@@ -232,9 +232,16 @@ const chat = async (session, method, { query, body } = {}) => {
   })
   return { ok: res.ok, data: await res.json().catch(() => ({})) }
 }
-const convo = await chat(bao, 'chat.bsky.convo.getConvoForMembers', {
-  query: { members: [ana.did] },
-})
+// The chat service allows the convo once it sees Ana's follow, which can take
+// longer than the sleep above right after a dev-env restart
+let convo
+for (let i = 0; i < 30; i++) {
+  convo = await chat(bao, 'chat.bsky.convo.getConvoForMembers', {
+    query: { members: [ana.did] },
+  })
+  if (convo.data.convo?.id) break
+  await sleep(500)
+}
 const convoId = convo.data.convo?.id
 const sent = await chat(bao, 'chat.bsky.convo.sendMessage', {
   body: { convoId, message: { text: 'Hi Ana, coffee?' } },

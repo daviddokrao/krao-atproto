@@ -391,15 +391,16 @@ const enPost = await createRecord(ana, 'app.bsky.feed.post', {
   langs: ['en'],
   createdAt: now(),
 })
+const unsafePost = await linkPost(
+  `Nhận quà miễn phí, kết nối ví tại đây ${stamp}: `,
+  'https://drainer.test/claim',
+)
+// Written last: once it is in the feed, the indexer has seen the posts above
 const viTagged = await createRecord(ana, 'app.bsky.feed.post', {
   text: `gm gm ${stamp}`,
   langs: ['vi'],
   createdAt: now(),
 })
-const unsafePost = await linkPost(
-  `Nhận quà miễn phí, kết nối ví tại đây ${stamp}: `,
-  'https://drainer.test/claim',
-)
 check(
   'the posts are written',
   viPost.ok && enPost.ok && viTagged.ok && unsafePost.ok,
@@ -420,19 +421,27 @@ async function feedPosts(feed) {
   }
   return posts
 }
-const viPosts = await waitFor(async () => {
-  const posts = await feedPosts(viFeed)
-  return posts.includes(viPost.data.uri) && posts
+// Wait for both Vietnamese posts (indexed in order, so the tagged one, written
+// last, lands last); on timeout each check below reports on what is there
+let viPosts = []
+await waitFor(async () => {
+  viPosts = await feedPosts(viFeed)
+  return (
+    viPosts.includes(viPost.data.uri) && viPosts.includes(viTagged.data.uri)
+  )
 })
-check('a Vietnamese post (detected from its text) is in the feed', !!viPosts)
-check('an English post is not', !!viPosts && !viPosts.includes(enPost.data.uri))
+check(
+  'a Vietnamese post (detected from its text) is in the feed',
+  viPosts.includes(viPost.data.uri),
+)
+check('an English post is not', !viPosts.includes(enPost.data.uri))
 check(
   'nor a Vietnamese post linking to a drainer',
-  !!viPosts && !viPosts.includes(unsafePost.data.uri),
+  !viPosts.includes(unsafePost.data.uri),
 )
 check(
   'a post tagged langs vi is in the feed whatever its text',
-  !!viPosts && viPosts.includes(viTagged.data.uri),
+  viPosts.includes(viTagged.data.uri),
 )
 
 /*

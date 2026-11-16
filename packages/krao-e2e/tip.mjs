@@ -101,12 +101,31 @@ await tip(ETH_ASSET, 1n, strangerTx, { to: `eip155:8453:${dead}` })
 const unknownTx = '0x' + 'ab'.repeat(32)
 await tip(ETH_ASSET, 1n, unknownTx)
 
-await sleep(4000)
-const res = await xrpc(INDEXER, 'net.krao.feed.getTips', {
-  query: { subject: post.uri },
+/** Polls until `fn` returns something truthy, or the time runs out */
+async function waitFor(fn, ms = 30_000) {
+  const until = Date.now() + ms
+  for (;;) {
+    const value = await fn()
+    if (value || Date.now() > until) return value
+    await sleep(500)
+  }
+}
+const getTips = () =>
+  xrpc(INDEXER, 'net.krao.feed.getTips', { query: { subject: post.uri } })
+const txIn = (list, h) => list.filter((t) => t.txHash === h.toLowerCase())
+// Verifying against the chain takes a few seconds, more right after a
+// dev-env restart: wait for both real tips rather than a fixed sleep
+let res = await getTips()
+await waitFor(async () => {
+  res = await getTips()
+  const list = res.data.tips ?? []
+  return (
+    txIn(list, ethTx).some((t) => t.status === 'verified') &&
+    txIn(list, usdcTx).some((t) => t.status === 'verified')
+  )
 })
 const tips = res.data.tips ?? []
-const byTx = (h) => tips.filter((t) => t.txHash === h.toLowerCase())
+const byTx = (h) => txIn(tips, h)
 check('getTips works for the post', res.ok, res.data.error)
 check(
   'ETH tip is verified',
@@ -124,15 +143,20 @@ check(
   'USDC tip is verified',
   byTx(usdcTx).some((t) => t.status === 'verified'),
 )
-const pushed = (
-  await (
-    await fetch(`${PUSH}/internal/recent`, {
-      headers: { authorization: `Bearer ${PUSH_TOKEN}` },
-    })
-  ).json()
-).sent.filter(
-  (s) => s.token === deviceToken && s.msg.data.reason === 'krao-tip',
-)
+const tipPushes = async () =>
+  (
+    await (
+      await fetch(`${PUSH}/internal/recent`, {
+        headers: { authorization: `Bearer ${PUSH_TOKEN}` },
+      })
+    ).json()
+  ).sent.filter(
+    (s) => s.token === deviceToken && s.msg.data.reason === 'krao-tip',
+  )
+let pushed = await tipPushes()
+await waitFor(async () => (pushed = await tipPushes()).length >= 2, 15_000)
+await sleep(1000) // a cheat pushed late would show up as a third
+pushed = await tipPushes()
 check(
   'each verified tip is pushed to the recipient, the cheats are not',
   pushed.length === 2 &&

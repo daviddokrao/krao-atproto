@@ -373,9 +373,16 @@ await createRecord(cam, 'app.bsky.graph.follow', {
   createdAt: new Date().toISOString(),
 })
 await sleep(1500)
-const camConvo = await chat(krao, 'chat.bsky.convo.getConvoForMembers', {
-  query: { members: [cam.did] },
-})
+// The chat service allows the convo once it sees Cam's follow, which can take
+// longer than the sleep above right after a dev-env restart
+let camConvo
+for (let i = 0; i < 30; i++) {
+  camConvo = await chat(krao, 'chat.bsky.convo.getConvoForMembers', {
+    query: { members: [cam.did] },
+  })
+  if (camConvo.data.convo?.id) break
+  await sleep(500)
+}
 const camText = `Tin nhắn của Cam ${stamp}`
 const camConvoId = camConvo.data.convo?.id
 await chat(krao, 'chat.bsky.convo.sendMessage', {
