@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import cors from 'cors'
 import express, { type Express } from 'express'
 import { sql } from 'kysely'
@@ -514,7 +515,7 @@ export function createApp(opts: {
   app.use(cors())
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
-    res.type('text/plain').send('Krao chat service. Health: /_health')
+    res.type('text/plain').send(`${BRAND.name} chat service. Health: /_health`)
   })
   app.get('/_health', async (_req, res) => {
     try {

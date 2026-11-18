@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import type express from 'express'
 import { type IdResolver, getDidKeyFromMultibase } from '@atproto/identity'
 import type { AtUriString, DatetimeString, UriString } from '@atproto/syntax'
@@ -81,7 +82,7 @@ export function moderatorAuth(
     )
     const did = payload.iss.split('#')[0]
     if (!(await opts.moderators.has(did))) {
-      throw new ForbiddenError('Only Krao moderators may call this')
+      throw new ForbiddenError(`Only ${BRAND.name} moderators may call this`)
     }
     return { credentials: { did } }
   }

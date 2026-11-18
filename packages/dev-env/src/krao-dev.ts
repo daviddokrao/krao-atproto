@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { BRAND } from '@krao/brand'
 import type { TestNetwork } from './network.js'
 
 /*
@@ -122,9 +123,13 @@ export async function publishKraoPermissionSets(
  * production. Returns the label values the record lists.
  */
 export async function addKraoLabels(network: TestNetwork): Promise<string[]> {
-  const extra = JSON.parse(
-    await readFile(repoFile('services/krao/labeler-labels.json'), 'utf8'),
-  ) as {
+  const text = await readFile(
+    repoFile('services/krao/labeler-labels.json'),
+    'utf8',
+  )
+  // {brandName} in the descriptions, as set-labeler-labels.mjs fills it
+  const name = JSON.stringify(BRAND.name).slice(1, -1)
+  const extra = JSON.parse(text.replaceAll('{brandName}', name)) as {
     labelValues: string[]
     labelValueDefinitions: { identifier: string }[]
   }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { brandDid, brandHost, brandUrl } from '@krao/brand'
 import { KraoIndexer } from './index.js'
 
 // Signs gated media URLs: a random secret would break them on every restart
@@ -13,13 +14,13 @@ const indexer = await KraoIndexer.create({
   port: Number(process.env.KRAO_INDEXER_PORT ?? 2589),
   dbLocation: process.env.KRAO_INDEXER_DB ?? 'krao-indexer.sqlite',
   // Krao is its own network: index Krao's PDS, not the whole Bluesky relay
-  firehoseUrl: process.env.KRAO_FIREHOSE_URL ?? 'wss://pds.krao.net',
+  firehoseUrl: process.env.KRAO_FIREHOSE_URL ?? `wss://${brandHost('pds')}`,
   plcUrl: process.env.KRAO_PLC_URL ?? 'https://plc.directory',
   rpcUrls: process.env.KRAO_RPC_URLS
     ? (JSON.parse(process.env.KRAO_RPC_URLS) as Record<string, string>)
     : { 'eip155:8453': 'https://mainnet.base.org' },
-  appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://api.krao.net',
-  gateDid: process.env.KRAO_GATE_DID ?? 'did:web:gate.krao.net',
+  appviewUrl: process.env.KRAO_APPVIEW_URL ?? brandUrl('api'),
+  gateDid: process.env.KRAO_GATE_DID ?? brandDid('gate'),
   feedGenDid: process.env.KRAO_FEEDGEN_DID,
   feedPdsUrl: process.env.KRAO_FEED_PDS_URL,
   publicUrl: process.env.KRAO_INDEXER_PUBLIC_URL,
@@ -35,8 +36,7 @@ const indexer = await KraoIndexer.create({
     : undefined,
   klipyApiKey: process.env.KRAO_KLIPY_API_KEY,
   webUrl: process.env.KRAO_WEB_URL,
-  handleResolverUrl:
-    process.env.KRAO_HANDLE_RESOLVER_URL ?? 'https://pds.krao.net',
+  handleResolverUrl: process.env.KRAO_HANDLE_RESOLVER_URL ?? brandUrl('pds'),
   push: process.env.KRAO_PUSH_URL
     ? {
         url: process.env.KRAO_PUSH_URL,

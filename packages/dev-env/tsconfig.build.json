@@ -2,6 +2,7 @@
   "extends": ["../../tsconfig/node.tsconfig.json"],
   "include": ["./src"],
   "references": [
+    { "path": "../krao-brand/tsconfig.build.json" },
     { "path": "../krao-chat/tsconfig.build.json" },
     { "path": "../krao-indexer/tsconfig.build.json" },
     { "path": "../krao-plc-mirror/tsconfig.build.json" },

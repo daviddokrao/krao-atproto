@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import { normalizeAccountId } from '@krao/wallet'
 import { type EvmRpc, parseAssetId } from './chain.js'
 import { formatUsd, usdPricer } from './creator.js'
@@ -102,7 +103,7 @@ export async function putCollection(
   if (!rpc) {
     throw new OnchainError(
       'UnsupportedChain',
-      `Krao reads no chain ${input.chain}`,
+      `${BRAND.name} reads no chain ${input.chain}`,
     )
   }
   const contract = input.contract.trim().toLowerCase()

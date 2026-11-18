@@ -6,6 +6,7 @@ import {
   randomInt,
   timingSafeEqual,
 } from 'node:crypto'
+import { BRAND } from '@krao/brand'
 import { type SelectQueryBuilder, sql } from 'kysely'
 import type { Database, DatabaseSchema } from './db.js'
 import { RewardsError } from './service.js'
@@ -153,7 +154,7 @@ export class HttpSmsProvider implements SmsProvider {
 
 /** The SMS text. Without diacritics: they double the cost of an SMS */
 export const smsText = (code: string) =>
-  `Krao: ma xac thuc cua ban la ${code}, het han sau 5 phut. Khong chia se ma nay voi ai.`
+  `${BRAND.name}: ma xac thuc cua ban la ${code}, het han sau 5 phut. Khong chia se ma nay voi ai.`
 
 const iso = (ms: number) => new Date(ms).toISOString()
 

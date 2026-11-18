@@ -1,3 +1,5 @@
+import { BRAND } from '@krao/brand'
+
 /**
  * Handles Krao keeps for itself, on top of upstream's reserved list.
  *
@@ -26,9 +28,22 @@ export const kraoReserved = [
   'starter-pack-short',
   'video-feed',
   'wallet',
-  // Krao's own names (Krao's official account uses the domain itself, krao.net)
-  'kraonet',
-  'krao-net',
-  'kraoteam',
-  'krao-team',
+  // The brand's own names (its official account uses the domain itself),
+  // eg kraonet, krao-net, kraoteam, krao-team
+  ...brandNames(),
 ]
+
+function brandNames(): string[] {
+  const domain = BRAND.domain.toLowerCase()
+  // Accents folded ("Krào" -> "krao"); letters with no ASCII form dropped
+  const name = BRAND.name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+  return [
+    domain.replace(/\./g, ''),
+    domain.replace(/\./g, '-'),
+    ...(name ? [`${name}team`, `${name}-team`] : []),
+  ]
+}

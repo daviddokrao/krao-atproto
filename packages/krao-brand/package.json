@@ -1,0 +1,25 @@
+{
+  "name": "@krao/brand",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Krao brand values (name, domain, hosts, emails) read from brand.json",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./brand.json": "./brand.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.build.json",
+    "test": "vitest run"
+  }
+}

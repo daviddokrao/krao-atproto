@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { BRAND } from '@krao/brand'
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { DatetimeString } from '@atproto/syntax'
@@ -215,7 +216,7 @@ export function createApp(opts: {
   app.use(cors())
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
-    res.type('text/plain').send('Krao video service. Health: /_health')
+    res.type('text/plain').send(`${BRAND.name} video service. Health: /_health`)
   })
   app.get('/_health', (_req, res) => {
     res.json({ ok: true, maxBytes: limits.maxBytes })

@@ -11,12 +11,12 @@
         {
           "lang": "en",
           "name": "Possible impersonation",
-          "description": "This account's name and picture or handle look like a verified account's. Krao checks this automatically; the account can appeal."
+          "description": "This account's name and picture or handle look like a verified account's. {brandName} checks this automatically; the account can appeal."
         },
         {
           "lang": "vi",
           "name": "Có thể mạo danh",
-          "description": "Tên và ảnh đại diện hoặc handle của tài khoản này giống một tài khoản đã xác minh. Krao kiểm tra tự động; chủ tài khoản có thể khiếu nại."
+          "description": "Tên và ảnh đại diện hoặc handle của tài khoản này giống một tài khoản đã xác minh. {brandName} kiểm tra tự động; chủ tài khoản có thể khiếu nại."
         }
       ]
     }

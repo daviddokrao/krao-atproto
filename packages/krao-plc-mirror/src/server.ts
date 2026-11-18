@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import express, { type Express } from 'express'
 import { sql } from 'kysely'
 import { PlcMirror } from './mirror.js'
@@ -20,7 +21,7 @@ export function createApp(mirror: PlcMirror): Express {
   app.disable('x-powered-by')
 
   app.get('/', (_req, res) => {
-    res.type('text/plain').send('Krao PLC mirror. Health: /_health')
+    res.type('text/plain').send(`${BRAND.name} PLC mirror. Health: /_health`)
   })
 
   app.get('/_health', async (_req, res) => {

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
+import { BRAND } from '@krao/brand'
 import cors from 'cors'
 import express, { type Express, json as jsonBody, raw } from 'express'
 import { sql } from 'kysely'
@@ -215,7 +216,7 @@ export function createApp(opts: AppOptions): Express {
     async (ctx: MethodAuthContext) => {
       const result = await userAuth(ctx)
       if (!(await allowed(result.credentials.did))) {
-        throw new ForbiddenError('Only Krao admins may call this')
+        throw new ForbiddenError(`Only ${BRAND.name} admins may call this`)
       }
       return result
     }
@@ -947,7 +948,9 @@ export function createApp(opts: AppOptions): Express {
   app.set('trust proxy', 'loopback, linklocal, uniquelocal')
   app.use(cors())
   app.get('/', (_req, res) => {
-    res.type('text/plain').send('Krao rewards service. Health: /_health')
+    res
+      .type('text/plain')
+      .send(`${BRAND.name} rewards service. Health: /_health`)
   })
   app.get('/_health', async (_req, res) => {
     try {

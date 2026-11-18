@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs'
+import { brandUrl } from '@krao/brand'
 import { KraoPush } from './index.js'
 
 const required = (name: string, minLength = 32) => {
@@ -18,7 +19,7 @@ const push = await KraoPush.create({
   dbLocation: process.env.KRAO_PUSH_DB ?? 'krao-push.sqlite',
   courierKey: required('KRAO_PUSH_COURIER_KEY'),
   internalToken: required('KRAO_PUSH_INTERNAL_TOKEN'),
-  appviewUrl: process.env.KRAO_PUSH_APPVIEW_URL ?? 'https://api.krao.net',
+  appviewUrl: process.env.KRAO_PUSH_APPVIEW_URL ?? brandUrl('api'),
   appviewDb: process.env.KRAO_PUSH_APPVIEW_DB_URL
     ? {
         url: process.env.KRAO_PUSH_APPVIEW_DB_URL,

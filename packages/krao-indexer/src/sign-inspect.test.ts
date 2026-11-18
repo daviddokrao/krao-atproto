@@ -1,4 +1,4 @@
-import { LINK_STATEMENT, formatSignInMessage } from '@krao/wallet'
+import { LINK_DOMAIN, LINK_STATEMENT, formatSignInMessage } from '@krao/wallet'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Database, createDb, migrateDb } from './db.js'
 import { inspectSignature, personalMessageText } from './sign-inspect.js'
@@ -253,7 +253,7 @@ describe('inspectSignature', () => {
   })
 
   it("flags Krao's wallet proofs asked for by another site", async () => {
-    const proof = siwe('krao.net', LINK_STATEMENT)
+    const proof = siwe(LINK_DOMAIN, LINK_STATEMENT)
     const fromApp = await inspect({
       method: 'personal_sign',
       payload: proof,

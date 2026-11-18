@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
+import { webUrl } from '@krao/brand'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
 import { KraoPlcMirror } from '@krao/plc-mirror'
@@ -117,10 +118,10 @@ const run = async () => {
       // Videos are stored as blobs, up to the video service's limit
       blobUploadLimit: 100 * 1024 * 1024,
       // Shown on the sign-up screen (describeServer)
-      homeUrl: 'https://krao.net/',
-      termsOfServiceUrl: 'https://krao.net/terms',
-      privacyPolicyUrl: 'https://krao.net/privacy',
-      supportUrl: 'https://krao.net/support',
+      homeUrl: webUrl('/'),
+      termsOfServiceUrl: webUrl('/terms'),
+      privacyPolicyUrl: webUrl('/privacy'),
+      supportUrl: webUrl('/support'),
     },
     bsky: {
       plcUrl: PLC_MIRROR_URL,

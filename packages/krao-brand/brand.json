@@ -1,0 +1,36 @@
+{
+  "name": "Krao",
+  "domain": "krao.net",
+  "hosts": {
+    "pds": "pds",
+    "api": "api",
+    "indexer": "idx",
+    "video": "video",
+    "chat": "chat",
+    "rewards": "rewards",
+    "rpc": "rpc",
+    "embed": "embed",
+    "status": "status",
+    "plc": "plc",
+    "gate": "gate",
+    "geolocation": "ip",
+    "liveEvents": "live-events",
+    "appConfig": "app-config",
+    "updates": "updates",
+    "go": "go",
+    "mod": "mod"
+  },
+  "nsid": "net.krao",
+  "app": {
+    "id": "io.krao.app",
+    "scheme": "krao",
+    "slug": "krao"
+  },
+  "emails": {
+    "support": "support@krao.net",
+    "noreply": "noreply@krao.net"
+  },
+  "social": {
+    "officialHandle": "krao.net"
+  }
+}
