@@ -136,6 +136,8 @@ export default [
       'packages/lex-cli/bin.js',
       'packages/lex/*/scripts/*.js',
       'packages/pds/scripts/*.js',
+      'scripts/krao-*.mjs',
+      'services/krao/**/*.mjs',
     ],
     languageOptions: {
       globals: globals.node,
