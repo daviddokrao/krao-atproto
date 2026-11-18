@@ -11,15 +11,25 @@
  * rewards service (KRAO_REWARDS_URL), whose dev-env codes are readable.
  */
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-/** Brand values (name, domain): the one source, see DESIGN-brand.md */
-const BRAND = JSON.parse(
-  readFileSync(
-    new URL('../packages/krao-brand/brand.json', import.meta.url),
-    'utf8',
-  ),
-)
+/**
+ * Brand values (name, domain): the one source, see DESIGN-brand.md. Found next
+ * to this script in krao-atproto, else from the current directory (a copy of
+ * this script may live outside the repo); KRAO_BRAND_JSON overrides both.
+ */
+const BRAND_PATHS = [
+  process.env.KRAO_BRAND_JSON,
+  fileURLToPath(new URL('../packages/krao-brand/brand.json', import.meta.url)),
+  'packages/krao-brand/brand.json',
+  'krao-atproto/packages/krao-brand/brand.json',
+].filter(Boolean)
+const BRAND_PATH = BRAND_PATHS.find((p) => existsSync(p))
+if (!BRAND_PATH) {
+  throw new Error(`brand.json not found, tried: ${BRAND_PATHS.join(', ')}`)
+}
+const BRAND = JSON.parse(readFileSync(BRAND_PATH, 'utf8'))
 
 const PDS =
   process.argv.slice(2).find((a) => !a.startsWith('--')) ||
