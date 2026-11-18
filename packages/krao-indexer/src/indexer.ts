@@ -32,6 +32,8 @@ import {
   upsertFeedFollow,
 } from './discovery.js'
 import { deleteOrphanedMedia } from './gate-media.js'
+import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
+import type { PushClient } from './push-client.js'
 import {
   GATE_RULE_COLLECTION,
   deleteContentWithoutRule,
@@ -152,6 +154,7 @@ export class FirehoseIndexer {
       () =>
         void deleteContentWithoutRule(this.db)
           .then(() => deleteOrphanedMedia(this.db))
+          .then(() => purgeMediaTrash(this.db, this.mediaBlobs))
           .then(() => pruneOldDiscoveryData(this.db))
           .catch((err: unknown) =>
             console.error('Krao indexer: gated media cleanup failed', err),
@@ -159,6 +162,11 @@ export class FirehoseIndexer {
       60 * 60 * 1000,
     )
   }
+
+  /** Where gated media bytes live when not in the database */
+  mediaBlobs?: MediaBlobStore
+  /** Tells tip recipients when set */
+  push?: PushClient
 
   private destroyed = false
 
@@ -267,9 +275,27 @@ export class FirehoseIndexer {
       ...(await getPendingTips(this.db)).filter((t) => !fresh.includes(t.uri)),
     ]
     for (const tip of rows) {
-      await verifyTip(this.db, this.rpcs, tip).catch((err: unknown) =>
-        console.error('Krao indexer: tip check failed', tip.uri, err),
+      const status = await verifyTip(this.db, this.rpcs, tip).catch(
+        (err: unknown) => {
+          console.error('Krao indexer: tip check failed', tip.uri, err)
+          return tip.status
+        },
       )
+      // Only news: not tips found again when the firehose is replayed
+      if (
+        status === 'verified' &&
+        tip.status !== 'verified' &&
+        Date.now() - Date.parse(tip.indexedAt) < 24 * 60 * 60 * 1000
+      ) {
+        this.push?.notify({
+          kind: 'tip',
+          id: tip.uri,
+          recipientDid: tip.recipient,
+          senderDid: tip.did,
+          ...(tip.subject ? { subject: tip.subject } : {}),
+          ...(tip.message ? { message: tip.message } : {}),
+        })
+      }
     }
   }
 

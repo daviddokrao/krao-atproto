@@ -4,6 +4,7 @@ import path from 'node:path'
 import { Client as PlcClient } from '@did-plc/lib'
 import { KraoChat } from '@krao/chat'
 import { KraoIndexer } from '@krao/indexer'
+import { KraoPush } from '@krao/push'
 import { KraoRewards } from '@krao/rewards'
 import { KraoVideo } from '@krao/video'
 import { Secp256k1Keypair } from '@atproto/crypto'
@@ -15,6 +16,14 @@ const KRAO_INDEXER_PORT = 2589
 const KRAO_VIDEO_PORT = 2591
 const KRAO_CHAT_PORT = 2590
 const KRAO_REWARDS_PORT = 2592
+const KRAO_PUSH_PORT = 2593
+/** The AppView's courier key and Krao services' push token; dev only */
+const KRAO_PUSH_COURIER_KEY = 'krao-dev-push-courier-key'
+const KRAO_PUSH_TOKEN = 'krao-dev-push-internal-token'
+const KRAO_PUSH = {
+  url: `http://localhost:${KRAO_PUSH_PORT}`,
+  token: KRAO_PUSH_TOKEN,
+}
 
 /** Shared by the dev PDS and rewards service; dev only */
 const KRAO_REWARDS_TOKEN = 'krao-dev-rewards-token'
@@ -76,6 +85,10 @@ const run = async () => {
       suggestionsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
       topicsUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
       irisUrl: `http://localhost:${KRAO_INDEXER_PORT}`,
+      // Push notifications through Krao's push service (logged, not sent)
+      courierUrl: KRAO_PUSH.url,
+      courierApiKey: KRAO_PUSH_COURIER_KEY,
+      courierHttpVersion: '1.1',
     },
     plc: { port: 2582 },
     ozone: {
@@ -139,6 +152,7 @@ const run = async () => {
     feedGenDid,
     // Where short links lead: the web app in front of this dev-env
     webUrl: process.env.KRAO_DEV_WEB_URL || 'http://localhost:8081',
+    push: KRAO_PUSH,
   })
   await kraoIndexer.start()
   console.log(`💎 Krao indexer ${kraoIndexer.url}`)
@@ -177,6 +191,7 @@ const run = async () => {
     insecureFetch: true,
     // Ozone reviews reported messages through chat.bsky.moderation.*
     moderatorDids: [network.ozone.ctx.cfg.service.did],
+    push: KRAO_PUSH,
   })
   await kraoChat.start()
   console.log(`💬 Krao chat service (${chatDid}) ${kraoChat.url}`)
@@ -192,6 +207,7 @@ const run = async () => {
     insecureFetch: true,
     // Tests review KYC by hand on every run
     manualReview: { dailyLimit: 1000 },
+    push: KRAO_PUSH,
   })
   await kraoRewards.start()
   await kraoRewards.service.createCode('system', {
@@ -200,6 +216,23 @@ const run = async () => {
     note: 'Dev-env sign-ups',
   })
   console.log(`🎁 Krao rewards service ${kraoRewards.url}`)
+
+  // Krao push service: no FCM/APNs here, so pushes are only logged (and
+  // listed at /internal/recent for the e2e tests)
+  const kraoPush = await KraoPush.create({
+    port: KRAO_PUSH_PORT,
+    dbLocation: ':memory:',
+    courierKey: KRAO_PUSH_COURIER_KEY,
+    internalToken: KRAO_PUSH_TOKEN,
+    appviewUrl: network.bsky.url,
+    appviewDb: {
+      url: network.bsky.db.opts.url,
+      schema: network.bsky.db.opts.schema,
+    },
+    pollMs: 500,
+  })
+  await kraoPush.start()
+  console.log(`🔔 Krao push service ${kraoPush.url}`)
 
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)

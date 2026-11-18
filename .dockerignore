@@ -16,6 +16,7 @@ services/*/tsconfig.json
 # buf
 packages/bsky/src/proto
 packages/bsync/src/proto
+packages/krao-push/src/proto
 
 # codegen
 packages/api/src/client

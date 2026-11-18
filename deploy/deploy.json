@@ -1,0 +1,50 @@
+{
+  "name": "kraonet-backend",
+  "routes": [
+    {
+      "host": "pds.krao.net",
+      "service": "devenv",
+      "port": 2583,
+      "max_body": "100MB",
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "api.krao.net",
+      "service": "devenv",
+      "port": 2584,
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "idx.krao.net",
+      "service": "devenv",
+      "port": 2589,
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "video.krao.net",
+      "service": "devenv",
+      "port": 2591,
+      "max_body": "10MB",
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "chat.krao.net",
+      "service": "devenv",
+      "port": 2590,
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "rewards.krao.net",
+      "service": "devenv",
+      "port": 2592,
+      "block_paths": ["/internal/*"]
+    },
+    {
+      "host": "rpc.krao.net",
+      "service": "rpc-guard",
+      "port": 8545,
+      "methods": ["POST", "OPTIONS"]
+    }
+  ],
+  "needs_supabase": false
+}

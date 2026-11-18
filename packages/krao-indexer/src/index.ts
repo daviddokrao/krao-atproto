@@ -5,6 +5,8 @@ import { EvmRpc } from './chain.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { FirehoseIndexer } from './indexer.js'
 import { createApp } from './server.js'
+import { type S3MediaConfig, S3MediaStore } from './media-store.js'
+import { createPushClient } from './push-client.js'
 
 export * from './db.js'
 export * from './wallets.js'
@@ -49,6 +51,10 @@ export type KraoIndexerConfig = {
   publicUrl?: string
   /** Secret that signs gated media URLs; random per process when unset */
   gateMediaSecret?: string
+  /** Keep gated media bytes in this S3 bucket instead of the database */
+  gateMediaS3?: S3MediaConfig
+  /** Krao's push service, to tell people about tips they got */
+  push?: { url: string; token: string }
   /** Only feed posts by accounts on this PDS, see FeedIndexingOptions */
   feedPdsUrl?: string
   /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
@@ -87,6 +93,11 @@ export class KraoIndexer {
       cfg.nftRecheckMs,
       { did: cfg.feedGenDid, pdsUrl: cfg.feedPdsUrl },
     )
+    const mediaBlobs = cfg.gateMediaS3
+      ? new S3MediaStore(cfg.gateMediaS3)
+      : undefined
+    indexer.mediaBlobs = mediaBlobs
+    indexer.push = createPushClient(cfg.push?.url, cfg.push?.token)
     return new KraoIndexer(
       cfg,
       db,
@@ -98,6 +109,7 @@ export class KraoIndexer {
         feedGenDid: cfg.feedGenDid,
         publicUrl: cfg.publicUrl,
         gateMediaSecret: cfg.gateMediaSecret,
+        mediaBlobs,
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
         discoveryCacheMs: cfg.discoveryCacheMs,

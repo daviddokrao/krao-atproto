@@ -10,6 +10,8 @@ const pdsUrls = (process.env.KRAO_VIDEO_PDS_URLS ?? 'https://pds.krao.net')
   .filter(Boolean)
 
 const video = KraoVideo.create({
+  // Rehearsals and dev only: identity lookups to private hosts over http
+  insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: envInt('KRAO_VIDEO_PORT') ?? 2591,
   serviceDid: process.env.KRAO_VIDEO_DID ?? 'did:web:video.krao.net',
   dataDir: process.env.KRAO_VIDEO_DATA_DIR ?? 'krao-video-data',

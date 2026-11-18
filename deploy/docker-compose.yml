@@ -1,0 +1,77 @@
+# Krao Network sandbox demo: the atproto dev-env (PLC, PDS, AppView, Ozone, Krao
+# indexer/gate, Krao video) plus an Anvil fork of Base. Data lives in memory and is
+# reseeded on every start of the devenv container.
+services:
+  devenv:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.devenv
+    container_name: kraonet-backend-devenv
+    restart: unless-stopped
+    depends_on: [postgres, redis, anvil]
+    environment:
+      NODE_ENV: development
+      DB_POSTGRES_URL: postgresql://pg:password@kraonet-backend-postgres:5432/postgres
+      REDIS_HOST: kraonet-backend-redis:6379
+      KRAO_DEV_PDS_HOSTNAME: pds.krao.net
+      KRAO_DEV_WEB_URL: https://krao.net
+      KRAO_DEV_APPVIEW_URL: https://api.krao.net
+      KRAO_DEV_VIDEO_URL: https://video.krao.net
+      KRAO_DEV_RPC_URL: http://kraonet-backend-anvil:8545
+      KRAO_RPC_URL: http://kraonet-backend-anvil:8545
+    volumes:
+      - ./:/app/deploy:ro
+    expose: ['2583', '2584', '2589', '2590', '2591', '2592']
+    networks: [edge, internal]
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:stable
+    container_name: kraonet-backend-anvil
+    restart: unless-stopped
+    entrypoint: ['anvil']
+    command:
+      - --host=0.0.0.0
+      - --chain-id=8453
+      - --fork-url=https://mainnet.base.org
+    expose: ['8545']
+    networks: [internal]
+
+  # rpc.krao.net: standard JSON-RPC only, no Anvil cheat methods
+  rpc-guard:
+    image: node:24-alpine
+    container_name: kraonet-backend-rpc-guard
+    restart: unless-stopped
+    depends_on: [anvil]
+    command: ['node', '/app/rpc-guard.mjs']
+    environment:
+      RPC_UPSTREAM: http://kraonet-backend-anvil:8545
+    volumes:
+      - ./rpc-guard.mjs:/app/rpc-guard.mjs:ro
+    expose: ['8545']
+    networks: [edge, internal]
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: kraonet-backend-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pg
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    container_name: kraonet-backend-redis
+    restart: unless-stopped
+    networks: [internal]
+
+networks:
+  edge:
+    external: true
+  # The VPS has used up Docker's default address pools, so pin a subnet
+  internal:
+    ipam:
+      config:
+        - subnet: 10.213.47.0/28

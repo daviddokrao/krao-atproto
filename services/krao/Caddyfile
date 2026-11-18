@@ -1,0 +1,83 @@
+{
+	email {$KRAO_ACME_EMAIL}
+	# Empty in production; local_certs for a rehearsal
+	{$KRAO_CADDY_GLOBAL:}
+	# Certificates for user handles (alice.krao.net) are issued when first
+	# requested, only for handles the PDS knows
+	on_demand_tls {
+		ask http://pds:3000/tls-check
+	}
+}
+
+(common) {
+	encode zstd gzip
+	# Service-to-service routes, never public
+	@internal path /internal/*
+	respond @internal 404
+	header -Server
+}
+
+(service) {
+	import common
+}
+
+(pds) {
+	import common
+	request_body {
+		max_size 100MB
+	}
+	reverse_proxy pds:3000
+}
+
+pds.{$KRAO_DOMAIN} {
+	import pds
+}
+
+# User handles (alice.<domain>): any other name, with a certificate made on
+# first use once the PDS confirms the handle. Not a *.<domain> site: Caddy
+# would then leave the service sites below without their own certificates.
+https:// {
+	tls {
+		on_demand
+	}
+	import pds
+}
+
+api.{$KRAO_DOMAIN} {
+	import service
+	reverse_proxy appview:2584
+}
+
+mod.{$KRAO_DOMAIN} {
+	import service
+	reverse_proxy ozone:3000
+}
+
+idx.{$KRAO_DOMAIN} {
+	import service
+	request_body {
+		max_size 60MB
+	}
+	reverse_proxy indexer:2589
+}
+
+chat.{$KRAO_DOMAIN} {
+	import service
+	reverse_proxy chat:2590
+}
+
+video.{$KRAO_DOMAIN} {
+	import service
+	request_body {
+		max_size 10MB
+	}
+	reverse_proxy video:2591
+}
+
+rewards.{$KRAO_DOMAIN} {
+	import service
+	reverse_proxy rewards:2592
+}
+
+# Extra sites of a rehearsal (rehearsal/extra.caddy); none in production
+import /etc/caddy/extra/*.caddy

@@ -7,6 +7,8 @@ import {
   type SumsubConfig,
   SumsubProvider,
 } from './kyc.js'
+import { pushRewardChanges } from './notifications.js'
+import { type PushClient, createPushClient } from './push-client.js'
 import { createApp } from './server.js'
 import { RewardsService } from './service.js'
 
@@ -33,10 +35,19 @@ export type KraoRewardsConfig = {
   manualReview?: Partial<ManualReviewConfig>
   /** Allow plain http identity lookups. Only for local development. */
   insecureFetch?: boolean
+  /** Krao's push service, to tell people about points and KYC */
+  push?: { url: string; token: string }
+  /**
+   * A campaign code made at startup if missing, so the first accounts of a
+   * new network (the admins) can sign up. Disable it once they have.
+   */
+  bootstrapCode?: { code: string; maxUses: number }
 }
 
 export class KraoRewards {
   private server?: http.Server
+  private pushTimer?: NodeJS.Timeout
+  private push?: PushClient
 
   private constructor(
     public cfg: KraoRewardsConfig,
@@ -56,6 +67,18 @@ export class KraoRewards {
     await migrateDb(db)
     const service = new RewardsService(db)
     await service.seedRules()
+    if (cfg.bootstrapCode) {
+      await service
+        .createCode('system', {
+          code: cfg.bootstrapCode.code,
+          kind: 'campaign',
+          maxUses: cfg.bootstrapCode.maxUses,
+          note: 'Bootstrap code for the first accounts',
+        })
+        .catch((err: unknown) => {
+          if ((err as { error?: string }).error !== 'CodeTaken') throw err
+        })
+    }
     const idResolver = new IdResolver({
       plcUrl: cfg.plcUrl,
       ...(cfg.insecureFetch ? { fetch: globalThis.fetch } : {}),
@@ -85,10 +108,33 @@ export class KraoRewards {
   async start(): Promise<http.Server> {
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
+    this.push = createPushClient(this.cfg.push?.url, this.cfg.push?.token)
+    if (this.push) {
+      const push = this.push
+      // Changes from before this start are not announced
+      let since = new Date().toISOString()
+      let running = false
+      this.pushTimer = setInterval(() => {
+        if (running) return
+        running = true
+        pushRewardChanges(this.db, push, since)
+          .then((next) => {
+            since = next
+          })
+          .catch((err: unknown) => {
+            console.error('Krao rewards: push failed', err)
+          })
+          .finally(() => {
+            running = false
+          })
+      }, 15_000)
+      this.pushTimer.unref()
+    }
     return this.server
   }
 
   async destroy(): Promise<void> {
+    clearInterval(this.pushTimer)
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

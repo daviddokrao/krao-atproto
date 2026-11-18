@@ -1,0 +1,330 @@
+# Krao production backend on one host. See services/krao/README.md.
+#
+#   cp .env.example .env   # fill in every value
+#   docker compose up -d --build
+#
+# Variables written ${VAR:?...} must be set: compose refuses to start
+# without them, rather than running with a default that is wrong in
+# production.
+
+x-backend: &backend
+  image: krao-backend:${KRAO_IMAGE_TAG:-latest}
+  build:
+    context: ../..
+    dockerfile: services/krao/Dockerfile
+  restart: unless-stopped
+  networks: [internal]
+  logging:
+    driver: json-file
+    options: { max-size: 20m, max-file: '5' }
+
+x-plc: &plc
+  KRAO_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      POSTGRES_USER: krao
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: krao
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, krao]
+      interval: 5s
+      retries: 20
+
+  pds:
+    <<: *backend
+    working_dir: /app/services/pds
+    command: [node, --enable-source-maps, index.ts]
+    volumes: [pds:/data]
+    environment:
+      PDS_PORT: 3000
+      PDS_HOSTNAME: pds.${KRAO_DOMAIN:?set KRAO_DOMAIN}
+      PDS_SERVICE_HANDLE_DOMAINS: .${KRAO_DOMAIN}
+      PDS_DATA_DIRECTORY: /data
+      PDS_BLOBSTORE_DISK_LOCATION: /data/blocks
+      PDS_BLOB_UPLOAD_LIMIT: 104857600
+      PDS_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      PDS_JWT_SECRET: ${PDS_JWT_SECRET:?set PDS_JWT_SECRET}
+      PDS_ADMIN_PASSWORD: ${PDS_ADMIN_PASSWORD:?set PDS_ADMIN_PASSWORD}
+      PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX: ${PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX:?set PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX}
+      PDS_EMAIL_SMTP_URL: ${PDS_EMAIL_SMTP_URL:-}
+      PDS_EMAIL_FROM_ADDRESS: ${PDS_EMAIL_FROM_ADDRESS:-}
+      # Krao's AppView, moderation and sign-up (referral codes)
+      PDS_BSKY_APP_VIEW_URL: http://appview:2584
+      PDS_BSKY_APP_VIEW_DID: did:web:api.${KRAO_DOMAIN}
+      PDS_MOD_SERVICE_URL: http://ozone:3000
+      PDS_MOD_SERVICE_DID: ${OZONE_SERVER_DID:?set OZONE_SERVER_DID}
+      PDS_REPORT_SERVICE_URL: http://ozone:3000
+      PDS_REPORT_SERVICE_DID: ${OZONE_SERVER_DID}
+      PDS_INVITE_REQUIRED: 'true'
+      PDS_KRAO_INDEXER_URL: http://indexer:2589
+      PDS_KRAO_REWARDS_URL: http://rewards:2592
+      PDS_KRAO_REWARDS_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN:?set KRAO_REWARDS_INTERNAL_TOKEN}
+      PDS_HOME_URL: https://${KRAO_DOMAIN}/
+      PDS_TERMS_OF_SERVICE_URL: https://${KRAO_DOMAIN}/terms
+      PDS_PRIVACY_POLICY_URL: https://${KRAO_DOMAIN}/privacy
+      PDS_SUPPORT_URL: https://${KRAO_DOMAIN}/support
+      PDS_CRAWLERS: ''
+      LOG_ENABLED: 'true'
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:3000/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      retries: 30
+
+  appview:
+    <<: *backend
+    working_dir: /app/services/bsky
+    command: [node, --enable-source-maps, krao-appview.ts]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      BSKY_PORT: 2584
+      LOG_ENABLED: 'true'
+      BSKY_PUBLIC_URL: https://api.${KRAO_DOMAIN}
+      BSKY_SERVER_DID: did:web:api.${KRAO_DOMAIN}
+      BSKY_SERVICE_SIGNING_KEY: ${BSKY_SERVICE_SIGNING_KEY:?set BSKY_SERVICE_SIGNING_KEY}
+      BSKY_DB_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
+      BSKY_DB_POSTGRES_SCHEMA: bsky
+      BSKY_REPO_PROVIDER: ws://pds:3000
+      BSKY_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      BSKY_DATAPLANE_HTTP_VERSION: '1.1'
+      BSKY_BSYNC_URL: http://bsync:2585
+      BSKY_BSYNC_API_KEY: ${BSYNC_API_KEY:?set BSYNC_API_KEY}
+      BSKY_BSYNC_HTTP_VERSION: '1.1'
+      # Push notifications go through Krao's own push service
+      BSKY_COURIER_URL: http://push:2593
+      BSKY_COURIER_API_KEY: ${KRAO_PUSH_COURIER_KEY:?set KRAO_PUSH_COURIER_KEY}
+      BSKY_COURIER_HTTP_VERSION: '1.1'
+      BSKY_ADMIN_PASSWORDS: ${BSKY_ADMIN_PASSWORD:?set BSKY_ADMIN_PASSWORD}
+      MOD_SERVICE_DID: ${OZONE_SERVER_DID}
+      BSKY_LABELS_FROM_ISSUER_DIDS: ${OZONE_SERVER_DID}
+      BSKY_VIDEO_PLAYLIST_URL_PATTERN: https://video.${KRAO_DOMAIN}/watch/%s/%s/playlist.m3u8
+      BSKY_VIDEO_THUMBNAIL_URL_PATTERN: https://video.${KRAO_DOMAIN}/watch/%s/%s/thumbnail.jpg
+      # Suggestions and trending topics come from the Krao indexer
+      BSKY_SUGGESTIONS_URL: http://indexer:2589
+      BSKY_TOPICS_URL: http://indexer:2589
+      BSKY_IRIS_URL: http://indexer:2589
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:2584/xrpc/_health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      retries: 30
+
+  bsync:
+    <<: *backend
+    working_dir: /app/services/bsync
+    command: [node, --enable-source-maps, index.ts]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      BSYNC_PORT: 2585
+      BSYNC_DB_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
+      BSYNC_DB_POSTGRES_SCHEMA: bsync
+      BSYNC_DB_MIGRATE: '1'
+      BSYNC_API_KEYS: ${BSYNC_API_KEY}
+      BSYNC_DATAPLANE_URLS: http://appview:2585
+      # Required with a data plane; Krao's in-process one does not check it
+      BSYNC_DATAPLANE_AUTH_TOKEN: ${BSYNC_API_KEY}
+
+  ozone:
+    <<: *backend
+    working_dir: /app/services/ozone
+    command: [node, --enable-source-maps, api.ts]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment: &ozone-env
+      OZONE_PORT: 3000
+      OZONE_DB_MIGRATE: '1'
+      OZONE_PUBLIC_URL: https://mod.${KRAO_DOMAIN}
+      OZONE_SERVER_DID: ${OZONE_SERVER_DID}
+      OZONE_SIGNING_KEY_HEX: ${OZONE_SIGNING_KEY_HEX:?set OZONE_SIGNING_KEY_HEX}
+      OZONE_ADMIN_PASSWORD: ${OZONE_ADMIN_PASSWORD:?set OZONE_ADMIN_PASSWORD}
+      OZONE_ADMIN_DIDS: ${OZONE_ADMIN_DIDS:-}
+      OZONE_DB_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
+      OZONE_DB_POSTGRES_SCHEMA: ozone
+      OZONE_DID_PLC_URL: ${KRAO_PLC_URL:-https://plc.directory}
+      OZONE_APPVIEW_URL: http://appview:2584
+      OZONE_APPVIEW_DID: did:web:api.${KRAO_DOMAIN}
+      OZONE_APPVIEW_PUSH_EVENTS: 'true'
+      OZONE_PDS_URL: http://pds:3000
+      OZONE_PDS_DID: did:web:pds.${KRAO_DOMAIN}
+      OZONE_CHAT_URL: http://chat:2590
+      OZONE_CHAT_DID: did:web:chat.${KRAO_DOMAIN}
+
+  ozone-daemon:
+    <<: *backend
+    working_dir: /app/services/ozone
+    command: [node, --enable-source-maps, daemon.ts]
+    depends_on: [ozone]
+    environment: *ozone-env
+
+  indexer:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-indexer/dist/bin.js]
+    volumes: [indexer:/data]
+    environment:
+      <<: *plc
+      KRAO_INDEXER_PORT: 2589
+      KRAO_INDEXER_DB: /data/indexer.sqlite
+      KRAO_FIREHOSE_URL: ws://pds:3000
+      KRAO_HANDLE_RESOLVER_URL: http://pds:3000
+      KRAO_APPVIEW_URL: http://appview:2584
+      KRAO_FEED_PDS_URL: https://pds.${KRAO_DOMAIN}
+      KRAO_FEEDGEN_DID: did:web:idx.${KRAO_DOMAIN}
+      KRAO_GATE_DID: did:web:idx.${KRAO_DOMAIN}
+      KRAO_INDEXER_PUBLIC_URL: https://idx.${KRAO_DOMAIN}
+      KRAO_WEB_URL: https://${KRAO_DOMAIN}
+      KRAO_RPC_URLS: ${KRAO_RPC_URLS:?set KRAO_RPC_URLS}
+      KRAO_GATE_MEDIA_SECRET: ${KRAO_GATE_MEDIA_SECRET:?set KRAO_GATE_MEDIA_SECRET}
+      KRAO_GATE_MEDIA_S3_BUCKET: ${KRAO_GATE_MEDIA_S3_BUCKET:-}
+      KRAO_GATE_MEDIA_S3_REGION: ${KRAO_GATE_MEDIA_S3_REGION:-}
+      KRAO_GATE_MEDIA_S3_ENDPOINT: ${KRAO_GATE_MEDIA_S3_ENDPOINT:-}
+      KRAO_GATE_MEDIA_S3_PATH_STYLE: ${KRAO_GATE_MEDIA_S3_PATH_STYLE:-}
+      AWS_ACCESS_KEY_ID: ${KRAO_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${KRAO_S3_SECRET_ACCESS_KEY:-}
+      KRAO_KLIPY_API_KEY: ${KRAO_KLIPY_API_KEY:-}
+      KRAO_PUSH_URL: http://push:2593
+      KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN:?set KRAO_PUSH_INTERNAL_TOKEN}
+
+  chat:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-chat/dist/bin.js]
+    volumes: [chat:/data]
+    environment:
+      <<: *plc
+      KRAO_CHAT_PORT: 2590
+      KRAO_CHAT_DB: /data/chat.sqlite
+      KRAO_CHAT_DID: did:web:chat.${KRAO_DOMAIN}
+      KRAO_CHAT_PUBLIC_URL: https://chat.${KRAO_DOMAIN}
+      KRAO_APPVIEW_URL: http://appview:2584
+      KRAO_CHAT_MODERATOR_DIDS: ${OZONE_SERVER_DID}
+      KRAO_PUSH_URL: http://push:2593
+      KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+
+  video:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-video/dist/bin.js]
+    volumes: [video:/data]
+    environment:
+      <<: *plc
+      KRAO_VIDEO_PORT: 2591
+      KRAO_VIDEO_DATA_DIR: /data
+      KRAO_VIDEO_DID: did:web:video.${KRAO_DOMAIN}
+      KRAO_VIDEO_PUBLIC_URL: https://video.${KRAO_DOMAIN}
+      # Uploads name the PDS by its public URL; reach it inside the network
+      KRAO_VIDEO_PDS_URLS: https://pds.${KRAO_DOMAIN}=http://pds:3000
+
+  rewards:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-rewards/dist/bin.js]
+    volumes: [rewards:/data]
+    environment:
+      <<: *plc
+      KRAO_REWARDS_PORT: 2592
+      KRAO_REWARDS_DB: /data/rewards.sqlite
+      KRAO_REWARDS_DID: did:web:rewards.${KRAO_DOMAIN}
+      KRAO_REWARDS_PUBLIC_URL: https://rewards.${KRAO_DOMAIN}
+      KRAO_REWARDS_INTERNAL_TOKEN: ${KRAO_REWARDS_INTERNAL_TOKEN}
+      KRAO_REWARDS_ADMIN_DIDS: ${KRAO_REWARDS_ADMIN_DIDS:-}
+      KRAO_REWARDS_BOOTSTRAP_CODE: ${KRAO_REWARDS_BOOTSTRAP_CODE:-}
+      KRAO_KYC_REVIEWER_DIDS: ${KRAO_KYC_REVIEWER_DIDS:-}
+      KRAO_KYC_MANUAL_DAILY_LIMIT: ${KRAO_KYC_MANUAL_DAILY_LIMIT:-}
+      SUMSUB_APP_TOKEN: ${SUMSUB_APP_TOKEN:-}
+      SUMSUB_SECRET_KEY: ${SUMSUB_SECRET_KEY:-}
+      SUMSUB_WEBHOOK_SECRET: ${SUMSUB_WEBHOOK_SECRET:-}
+      SUMSUB_LEVEL: ${SUMSUB_LEVEL:-}
+      KRAO_PUSH_URL: http://push:2593
+      KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+
+  push:
+    <<: *backend
+    command: [node, --enable-source-maps, packages/krao-push/dist/bin.js]
+    volumes:
+      - push:/data
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      KRAO_PUSH_PORT: 2593
+      KRAO_PUSH_DB: /data/push.sqlite
+      KRAO_PUSH_COURIER_KEY: ${KRAO_PUSH_COURIER_KEY}
+      KRAO_PUSH_INTERNAL_TOKEN: ${KRAO_PUSH_INTERNAL_TOKEN}
+      KRAO_PUSH_APPVIEW_DB_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
+      KRAO_PUSH_APPVIEW_DB_SCHEMA: bsky
+      KRAO_PUSH_APPVIEW_URL: http://appview:2584
+      KRAO_PUSH_FCM_SERVICE_ACCOUNT_FILE: ${KRAO_PUSH_FCM_SERVICE_ACCOUNT_FILE:-}
+      KRAO_PUSH_APNS_KEY_FILE: ${KRAO_PUSH_APNS_KEY_FILE:-}
+      KRAO_PUSH_APNS_KEY_ID: ${KRAO_PUSH_APNS_KEY_ID:-}
+      KRAO_PUSH_APNS_TEAM_ID: ${KRAO_PUSH_APNS_TEAM_ID:-}
+      KRAO_PUSH_APNS_TOPIC: ${KRAO_PUSH_APNS_TOPIC:-io.krao.app}
+      KRAO_PUSH_APNS_PRODUCTION: ${KRAO_PUSH_APNS_PRODUCTION:-true}
+
+  backup:
+    <<: *backend
+    command:
+      [
+        node,
+        services/krao/backup.mjs,
+        --every,
+        '${KRAO_BACKUP_EVERY_HOURS:-24}',
+      ]
+    # Reads the live databases; writes copies to /backups (and S3 when set)
+    volumes:
+      - pds:/volumes/pds
+      - indexer:/volumes/indexer
+      - chat:/volumes/chat
+      - rewards:/volumes/rewards
+      - push:/volumes/push
+      - video:/volumes/video
+      - ${KRAO_BACKUP_DIR:-./backups}:/backups
+    user: root
+    environment:
+      KRAO_BACKUP_POSTGRES_URL: postgres://krao:${POSTGRES_PASSWORD}@postgres:5432/krao
+      KRAO_BACKUP_KEEP: ${KRAO_BACKUP_KEEP:-7}
+      KRAO_BACKUP_S3_BUCKET: ${KRAO_BACKUP_S3_BUCKET:-}
+      KRAO_BACKUP_S3_REGION: ${KRAO_BACKUP_S3_REGION:-}
+      KRAO_BACKUP_S3_ENDPOINT: ${KRAO_BACKUP_S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${KRAO_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${KRAO_S3_SECRET_ACCESS_KEY:-}
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    networks: [internal]
+    ports: ['80:80', '443:443']
+    environment:
+      KRAO_DOMAIN: ${KRAO_DOMAIN}
+      KRAO_ACME_EMAIL: ${KRAO_ACME_EMAIL:?set KRAO_ACME_EMAIL}
+      KRAO_CADDY_GLOBAL: ''
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+
+networks:
+  internal: {}
+
+volumes:
+  postgres: {}
+  pds: {}
+  indexer: {}
+  chat: {}
+  video: {}
+  rewards: {}
+  push: {}
+  caddy: {}

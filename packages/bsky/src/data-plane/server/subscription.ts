@@ -17,18 +17,23 @@ export class RepoSubscription {
   readonly indexingSvc: IndexingService
   private readonly service: string
   private readonly idResolver: IdResolver
+  private readonly cursor?: SubscriptionCursor
 
   constructor({
     service,
     db,
     idResolver,
+    cursor,
   }: {
     service: string
     db: Database
     idResolver: IdResolver
+    /** Where to resume after a restart; from the start when unset */
+    cursor?: SubscriptionCursor
   }) {
     this.service = service
     this.idResolver = idResolver
+    this.cursor = cursor
     this.background = new BackgroundQueue(db, {
       // @TODO This has historically been using the default concurrency
       // (Infinity) but we may want to limit this in the future to avoid
@@ -58,6 +63,8 @@ export class RepoSubscription {
         idResolver: this.idResolver,
         service: this.service,
         indexingSvc: this.indexingSvc,
+        startCursor: (await this.cursor?.get()) ?? 0,
+        setCursor: this.cursor?.set,
       })
       void this.current.firehose.start()
     }
@@ -103,13 +110,24 @@ export class RepoSubscription {
   }
 }
 
+export type SubscriptionCursor = {
+  get: () => Promise<number | undefined>
+  /** Called with the seq of each event once it and those before it are done */
+  set: (cursor: number) => Promise<void>
+}
+
 const createFirehose = (opts: {
   idResolver: IdResolver
   service: string
   indexingSvc: IndexingService
+  startCursor: number
+  setCursor?: (cursor: number) => Promise<void>
 }) => {
   const { idResolver, service, indexingSvc } = opts
-  const runner = new MemoryRunner({ startCursor: 0 })
+  const runner = new MemoryRunner({
+    startCursor: opts.startCursor,
+    setCursor: opts.setCursor,
+  })
   const firehose = new Firehose({
     idResolver,
     runner,

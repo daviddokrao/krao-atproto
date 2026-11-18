@@ -19,6 +19,7 @@ const ALL = [
   'discovery',
   'chat-moderation',
   'referral',
+  'push',
 ]
 const selected = process.argv.slice(2)
 const unknown = selected.filter((name) => !ALL.includes(name))
