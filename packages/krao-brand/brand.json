@@ -13,9 +13,6 @@
     "status": "status",
     "plc": "plc",
     "gate": "gate",
-    "geolocation": "ip",
-    "liveEvents": "live-events",
-    "appConfig": "app-config",
     "updates": "updates",
     "go": "go",
     "mod": "mod"
