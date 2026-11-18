@@ -67,31 +67,42 @@ next.domain = domain
 next.nsid =
   opt('nsid') ??
   (opt('domain') ? domain.split('.').reverse().join('.') : old.nsid)
-// Before launch the app's identity follows the brand unless given
-const renamed = next.name !== old.name || next.domain !== old.domain
-const lowerName = next.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+/*
+ * Before launch the app's identity follows the brand unless given: the app id
+ * follows the domain (`<nsid>.app`), the scheme and slug follow the name
+ */
+const lowerName = next.name
+  .normalize('NFKD')
+  .replace(/\p{M}/gu, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, '')
 next.app.id =
-  opt('app-id') ??
-  (renamed ? `${next.nsid.split('.').slice(0, 2).join('.')}.app` : old.app.id)
-next.app.scheme = opt('scheme') ?? (renamed ? lowerName : old.app.scheme)
-next.app.slug = opt('slug') ?? (renamed ? lowerName : old.app.slug)
+  opt('app-id') ?? (domain !== old.domain ? `${next.nsid}.app` : old.app.id)
+next.app.scheme =
+  opt('scheme') ?? (next.name !== old.name ? lowerName : old.app.scheme)
+next.app.slug =
+  opt('slug') ?? (next.name !== old.name ? lowerName : old.app.slug)
 // Values that embed the domain follow it (emails, official handle...)
 replaceDeep(next, (s) =>
   old.domain !== domain ? s.split(old.domain).join(domain) : s,
 )
 
 // Validation
-const NSID_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/
+/*
+ * Exactly two segments, like net.krao: lexicon folders keep their depth (the
+ * PDS's routes import by relative path) and each segment is a JS identifier
+ */
+const NSID_RE = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/
 if (!NSID_RE.test(next.nsid)) {
   fail(
-    `--nsid "${next.nsid}": lower-case letters and digits, 2+ dot-separated segments, no hyphens (they become JS identifiers)`,
+    `NSID "${next.nsid}": two dot-separated segments of lower-case letters and digits (eg io.abc). For a domain like abc.co.uk pass --nsid uk.abc or similar.`,
   )
 }
 if (!/^[a-z][a-z0-9.-]*\.[a-z]{2,}$/.test(domain))
   fail(`--domain "${domain}" does not look like a domain`)
 if (!/^[a-zA-Z][a-zA-Z0-9.]*$/.test(next.app.id))
   fail(`--app-id "${next.app.id}"`)
-if (!/^[a-z][a-z0-9+.-]*$/.test(next.app.scheme))
+if (!/^[a-z][a-z0-9]*$/.test(next.app.scheme))
   fail(`--scheme "${next.app.scheme}"`)
 if (next.nsid !== domain.split('.').reverse().join('.')) {
   console.warn(
@@ -132,6 +143,13 @@ if (old.domain !== next.domain) {
   rules.push([
     new RegExp(`(?<![A-Za-z0-9_-])${esc(old.domain)}(?![A-Za-z0-9_-])`, 'g'),
     next.domain,
+  ])
+}
+if (old.app.scheme !== next.app.scheme) {
+  // Deep links built in native code (Kotlin/Swift) and docs: krao://...
+  rules.push([
+    new RegExp(`(?<![A-Za-z0-9+.-])${esc(old.app.scheme)}://`, 'g'),
+    `${next.app.scheme}://`,
   ])
 }
 /** Static files that cannot read brand.json: the name is written in them */

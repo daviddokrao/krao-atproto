@@ -2,6 +2,8 @@
 // dev-env (`make run-dev-env`) and the Anvil Base fork (`krao-anvil`).
 import { createHash } from 'node:crypto'
 import {
+  LINK_DOMAIN,
+  LINK_STATEMENT,
   evmAddressFromPublicKey,
   formatSignInMessage,
   hashEvmMessage,
@@ -193,10 +195,10 @@ export function deleteRecord(session, uri) {
 /** An net.krao.actor.wallet record whose SIWE proof is signed by `signer` */
 export function walletRecord(did, w, signer = w) {
   const message = formatSignInMessage({
-    domain: 'krao.net',
+    domain: LINK_DOMAIN,
     chain: 'Ethereum',
     address: w.address,
-    statement: 'Link this wallet to my Krao account.',
+    statement: LINK_STATEMENT,
     uri: did,
     version: '1',
     chainId: '8453',

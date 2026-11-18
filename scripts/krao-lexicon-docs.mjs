@@ -14,13 +14,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const LEXICONS = path.join(ROOT, 'lexicons', 'net', 'krao')
 export const DOCS = path.join(ROOT, 'docs', 'krao', 'lexicons.md')
 const MINIAPP_DOCS = path.join(ROOT, 'docs', 'krao', 'miniapps.md')
-/** The product name (packages/krao-brand/brand.json) */
-const NAME = JSON.parse(
+/** The brand (packages/krao-brand/brand.json): product name and NSID */
+const BRAND = JSON.parse(
   readFileSync(path.join(ROOT, 'packages', 'krao-brand', 'brand.json'), 'utf8'),
-).name
+)
+const NAME = BRAND.name
+const LEXICONS = path.join(ROOT, 'lexicons', ...BRAND.nsid.split('.'))
 
 /** Every net.krao lexicon document, by NSID */
 export function loadLexicons(dir = LEXICONS) {

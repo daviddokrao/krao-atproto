@@ -35,11 +35,15 @@ export const kraoReserved = [
 
 function brandNames(): string[] {
   const domain = BRAND.domain.toLowerCase()
-  const name = BRAND.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+  // Accents folded ("Krào" -> "krao"); letters with no ASCII form dropped
+  const name = BRAND.name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
   return [
     domain.replace(/\./g, ''),
     domain.replace(/\./g, '-'),
-    `${name}team`,
-    `${name}-team`,
+    ...(name ? [`${name}team`, `${name}-team`] : []),
   ]
 }
