@@ -1,5 +1,5 @@
-import { InvalidRequestError } from '@atproto/xrpc-server'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import type { Appview, AppviewProfile } from './appview.js'
 import { type Database, type MemberTable, createDb, migrateDb } from './db.js'
 import { nextRev, randomId } from './rev.js'

@@ -9,18 +9,18 @@ import {
   coinbaseReplaySafeHash,
   coinbaseSignature,
   coinbaseUndeployedSignature,
-  wrapErc6492Signature,
   hashEvmMessage,
   hexToBytes,
   readAddress,
+  wrapErc6492Signature,
 } from '@krao/wallet'
 import { secp256k1 } from '@noble/curves/secp256k1'
 import * as ui8 from 'uint8arrays'
 import {
   INDEXER,
-  USDC,
   PDS,
   SIGNUP_CODE,
+  USDC,
   checker,
   createRecord,
   rpc,

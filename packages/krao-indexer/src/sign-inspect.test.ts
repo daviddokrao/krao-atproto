@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { LINK_STATEMENT, formatSignInMessage } from '@krao/wallet'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Database, createDb, migrateDb } from './db.js'
 import { inspectSignature, personalMessageText } from './sign-inspect.js'
 import { PERMIT2 } from './simulate.js'

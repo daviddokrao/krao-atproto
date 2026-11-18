@@ -1,5 +1,5 @@
-import type { AddressInfo } from 'node:net'
 import type http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IdResolver } from '@atproto/identity'
 import {

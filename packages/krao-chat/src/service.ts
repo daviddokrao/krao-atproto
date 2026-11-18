@@ -1,9 +1,8 @@
-import { InvalidRequestError } from '@atproto/xrpc-server'
 import { findSecrets } from '@krao/wallet'
 import { sql } from 'kysely'
 import { countGraphemes } from 'unicode-segmenter/grapheme'
+import { InvalidRequestError } from '@atproto/xrpc-server'
 import type { Appview, AppviewProfile } from './appview.js'
-import { isChatDisabled } from './moderation.js'
 import type {
   ConvoTable,
   Database,
@@ -12,6 +11,7 @@ import type {
   MessageTable,
   ReactionTable,
 } from './db.js'
+import { isChatDisabled } from './moderation.js'
 import type { PushClient } from './push-client.js'
 import { currentRev, nextRev, randomId } from './rev.js'
 

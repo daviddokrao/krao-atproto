@@ -27,7 +27,7 @@ export function bip39Words(): Set<string> {
  * numbered list ("1. abandon 2. ability", one per line too). Commas and bare
  * line breaks make a list of things (a shopping list), not a phrase.
  */
-const PHRASE_GAP_RE = /^(?:[ \t ]+|\s*\d{1,2}\s*[.):-]?\s*)$/
+const PHRASE_GAP_RE = /^(?:[ \t\u00a0]+|\s*\d{1,2}\s*[.):-]?\s*)$/
 
 /**
  * Whether `text` holds SEED_PHRASE_MIN_WORDS or more BIP39 words in a row,

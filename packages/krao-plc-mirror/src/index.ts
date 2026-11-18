@@ -4,7 +4,7 @@ import { type Database, createDb, migrateDb } from './db.js'
 import { PlcMirror } from './mirror.js'
 import { createApp } from './server.js'
 
-export { PlcMirror, type ExportEntry, type IngestResult } from './mirror.js'
+export { type ExportEntry, type IngestResult, PlcMirror } from './mirror.js'
 export { opCid, validateNextOp } from './validate.js'
 export { createDb, migrateDb } from './db.js'
 export { enableMockExport } from './dev.js'

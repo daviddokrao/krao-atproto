@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import cors from 'cors'
 import express, { type Express, json as jsonBody, raw } from 'express'
+import { sql } from 'kysely'
 import type { IdResolver } from '@atproto/identity'
 import { isValidDid } from '@atproto/syntax'
 import {
@@ -14,9 +15,21 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
-import { sql } from 'kysely'
-import { catchAsyncErrors, errorHandler } from './async-routes.js'
+import {
+  type PushDevices,
+  exportRewardsData,
+  listConsents,
+  recordConsent,
+} from './account.js'
+import { isDay } from './activity.js'
 import { getFunnel, getRetention, getSummary } from './analytics.js'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
+import {
+  getBadgeVisibility,
+  humanDids,
+  isVerifiedHuman,
+  setBadgeVisibility,
+} from './badges.js'
 import {
   type CodeKind,
   INDEXER_EVENTS,
@@ -30,19 +43,6 @@ import {
   pendingSecondApproval,
   reviewKyc,
 } from './kyc.js'
-import {
-  type PushDevices,
-  exportRewardsData,
-  listConsents,
-  recordConsent,
-} from './account.js'
-import {
-  getBadgeVisibility,
-  humanDids,
-  isVerifiedHuman,
-  setBadgeVisibility,
-} from './badges.js'
-import { isDay } from './activity.js'
 import { getLeaderboard, setOptIn } from './leaderboard.js'
 import { net } from './lexicons/index.js'
 import type { PhoneService } from './phone.js'

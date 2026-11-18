@@ -4,40 +4,10 @@ import { type Cid, type LexMap, lexParse } from '@atproto/lex'
 import { type Event, Firehose } from '@atproto/sync'
 import { AtUri } from '@atproto/syntax'
 import type { EvmRpc } from './chain.js'
-import type { Database } from './db.js'
 import {
-  FEED_GENERATOR_COLLECTION,
-  LIKE_COLLECTION,
-  POST_COLLECTION,
-  REPOST_COLLECTION,
-  deleteFeedDataForDid,
-  deleteFeedGenerator,
-  deleteFeedInteraction,
-  deleteFeedPost,
-  pruneOldDiscoveryData,
-  feedInteractionRowFromRecord,
-  feedPostRowFromRecord,
-  upsertFeedGenerator,
-  upsertFeedInteraction,
-  upsertFeedPost,
-} from './feed.js'
-import {
-  FOLLOW_COLLECTION,
-  STARTER_PACK_COLLECTION,
-  deleteStarterPack,
-  upsertStarterPack,
-  deleteDiscoveryDataForDid,
-  deleteFeedFollow,
-  deletePostTags,
-  feedFollowRowFromRecord,
-  postTags,
-  setPostTags,
-  upsertFeedFollow,
-} from './discovery.js'
-import {
+  APPROVAL_COLLECTION,
   COMMUNITY_COLLECTION,
   COMMUNITY_COLLECTIONS,
-  APPROVAL_COLLECTION,
   MEMBERSHIP_COLLECTION,
   MODERATOR_COLLECTION,
   SUBMISSION_COLLECTION,
@@ -62,31 +32,53 @@ import {
   pruneFollowerLosses,
   recordFollowerLoss,
 } from './creator.js'
+import type { Database } from './db.js'
+import {
+  FOLLOW_COLLECTION,
+  STARTER_PACK_COLLECTION,
+  deleteDiscoveryDataForDid,
+  deleteFeedFollow,
+  deletePostTags,
+  deleteStarterPack,
+  feedFollowRowFromRecord,
+  postTags,
+  setPostTags,
+  upsertFeedFollow,
+  upsertStarterPack,
+} from './discovery.js'
+import {
+  FEED_GENERATOR_COLLECTION,
+  LIKE_COLLECTION,
+  POST_COLLECTION,
+  REPOST_COLLECTION,
+  deleteFeedDataForDid,
+  deleteFeedGenerator,
+  deleteFeedInteraction,
+  deleteFeedPost,
+  feedInteractionRowFromRecord,
+  feedPostRowFromRecord,
+  pruneOldDiscoveryData,
+  upsertFeedGenerator,
+  upsertFeedInteraction,
+  upsertFeedPost,
+} from './feed.js'
 import { deleteOrphanedMedia } from './gate-media.js'
+import {
+  GATE_RULE_COLLECTION,
+  deleteContentWithoutRule,
+  deleteGateDataForDid,
+  deleteGateDataForSubject,
+  deleteGateRule,
+  gateRuleRowFromRecord,
+  upsertGateRule,
+} from './gate.js'
 import type { HumanCheck } from './human.js'
 import {
   type ImpersonationWatcher,
   PROFILE_COLLECTION,
   VERIFICATION_COLLECTION,
 } from './impersonation.js'
-import {
-  type NameRpc,
-  deletePrimaryName,
-  markPrimaryNameStale,
-  markPrimaryNamesStaleForAddresses,
-  refreshPrimaryNames,
-} from './names.js'
-import {
-  type AccountEvent,
-  type RewardsEventSender,
-  deleteAccountEventsForDid,
-  deliverAccountEvents,
-  pruneSentActivityDays,
-  queueAccountEvent,
-  queueActivityDay,
-  queueWalletLinked,
-  vnDay,
-} from './rewards-events.js'
+import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
 import {
   PAYMENT_COLLECTION,
   PLAN_COLLECTION,
@@ -101,7 +93,30 @@ import {
   upsertPlan,
   verifyPayment,
 } from './membership.js'
-import { type MediaBlobStore, purgeMediaTrash } from './media-store.js'
+import {
+  MINIAPP_COLLECTION,
+  type MiniAppRules,
+  deleteMiniApp,
+  deleteMiniAppsForDid,
+  miniAppRowFromRecord,
+  upsertMiniApp,
+} from './miniapp.js'
+import {
+  type NameRpc,
+  deletePrimaryName,
+  markPrimaryNameStale,
+  markPrimaryNamesStaleForAddresses,
+  refreshPrimaryNames,
+} from './names.js'
+import {
+  NFT_AVATAR_COLLECTION,
+  deleteNftAvatar,
+  getNftAvatarsToRecheck,
+  markNftAvatarStale,
+  nftAvatarRowFromRecord,
+  upsertNftAvatar,
+  verifyNftAvatar,
+} from './nft.js'
 import {
   POLL_COLLECTION,
   VOTE_COLLECTION,
@@ -115,42 +130,22 @@ import {
 } from './poll.js'
 import type { PushClient } from './push-client.js'
 import {
+  type AccountEvent,
+  type RewardsEventSender,
+  deleteAccountEventsForDid,
+  deliverAccountEvents,
+  pruneSentActivityDays,
+  queueAccountEvent,
+  queueActivityDay,
+  queueWalletLinked,
+  vnDay,
+} from './rewards-events.js'
+import {
   type SafetyList,
   deletePostLinks,
   postLinkHosts,
   setPostLinks,
 } from './safety.js'
-import {
-  type TokenCatalog,
-  deleteCashtagsForDid,
-  deletePostCashtags,
-} from './token.js'
-import {
-  GATE_RULE_COLLECTION,
-  deleteContentWithoutRule,
-  deleteGateDataForDid,
-  deleteGateDataForSubject,
-  deleteGateRule,
-  gateRuleRowFromRecord,
-  upsertGateRule,
-} from './gate.js'
-import {
-  MINIAPP_COLLECTION,
-  type MiniAppRules,
-  deleteMiniApp,
-  deleteMiniAppsForDid,
-  miniAppRowFromRecord,
-  upsertMiniApp,
-} from './miniapp.js'
-import {
-  NFT_AVATAR_COLLECTION,
-  deleteNftAvatar,
-  getNftAvatarsToRecheck,
-  markNftAvatarStale,
-  nftAvatarRowFromRecord,
-  upsertNftAvatar,
-  verifyNftAvatar,
-} from './nft.js'
 import {
   TIP_COLLECTION,
   deleteTip,
@@ -161,6 +156,11 @@ import {
   upsertTip,
   verifyTip,
 } from './tips.js'
+import {
+  type TokenCatalog,
+  deleteCashtagsForDid,
+  deletePostCashtags,
+} from './token.js'
 import {
   WALLET_COLLECTION,
   deleteWallet,

@@ -425,15 +425,15 @@ const repos = await xrpc(PDS, 'com.atproto.sync.listRepos', {
 const dids = (repos.data.repos ?? [])
   .map((r) => r.did)
   .filter((d) => d.startsWith('did:plc:'))
-let same = 0
 const differ = []
 for (const did of dids) {
   const [mine, theirs] = await Promise.all([
     getJson(MIRROR, `/${did}`),
     getJson(PLC, `/${did}`),
   ])
-  if (JSON.stringify(mine.body) === JSON.stringify(theirs.body)) same++
-  else differ.push(did)
+  if (JSON.stringify(mine.body) !== JSON.stringify(theirs.body)) {
+    differ.push(did)
+  }
 }
 check(
   `every seeded DID (${dids.length}) has the same DID document in the mirror`,

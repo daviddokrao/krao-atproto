@@ -1,6 +1,13 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Transaction } from 'kysely'
 import { isValidDid } from '@atproto/syntax'
+import {
+  ACTIVE_MIN_DAYS,
+  acceptableDay,
+  accountCreatedAt,
+  activeDaysInWindow,
+  isDay,
+} from './activity.js'
 import type {
   Beneficiary,
   CodeKind,
@@ -21,13 +28,6 @@ import {
   INDEXER_EVENTS,
   REWARD_EVENTS,
 } from './db.js'
-import {
-  ACTIVE_MIN_DAYS,
-  acceptableDay,
-  accountCreatedAt,
-  activeDaysInWindow,
-  isDay,
-} from './activity.js'
 import { recordAudit } from './roles.js'
 
 type Db = Database | Transaction<DatabaseSchema>

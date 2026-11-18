@@ -9,9 +9,9 @@ import {
 } from './kyc.js'
 import { pushRewardChanges } from './notifications.js'
 import {
+  PhoneCrypto,
   type PhoneLimits,
   type PhoneSecrets,
-  PhoneCrypto,
   PhoneService,
   type SmsProvider,
 } from './phone.js'

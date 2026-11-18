@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express, { type Express } from 'express'
+import { sql } from 'kysely'
 import type { IdResolver } from '@atproto/identity'
 import {
   AuthRequiredError,
@@ -8,16 +9,15 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
-import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
-import { ChatLimits, DAY, NEW_CONVOS_PER_DAY } from './limits.js'
-import { addGroupRoutes } from './group.js'
 import { exportChatData } from './export.js'
+import { addGroupRoutes } from './group.js'
 import { chat, net } from './lexicons/index.js'
+import { ChatLimits, DAY, NEW_CONVOS_PER_DAY } from './limits.js'
 import { addModerationMethods, isChatDisabled } from './moderation.js'
 import type { PhoneGate } from './phone-gate.js'
 import {
-  ChatService,
+  type ChatService,
   GROUP_MEMBER_LIMIT,
   type MessageInput,
   assertNoWalletSecret,

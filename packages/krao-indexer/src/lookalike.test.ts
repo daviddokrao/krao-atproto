@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
+import { describe, expect, it } from 'vitest'
 import { dHash, hammingDistance, similarAvatars } from './avatar-hash.js'
 import {
   handleKey,
