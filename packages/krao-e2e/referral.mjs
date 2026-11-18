@@ -16,6 +16,8 @@ import {
 } from './lib.mjs'
 
 const { check, done } = checker()
+/** The dev-env PDS's admin password */
+const PDS_ADMIN_PASSWORD = process.env.KRAO_PDS_ADMIN_PASSWORD ?? 'admin-pass'
 const stamp = Date.now().toString(36).slice(-6)
 
 const signUp = (name, inviteCode) =>
@@ -83,6 +85,10 @@ check(
   'each account gets a personal code',
   /^[2-9A-Z]{8}$/.test(code ?? ''),
   code,
+)
+check(
+  'the overview says what a referral gives',
+  overview.data.inviterPoints === 100 && overview.data.inviteePoints === 50,
 )
 
 const codeCheck = await xrpc(REWARDS, 'net.krao.referral.checkCode', {
@@ -241,6 +247,54 @@ check(
     actions.includes(a),
   ),
   actions.join(', '),
+)
+
+// Roles tell the app which admin screens to show
+const adminRoles = await call(admin, 'net.krao.rewards.getRoles')
+const userRoles = await call(ben, 'net.krao.rewards.getRoles')
+check(
+  'roles name admins and nobody else',
+  adminRoles.data.roles?.join() === 'admin,kyc_reviewer' &&
+    userRoles.data.roles?.length === 0,
+)
+
+// A takedown takes back what the account brought its referrer
+const tdRefRes = await signUp('tdref', SIGNUP_CODE)
+const tdRef = tdRefRes.data
+const tdCode = (await call(tdRef, 'net.krao.referral.getOverview')).data.code
+const tdUser = (await signUp('tduser', tdCode)).data
+const tdPending = await waitFor(async () => {
+  const b = await balance(tdRef)
+  return b.pending === 150 ? b : null
+})
+check('a referral is pending before the takedown', !!tdPending)
+const takedown = await fetch(
+  `${PDS}/xrpc/com.atproto.admin.updateSubjectStatus`,
+  {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Basic ${Buffer.from(`admin:${PDS_ADMIN_PASSWORD}`).toString('base64')}`,
+    },
+    body: JSON.stringify({
+      subject: { $type: 'com.atproto.admin.defs#repoRef', did: tdUser.did },
+      takedown: { applied: true, ref: 'e2e' },
+    }),
+  },
+)
+check(
+  'a moderator takes the account down',
+  takedown.ok,
+  String(takedown.status),
+)
+const afterTakedown = await waitFor(async () => {
+  const b = await balance(tdRef)
+  return b.pending === 50 ? b : null
+})
+check(
+  'the referrer loses the points the taken down account brought',
+  !!afterTakedown,
+  JSON.stringify(await balance(tdRef)),
 )
 
 const webhook = await fetch(`${REWARDS}/webhooks/sumsub`, {

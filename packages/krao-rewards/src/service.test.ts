@@ -138,6 +138,19 @@ describe('RewardsService', () => {
     ])
   })
 
+  it('reports what a personal code gives now', async () => {
+    expect(await service.personalReferralPoints()).toEqual({
+      referrer: 100,
+      actor: 50,
+    })
+    await service.upsertRule(ADMIN, { ...DEFAULT_RULES[0], amount: 150 })
+    await service.upsertRule(ADMIN, { ...DEFAULT_RULES[1], enabled: false })
+    expect(await service.personalReferralPoints()).toEqual({
+      referrer: 150,
+      actor: 0,
+    })
+  })
+
   it('respects a cap per beneficiary', async () => {
     await service.upsertRule(ADMIN, {
       ...DEFAULT_RULES[0],
@@ -228,6 +241,34 @@ describe('RewardsService', () => {
     })
     expect(await service.balance(BOB)).toEqual({ pending: 0, approved: 0 })
     expect(await service.balance(ALICE)).toEqual({ pending: 0, approved: 0 })
+  })
+
+  it('stops a taken down account from earning, until the takedown is lifted', async () => {
+    const code = await service.personalCode(ALICE)
+    await signUp(BOB, ALICE)
+    await service.takeDown(ALICE)
+    expect(await service.balance(ALICE)).toEqual({ pending: 0, approved: 0 })
+    expect((await service.checkCode(code)).valid).toBe(false)
+
+    // An earlier invitee passing KYC brings nothing now
+    await approveKyc(ALICE)
+    await approveKyc(BOB)
+    expect(await service.balance(ALICE)).toEqual({ pending: 0, approved: 0 })
+
+    await service.liftTakedown(ALICE)
+    expect((await service.checkCode(code)).valid).toBe(true)
+    await service.recordReferral(CAROL, code, new Date().toISOString())
+    expect(await service.balance(ALICE)).toEqual({ pending: 100, approved: 0 })
+  })
+
+  it('keeps the bonus of someone a taken down account invited', async () => {
+    await service.upsertRule(ADMIN, {
+      ...DEFAULT_RULES[1],
+      vesting: ['kyc:self'],
+    })
+    await signUp(BOB, ALICE)
+    await service.takeDown(ALICE)
+    expect(await service.balance(BOB)).toEqual({ pending: 50, approved: 0 })
   })
 
   it('flags sign-ups whose code was no longer valid, without rewards', async () => {

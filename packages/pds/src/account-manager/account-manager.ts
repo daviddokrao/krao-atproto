@@ -462,9 +462,11 @@ export class AccountManager {
       await accountHelpers.updateAccountTakedownStatus(dbTxn, did, takedown)
       await auth.revokeRefreshTokensByDid(dbTxn, did)
       await token.removeByDid(dbTxn, did)
+      await this.kraoReferral?.recordTakedown(dbTxn, did, takedown.applied)
     })
 
     await this.sequenceAccountStatus(did)
+    this.kraoReferral?.deliverSoon()
   }
 
   async getAccountAdminStatus(did: DidString) {

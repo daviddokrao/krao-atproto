@@ -111,6 +111,12 @@ export interface PointsEntryTable {
   decidedAt: string | null
 }
 
+/** Accounts taken down by moderators: they earn nothing while listed */
+export interface TakenDownTable {
+  did: string
+  createdAt: string
+}
+
 export interface AuditLogTable {
   id: Generated<number>
   /** Admin DID, or 'system' */
@@ -131,6 +137,7 @@ export interface DatabaseSchema {
   reward_event: RewardEventTable
   points_entry: PointsEntryTable
   audit_log: AuditLogTable
+  taken_down: TakenDownTable
 }
 
 export type Database = Kysely<DatabaseSchema>
@@ -255,6 +262,12 @@ export async function migrateDb(db: Database) {
   await sql`create index if not exists points_entry_related_idx on points_entry (relatedDid, status)`.execute(
     db,
   )
+  await db.schema
+    .createTable('taken_down')
+    .ifNotExists()
+    .addColumn('did', 'varchar', (col) => col.primaryKey())
+    .addColumn('createdAt', 'varchar', (col) => col.notNull())
+    .execute()
   await db.schema
     .createTable('audit_log')
     .ifNotExists()

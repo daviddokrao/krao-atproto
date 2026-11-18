@@ -230,8 +230,28 @@ async function createKraoAccount(pdsUrl: string, name: string) {
       inviteCode: KRAO_DEV_CODE,
     }),
   })
-  const body = (await res.json()) as { did?: string; message?: string }
+  const body = (await res.json()) as {
+    did?: string
+    accessJwt?: string
+    message?: string
+  }
   if (!body.did) throw new Error(`Could not create ${name}: ${body.message}`)
+  // A birth date, or the app asks for one before anything else
+  await fetch(`${pdsUrl}/xrpc/app.bsky.actor.putPreferences`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${body.accessJwt}`,
+    },
+    body: JSON.stringify({
+      preferences: [
+        {
+          $type: 'app.bsky.actor.defs#personalDetailsPref',
+          birthDate: '1990-01-01T00:00:00.000Z',
+        },
+      ],
+    }),
+  })
   return body.did
 }
 
