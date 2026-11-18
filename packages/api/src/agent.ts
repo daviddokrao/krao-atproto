@@ -22,6 +22,7 @@ import {
   ChatNS,
   ComAtprotoRepoPutRecord,
   ComNS,
+  NetNS,
   ToolsNS,
 } from './client/index.js'
 import { schemas } from './client/lexicons.js'
@@ -103,6 +104,8 @@ export class Agent extends XrpcClient {
   app = new AppNS(this)
   chat = new ChatNS(this)
   tools = new ToolsNS(this)
+  // Krao: the net.krao.* lexicons are generated into this client too
+  net = new NetNS(this)
 
   /** @deprecated use `this` instead */
   get xrpc(): XrpcClient {

@@ -1,5 +1,6 @@
 import { once } from 'node:events'
 import type http from 'node:http'
+import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { IdResolver } from '@atproto/identity'
 import { PdsRegistry, VideoAuth } from './auth.js'
@@ -70,7 +71,8 @@ export class KraoVideo {
         ffprobe: cfg.ffprobePath ?? 'ffprobe',
       },
       { maxDurationSec: cfg.limits?.maxDurationSec ?? 3 * 60 },
-      cfg.concurrency ?? 1,
+      cfg.concurrency ??
+        Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2))),
     )
     const auth = new VideoAuth(
       idResolver,

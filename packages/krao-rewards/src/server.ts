@@ -12,6 +12,8 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { sql } from 'kysely'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { CodeKind, KycStatus } from './db.js'
 import {
   type KycProvider,
@@ -562,6 +564,7 @@ export function createApp(opts: AppOptions): Express {
   // -----------
 
   const app = express()
+  catchAsyncErrors(app)
   // Client addresses (for the code check limit) come from a proxy on a
   // private network (eg Caddy); others cannot set X-Forwarded-For
   app.set('trust proxy', 'loopback, linklocal, uniquelocal')
@@ -569,8 +572,13 @@ export function createApp(opts: AppOptions): Express {
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao rewards service. Health: /_health')
   })
-  app.get('/_health', (_req, res) => {
-    res.json({ ok: true, did: serviceDid })
+  app.get('/_health', async (_req, res) => {
+    try {
+      await sql`select 1`.execute(service.db)
+      res.json({ ok: true, did: serviceDid })
+    } catch {
+      res.status(503).json({ ok: false, did: serviceDid, error: 'Database' })
+    }
   })
 
   /*
@@ -697,5 +705,6 @@ export function createApp(opts: AppOptions): Express {
     })
   }
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }

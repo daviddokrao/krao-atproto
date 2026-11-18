@@ -14,12 +14,14 @@ import {
   createServer,
   verifyJwt,
 } from '@atproto/xrpc-server'
+import { catchAsyncErrors, errorHandler } from './async-routes.js'
 import type { EvmRpc } from './chain.js'
 import type { Database } from './db.js'
 import {
   POPULAR_FEED_RKEY,
   getLatestPosts,
   getPopularPosts,
+  rankPopularPosts,
   listFeedGenerators,
 } from './feed.js'
 import {
@@ -31,6 +33,7 @@ import {
   subjectsWithContent,
 } from './gate.js'
 import {
+  accountScores,
   suggestedAccounts,
   suggestedStarterPacks,
   trendingTags,
@@ -59,6 +62,9 @@ import {
   getNftMetadata,
   parseTokenId,
 } from './nft.js'
+import { cachedValue } from './cache.js'
+import { rateLimit } from './rate-limit.js'
+import { SafeFetchError } from './safe-fetch.js'
 import { addStarterPackRoutes } from './starter-packs.js'
 import {
   listTips,
@@ -95,6 +101,8 @@ export function createApp(
     publicUrl?: string
     /** Secret for signed gated media URLs (default: random per process) */
     gateMediaSecret?: string
+    /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
+    discoveryCacheMs?: number
   },
 ): Express {
   const {
@@ -108,6 +116,9 @@ export function createApp(
   } = opts
   const server = createServer([], {})
   const mediaSigner = new MediaSigner(opts.gateMediaSecret)
+  const cacheMs = opts.discoveryCacheMs ?? 30_000
+  const popularRanking = cachedValue(cacheMs, () => rankPopularPosts(db))
+  const globalAccountScores = cachedValue(cacheMs, () => accountScores(db))
   const baseUrl = (req: {
     protocol: string
     get(name: string): string | undefined
@@ -470,15 +481,18 @@ export function createApp(
         throw new InvalidRequestError('Unknown feed', 'UnknownFeed')
       }
       // The record's rkey picks the ranking: "popular", else newest first
-      const rank =
+      const limit = params.limit ?? 50
+      const page =
         params.feed.split('/').pop() === POPULAR_FEED_RKEY
-          ? getPopularPosts
-          : getLatestPosts
-      const { posts, cursor } = await rank(
-        db,
-        params.limit ?? 50,
-        params.cursor,
-      ).catch(() => {
+          ? getPopularPosts(
+              db,
+              limit,
+              params.cursor,
+              undefined,
+              await popularRanking(),
+            )
+          : getLatestPosts(db, limit, params.cursor)
+      const { posts, cursor } = await page.catch(() => {
         throw new InvalidRequestError('Malformed cursor')
       })
       return {
@@ -502,10 +516,11 @@ export function createApp(
   }) => ({
     encoding: 'application/json' as const,
     body: {
-      dids: (await suggestedAccounts(db, {
-        viewer: params.viewer,
-        limit: params.limit ?? 25,
-      })) as `did:${string}:${string}`[],
+      dids: (await suggestedAccounts(
+        db,
+        { viewer: params.viewer, limit: params.limit ?? 25 },
+        await globalAccountScores(),
+      )) as `did:${string}:${string}`[],
     },
   })
   const unspecced = bskyApp.bsky.unspecced
@@ -525,11 +540,15 @@ export function createApp(
     usersSkeleton(params),
   )
   server.add(unspecced.getSuggestionsSkeleton, async ({ params }) => {
-    const dids = await suggestedAccounts(db, {
-      viewer: params.viewer,
-      relativeTo: params.relativeToDid,
-      limit: params.limit ?? 50,
-    })
+    const dids = await suggestedAccounts(
+      db,
+      {
+        viewer: params.viewer,
+        relativeTo: params.relativeToDid,
+        limit: params.limit ?? 50,
+      },
+      await globalAccountScores(),
+    )
     return {
       encoding: 'application/json' as const,
       body: {
@@ -609,15 +628,44 @@ export function createApp(
   })
 
   const app = express()
-  // Behind a reverse proxy, req.protocol should follow X-Forwarded-Proto
-  app.set('trust proxy', true)
+  catchAsyncErrors(app)
+  /*
+   * Behind a reverse proxy, req.protocol and req.ip should follow the
+   * X-Forwarded-* headers, but only when a proxy on a private network set them
+   */
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal')
   app.use(cors())
+  // Public routes that fetch from the internet or the chain on each call
+  app.use('/v1/extract', rateLimit(60))
+  app.use('/v1/image', rateLimit(120))
+  app.use('/nft-image', rateLimit(30))
+  app.use('/xrpc/net.krao.actor.resolveNft', rateLimit(30))
+  app.use('/gifs', rateLimit(240))
+  app.use('/klipy', rateLimit(120))
+  app.post('/s/link', rateLimit(20))
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
     res.type('text/plain').send('Krao indexer. Health: /_health')
   })
-  app.get('/_health', (_req, res) => {
-    res.json({ ok: true })
+  app.get('/_health', async (_req, res) => {
+    try {
+      const cursor = await db
+        .selectFrom('cursor')
+        .select('seq')
+        .where('id', '=', 'firehose')
+        .executeTakeFirst()
+      const failed = await db
+        .selectFrom('failed_event')
+        .select((eb) => eb.fn.countAll<number>().as('count'))
+        .executeTakeFirst()
+      res.json({
+        ok: true,
+        firehoseSeq: cursor?.seq ?? null,
+        failedEvents: Number(failed?.count ?? 0),
+      })
+    } catch {
+      res.status(503).json({ ok: false, error: 'Database' })
+    }
   })
   /*
    * Internal lookup used by Krao PDSes to sign users in with a wallet. The
@@ -674,7 +722,7 @@ export function createApp(
       res.setHeader('cache-control', 'public, max-age=86400')
       res.send(jpeg)
     } catch (err) {
-      res.status(502).json({ error: (err as Error).message })
+      res.status(502).json({ error: publicFetchError(err) })
     }
   })
 
@@ -708,10 +756,11 @@ export function createApp(
     } catch (err) {
       res
         .status(502)
-        .json({ error: 'UpstreamFailure', message: (err as Error).message })
+        .json({ error: 'UpstreamFailure', message: publicFetchError(err) })
     }
   })
   app.use(server.router)
+  app.use(errorHandler)
   return app
 }
 
@@ -792,4 +841,11 @@ async function getProfilesBasic(
     }
   }
   return profiles
+}
+
+/** Our own fetch errors are safe to show; others may leak upstream detail */
+function publicFetchError(err: unknown): string {
+  return err instanceof SafeFetchError
+    ? err.message
+    : 'Could not fetch the image'
 }

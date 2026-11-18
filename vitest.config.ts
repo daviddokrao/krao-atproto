@@ -17,6 +17,8 @@ export default defineConfig({
       'packages/internal/*',
       'packages/krao-chat',
       'packages/krao-indexer',
+      'packages/krao-rewards',
+      'packages/krao-video',
       'packages/lex/*',
       'packages/lexicon-resolver',
       'packages/oauth/*',

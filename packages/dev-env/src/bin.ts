@@ -128,6 +128,8 @@ const run = async () => {
     handleResolverUrl: network.pds.url,
     appviewUrl: network.bsky.url,
     nftRecheckMs: 15_000,
+    // Tests and demos check feeds and suggestions right after writing
+    discoveryCacheMs: 0,
     gateDid: 'did:web:gate.krao.test',
     // Local Anvil chain (chain id 8453, forked from Base), see Krao README
     rpcUrls: {

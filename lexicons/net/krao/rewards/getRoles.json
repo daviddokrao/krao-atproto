@@ -9,18 +9,13 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": [
-            "roles"
-          ],
+          "required": ["roles"],
           "properties": {
             "roles": {
               "type": "array",
               "items": {
                 "type": "string",
-                "knownValues": [
-                  "admin",
-                  "kyc_reviewer"
-                ]
+                "knownValues": ["admin", "kyc_reviewer"]
               }
             }
           }

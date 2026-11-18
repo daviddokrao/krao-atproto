@@ -10,6 +10,8 @@ export interface KraoTakedownOutbox {
   attempts: number
   lastError: string | null
   deliveredAt: string | null
+  /** Set when the rewards service rejected the row for good */
+  failedAt: string | null
 }
 
 export const tableName = 'krao_takedown_outbox'

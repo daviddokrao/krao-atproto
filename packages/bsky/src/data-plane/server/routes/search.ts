@@ -101,7 +101,7 @@ export default (db: Database): Partial<ServiceImpl<typeof Service>> => {
     const { ref } = db.db.dynamic
     let builder = db.db
       .selectFrom('starter_pack')
-      .where('starter_pack.name', 'ilike', `%${term}%`)
+      .where('starter_pack.name', 'ilike', `%${escapeLike(term)}%`)
       .selectAll()
 
     const keyset = new TimeCidKeyset(

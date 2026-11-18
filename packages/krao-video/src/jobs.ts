@@ -68,6 +68,18 @@ async function exists(file: string) {
   }
 }
 
+/** When a JWT expires (its exp claim), in ms; undefined if unreadable */
+export function tokenExpiry(token: string): number | undefined {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'),
+    ) as { exp?: unknown }
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function sha256File(file: string) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(file)) hash.update(chunk)
@@ -163,6 +175,15 @@ export class JobQueue {
       )
 
       this.update(job.jobId, { state: 'JOB_STATE_UPLOADING', progress: 0 })
+      // The token was made when the upload finished; a long wait in line can
+      // outlast it, and the PDS would only say "unauthorized"
+      const exp = tokenExpiry(job.token)
+      if (exp !== undefined && exp - Date.now() < 10_000) {
+        throw new JobFailure(
+          'pds_upload_failure',
+          'The video waited too long to be processed. Please try posting it again.',
+        )
+      }
       const blob = await this.uploadToPds(job, mp4)
       if (getBlobCidString(blob) !== cid) {
         throw new JobFailure(

@@ -884,7 +884,8 @@ export function addGroupRoutes(
     auth,
     handler: async ({ auth: { credentials }, params }) => {
       const viewer = credentials.did
-      const rows = await db
+      const limit = params.limit ?? 50
+      let qb = db
         .selectFrom('convo')
         .innerJoin('member as me', 'me.convoId', 'convo.id')
         .innerJoin('member as them', 'them.convoId', 'convo.id')
@@ -895,10 +896,15 @@ export function addGroupRoutes(
         .where('them.did', '=', params.subject)
         .where('them.state', '=', 'active')
         .orderBy('convo.rev', 'desc')
-        .execute()
+        .limit(limit)
+      if (params.cursor) qb = qb.where('convo.rev', '<', params.cursor)
+      const rows = await qb.execute()
       const convos = []
       for (const row of rows) convos.push(await service.convoView(row, viewer))
-      return json({ convos })
+      return json({
+        convos,
+        cursor: rows.length >= limit ? rows.at(-1)?.rev : undefined,
+      })
     },
   })
 }

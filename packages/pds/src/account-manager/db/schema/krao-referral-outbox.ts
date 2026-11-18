@@ -6,6 +6,8 @@ export interface KraoReferralOutbox {
   attempts: number
   lastError: string | null
   deliveredAt: string | null
+  /** Set when the rewards service rejected the row for good */
+  failedAt: string | null
 }
 
 export const tableName = 'krao_referral_outbox'

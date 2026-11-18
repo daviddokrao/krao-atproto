@@ -13,6 +13,7 @@ import {
   checker,
   createRecord,
   dealErc20,
+  deleteRecord,
   linkWallet,
   login,
   serviceAuth,
@@ -301,6 +302,70 @@ check(
 check(
   'the gated image and video are not in the public repo either',
   !car.includes(png) && !car.includes(mp4),
+)
+
+// Removing the gate (deleting the rule record) takes the gated content down
+const post2 = (
+  await createRecord(author, 'app.bsky.feed.post', {
+    text: 'Gated for a moment',
+    createdAt: new Date().toISOString(),
+  })
+).data
+await xrpc(GATE, 'net.krao.gate.putContent', {
+  token: await serviceAuth(author, 'net.krao.gate.putContent'),
+  body: { uri: post2.uri, text: 'short-lived secret' },
+})
+const rule2 = await createRecord(author, 'net.krao.gate.rule', {
+  subject: { uri: post2.uri, cid: post2.cid },
+  conditions: [
+    {
+      $type: 'net.krao.gate.defs#tokenBalance',
+      asset: USDC_ASSET,
+      minAmount: '1',
+    },
+  ],
+  match: 'all',
+  service: GATE_DID,
+  createdAt: new Date().toISOString(),
+})
+await sleep(2500)
+const beforeRemoval = await getContent(holder, post2.uri)
+check(
+  'second gated post readable before the gate is removed',
+  beforeRemoval.ok && beforeRemoval.data.text === 'short-lived secret',
+  beforeRemoval.data.error,
+)
+await deleteRecord(author, rule2.data.uri)
+await sleep(2500)
+const rulesAfter = await xrpc(GATE, 'net.krao.gate.getRules', {
+  query: { uris: [post2.uri] },
+})
+const afterRemoval = await getContent(author, post2.uri)
+check(
+  'removing the rule removes the gate',
+  (rulesAfter.data.rules ?? []).length === 0 && !afterRemoval.ok,
+  `${(rulesAfter.data.rules ?? []).length} rules, ${afterRemoval.data.error}`,
+)
+// A new rule without new content: the old content must be gone for good
+await createRecord(author, 'net.krao.gate.rule', {
+  subject: { uri: post2.uri, cid: post2.cid },
+  conditions: [
+    {
+      $type: 'net.krao.gate.defs#tokenBalance',
+      asset: USDC_ASSET,
+      minAmount: '1',
+    },
+  ],
+  match: 'all',
+  service: GATE_DID,
+  createdAt: new Date().toISOString(),
+})
+await sleep(2500)
+const regated = await getContent(holder, post2.uri)
+check(
+  'the removed gate content does not come back with a new rule',
+  !JSON.stringify(regated.data).includes('short-lived secret'),
+  `${regated.status} ${regated.data.error}`,
 )
 
 // Leave a gated post for manual testing, with the poor wallet back at 1 USDC

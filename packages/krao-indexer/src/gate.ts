@@ -79,8 +79,63 @@ export async function upsertGateRule(db: Database, row: GateRuleTable) {
     .execute()
 }
 
+/**
+ * Delete a rule record's row. Once a post has no rule left, its gated content
+ * goes too: removing the gate is how authors take the content down.
+ */
 export async function deleteGateRule(db: Database, uri: string) {
+  const rule = await db
+    .selectFrom('gate_rule')
+    .select(['subject', 'indexedAt'])
+    .where('uri', '=', uri)
+    .executeTakeFirst()
   await db.deleteFrom('gate_rule').where('uri', '=', uri).execute()
+  if (!rule) return
+  const remaining = await db
+    .selectFrom('gate_rule')
+    .select('uri')
+    .where('subject', '=', rule.subject)
+    .executeTakeFirst()
+  if (!remaining) {
+    // Content stored after the rule was indexed belongs to a new gate whose
+    // rule has not arrived yet (remove, then add again right away)
+    await db
+      .deleteFrom('gated_content')
+      .where('subject', '=', rule.subject)
+      .where('updatedAt', '<=', rule.indexedAt)
+      .execute()
+  }
+}
+
+/** A deleted post takes its gates and gated content with it */
+export async function deleteGateDataForSubject(db: Database, subject: string) {
+  await db.deleteFrom('gate_rule').where('subject', '=', subject).execute()
+  await db.deleteFrom('gated_content').where('subject', '=', subject).execute()
+}
+
+/**
+ * Gated content whose post never got a rule (the rule write failed after the
+ * content was stored) is never served; drop it after a day.
+ */
+export async function deleteContentWithoutRule(
+  db: Database,
+  now = Date.now(),
+): Promise<number> {
+  const cutoff = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+  const result = await db
+    .deleteFrom('gated_content')
+    .where('updatedAt', '<', cutoff)
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('gate_rule')
+            .select('gate_rule.uri')
+            .whereRef('gate_rule.subject', '=', 'gated_content.subject'),
+        ),
+      ),
+    )
+    .executeTakeFirst()
+  return Number(result.numDeletedRows)
 }
 
 export async function deleteGateDataForDid(db: Database, did: string) {
@@ -173,6 +228,16 @@ async function linkedEvmAddresses(db: Database, did: string) {
   ]
 }
 
+/*
+ * Eligibility is checked on-chain, which costs a few RPC calls per view. A yes
+ * is cached per (rule, viewer, wallets) for a short while, so a viewer who
+ * sold the token loses access within minutes. A no is never cached: a viewer
+ * who just bought the token should get in on the next try.
+ */
+const ELIGIBLE_TTL_MS = 2 * 60 * 1000
+const ELIGIBILITY_CACHE_MAX = 10_000
+const eligibilityCache = new Map<string, number>()
+
 /**
  * Whether `viewer` meets the gate. The author always does. Balances are summed
  * across all of the viewer's verified wallets.
@@ -186,16 +251,42 @@ export async function isEligible(
   if (viewer === rule.did) return true
   const addresses = await linkedEvmAddresses(db, viewer)
   if (!addresses.length) return false
+  const key = [
+    rule.uri,
+    rule.match,
+    rule.conditions,
+    viewer,
+    ...addresses,
+  ].join('|')
+  const now = Date.now()
+  if ((eligibilityCache.get(key) ?? 0) > now) return true
+
   const conditions = JSON.parse(rule.conditions) as GateCondition[]
-  const results: boolean[] = []
-  for (const condition of conditions) {
-    const met = await meetsCondition(rpcs, condition, addresses).catch(
-      () => false,
-    )
-    if (rule.match === 'any' && met) return true
-    results.push(met)
+  const check = (condition: GateCondition) =>
+    meetsCondition(rpcs, condition, addresses).catch(() => false)
+  let eligible: boolean
+  if (rule.match === 'any') {
+    eligible = false
+    for (const condition of conditions) {
+      if (await check(condition)) {
+        eligible = true
+        break
+      }
+    }
+  } else {
+    eligible = true
+    for (const condition of conditions) {
+      if (!(await check(condition))) {
+        eligible = false
+        break
+      }
+    }
   }
-  return rule.match === 'any' ? false : results.every(Boolean)
+  if (eligible) {
+    if (eligibilityCache.size >= ELIGIBILITY_CACHE_MAX) eligibilityCache.clear()
+    eligibilityCache.set(key, now + ELIGIBLE_TTL_MS)
+  }
+  return eligible
 }
 
 async function meetsCondition(

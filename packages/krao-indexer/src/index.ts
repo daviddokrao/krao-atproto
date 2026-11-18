@@ -51,6 +51,8 @@ export type KraoIndexerConfig = {
   gateMediaSecret?: string
   /** Only feed posts by accounts on this PDS, see FeedIndexingOptions */
   feedPdsUrl?: string
+  /** How long feed rankings and suggestions are reused (default 30s, 0: off) */
+  discoveryCacheMs?: number
 }
 
 export class KraoIndexer {
@@ -98,6 +100,7 @@ export class KraoIndexer {
         gateMediaSecret: cfg.gateMediaSecret,
         klipyApiKey: cfg.klipyApiKey,
         webUrl: cfg.webUrl,
+        discoveryCacheMs: cfg.discoveryCacheMs,
       }),
     )
   }

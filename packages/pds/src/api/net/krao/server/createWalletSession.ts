@@ -1,6 +1,7 @@
 import {
   InvalidMessageError,
   type SignInMessage,
+  isPublicTestAddress,
   normalizeAccountId,
   parseSignInMessage,
   sameAddress,
@@ -42,6 +43,18 @@ export default function (server: Server, ctx: AppContext) {
     handler: async ({ input: { body } }) => {
       const account = parseAccountOrThrow(body.account)
       const normalized = normalizeAccountId(body.account)
+      // Anyone can sign as a well-known test account, so outside dev mode it
+      // must not open a session
+      if (
+        !ctx.cfg.service.devMode &&
+        account.namespace === 'eip155' &&
+        isPublicTestAddress(account.address)
+      ) {
+        throw new AuthRequiredError(
+          'This wallet uses a public test key',
+          'InvalidSignature',
+        )
+      }
       const publicUrl = new URL(ctx.cfg.service.publicUrl)
 
       let msg: SignInMessage
