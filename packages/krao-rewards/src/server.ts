@@ -157,6 +157,8 @@ export type AppOptions = {
   manualReview: ManualReviewConfig
   /** Phone verification; none without an SMS provider */
   phone: PhoneService | null
+  /** Whether posting and chat need a verified number (default: they do) */
+  phoneRequired?: () => boolean
   /** The push service's device counts, for data exports */
   pushDevices?: (did: string) => Promise<PushDevices>
   /** Sets the language of an account's pushes at the push service */
@@ -502,6 +504,7 @@ export function createApp(opts: AppOptions): Express {
             ? await opts.phone.status(did(auth))
             : { verified: false }),
           available: !!opts.phone,
+          required: opts.phoneRequired?.() ?? true,
         }),
       ),
   })

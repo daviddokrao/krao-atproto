@@ -152,12 +152,18 @@ export async function deleteDiscoveryDataForDid(db: Database, did: string) {
  */
 export async function suggestedAccounts(
   db: Database,
-  opts: { viewer?: string; relativeTo?: string; limit: number },
+  opts: {
+    viewer?: string
+    relativeTo?: string
+    limit: number
+    /** Never suggested, eg service or moderator accounts */
+    exclude?: Iterable<string>
+  },
   /** From accountScores, eg cached; computed when not given */
   scores?: AccountScores,
 ): Promise<string[]> {
   const { viewer, relativeTo, limit } = opts
-  const exclude = new Set<string>()
+  const exclude = new Set<string>(opts.exclude ?? [])
   if (viewer) {
     exclude.add(viewer)
     const follows = await db
@@ -197,7 +203,7 @@ export async function suggestedAccounts(
   }
 
   return [...score.entries()]
-    .filter(([did]) => !exclude.has(did))
+    .filter(([did]) => base.posters.has(did) && !exclude.has(did))
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, limit)
     .map(([did]) => did)
@@ -206,6 +212,11 @@ export async function suggestedAccounts(
 export type AccountScores = {
   /** Every account the indexer knows as a Krao poster or follower */
   known: Set<string>
+  /**
+   * Accounts that have posted: the only ones suggested, so accounts that just
+   * follow (moderators, service accounts) never show up
+   */
+  posters: Set<string>
   /** Followers and recent activity, the same for every viewer */
   score: Map<string, number>
 }
@@ -216,20 +227,27 @@ export async function accountScores(db: Database): Promise<AccountScores> {
   const bump = (did: string, points: number) =>
     score.set(did, (score.get(did) ?? 0) + points)
 
-  const known = await db
-    .selectFrom('feed_post')
+  // Posters are the only accounts suggested; known adds those who follow
+  const posters = new Set(
+    (await db.selectFrom('feed_post').select('did').distinct().execute()).map(
+      (p) => p.did,
+    ),
+  )
+  const knownDids = new Set(posters)
+  for (const { did } of await db
+    .selectFrom('feed_follow')
     .select('did')
     .distinct()
-    .union(db.selectFrom('feed_follow').select('did').distinct())
-    .execute()
-  for (const { did } of known) bump(did, 0)
+    .execute()) {
+    knownDids.add(did)
+  }
+  for (const did of knownDids) bump(did, 0)
 
   const followers = await db
     .selectFrom('feed_follow')
     .select(['subject', (eb) => eb.fn.countAll<number>().as('count')])
     .groupBy('subject')
     .execute()
-  const knownDids = new Set(known.map((k) => k.did))
   for (const row of followers) {
     if (knownDids.has(row.subject)) bump(row.subject, Number(row.count))
   }
@@ -245,7 +263,7 @@ export async function accountScores(db: Database): Promise<AccountScores> {
     .groupBy('did')
     .execute()
   for (const row of posts) bump(row.did, Math.min(Number(row.count), 20) / 10)
-  return { known: knownDids, score }
+  return { known: knownDids, posters, score }
 }
 
 export type TrendingTag = {

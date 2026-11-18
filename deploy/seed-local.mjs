@@ -504,6 +504,20 @@ async function main() {
         },
       },
     })
+    // Anyone may message the demo accounts; without a declaration only the
+    // accounts they follow can, so a new account could message no one
+    await xrpc('com.atproto.repo.putRecord', {
+      token: s.accessJwt,
+      body: {
+        repo: s.did,
+        collection: 'chat.bsky.actor.declaration',
+        rkey: 'self',
+        record: {
+          $type: 'chat.bsky.actor.declaration',
+          allowIncoming: 'all',
+        },
+      },
+    })
     await setBirthDate(s)
     await verifyPhone(s)
     console.log(`👤 ${user.handle} (${s.did})`)

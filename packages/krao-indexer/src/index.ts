@@ -135,6 +135,11 @@ export type KraoIndexerConfig = {
    */
   officialFeedDids?: string[]
   /**
+   * Accounts never suggested to follow, eg service or moderator accounts that
+   * post (KRAO_UNSUGGESTED_DIDS)
+   */
+  unsuggestedDids?: string[]
+  /**
    * Development: Mini Apps may be served from http://localhost (any port).
    * Never in production.
    */
@@ -237,6 +242,14 @@ export class KraoIndexer {
     this.officialFeedDids.add(did)
   }
 
+  /** Never suggests an account to follow (eg one made at startup) */
+  addUnsuggested(did: string) {
+    this.unsuggestedDids.add(did)
+  }
+
+  /** Accounts never suggested to follow (live: see addUnsuggested) */
+  unsuggestedDids = new Set<string>()
+
   /** Lets an account read gated content as a moderator (eg one made at startup) */
   addGateModerator(did: string) {
     this.gateModerators.add(did)
@@ -316,6 +329,7 @@ export class KraoIndexer {
         : undefined,
     )
     const officialFeedDids = new Set(cfg.officialFeedDids ?? [])
+    const unsuggestedDids = new Set(cfg.unsuggestedDids ?? [])
     const trustedVerifiers = new Set(cfg.trustedVerifierDids ?? [])
     const impersonation = cfg.ozone
       ? new ImpersonationWatcher(db, {
@@ -331,7 +345,7 @@ export class KraoIndexer {
         })
       : undefined
     indexer.impersonation = impersonation
-    return new KraoIndexer(
+    const kraoIndexer = new KraoIndexer(
       cfg,
       db,
       indexer,
@@ -360,6 +374,7 @@ export class KraoIndexer {
           cacheMs: cfg.holderFeed?.cacheMs,
         }),
         officialFeedDids,
+        unsuggestedDids,
         onchainCacheMs: cfg.onchainCacheMs,
         pdsUrl: cfg.pdsUrl ?? cfg.firehoseUrl.replace(/^ws/, 'http'),
         knownContracts: cfg.knownContracts,
@@ -374,6 +389,8 @@ export class KraoIndexer {
       trustedVerifiers,
       impersonation,
     )
+    kraoIndexer.unsuggestedDids = unsuggestedDids
+    return kraoIndexer
   }
 
   get url() {

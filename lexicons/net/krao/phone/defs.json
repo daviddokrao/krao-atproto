@@ -11,6 +11,10 @@
           "type": "boolean",
           "description": "Whether codes can be sent (an SMS provider is set up)."
         },
+        "required": {
+          "type": "boolean",
+          "description": "Whether posting and chat need a verified phone number. Missing means they do."
+        },
         "verifiedAt": { "type": "string", "format": "datetime" },
         "maskedPhone": {
           "type": "string",

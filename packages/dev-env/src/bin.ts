@@ -298,6 +298,8 @@ const run = async () => {
       secrets: KRAO_DEV_PHONE_SECRETS,
       // Every seed and e2e request comes from this machine
       limits: { ipHourlyCap: 100_000, globalHourlyCap: 100_000 },
+      // The app asks new accounts for a number only where it is needed
+      required: PHONE_REQUIRED,
     },
     devMode: true,
   })
@@ -330,6 +332,13 @@ const run = async () => {
 
   console.time('✅ Dev environment is ready')
   await generateMockSetup(network)
+  // The mock Ozone team posts too, but is never suggested to follow
+  for (const handle of ['triage.test', 'mod.test', 'admin-mod.test']) {
+    const found = await fetch(
+      `${network.pds.url}/xrpc/com.atproto.identity.resolveHandle?handle=${handle}`,
+    ).then((r) => r.json() as Promise<{ did?: string }>)
+    if (found.did) kraoIndexer.addUnsuggested(found.did)
+  }
 
   /*
    * Sign-up needs a referral code from here on. The dev-env's own accounts

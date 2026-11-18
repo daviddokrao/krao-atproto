@@ -167,6 +167,8 @@ export function createApp(
      * generators are linked from token pages
      */
     officialFeedDids?: Set<string>
+    /** Accounts never suggested to follow (a live set) */
+    unsuggestedDids?: Set<string>
     /** How long the on-chain tab reuses NFT holdings (default 10 min, 0: off) */
     onchainCacheMs?: number
     /** Krao's PDS, where Mini App icons are read from */
@@ -789,7 +791,11 @@ export function createApp(
     body: {
       dids: (await suggestedAccounts(
         db,
-        { viewer: params.viewer, limit: params.limit ?? 25 },
+        {
+          viewer: params.viewer,
+          limit: params.limit ?? 25,
+          exclude: opts.unsuggestedDids,
+        },
         await globalAccountScores(),
       )) as `did:${string}:${string}`[],
     },
@@ -817,6 +823,7 @@ export function createApp(
         viewer: params.viewer,
         relativeTo: params.relativeToDid,
         limit: params.limit ?? 50,
+        exclude: opts.unsuggestedDids,
       },
       await globalAccountScores(),
     )
