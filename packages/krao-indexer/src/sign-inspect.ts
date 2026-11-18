@@ -1,4 +1,10 @@
-import { LINK_DOMAIN, LINK_STATEMENT, parseSignInMessage } from '@krao/wallet'
+import { BRAND } from '@krao/brand'
+import {
+  LINK_DOMAIN,
+  LINK_STATEMENT,
+  SIGN_IN_STATEMENT,
+  parseSignInMessage,
+} from '@krao/wallet'
 import { hasControlChars, utf8Prefix } from './abi-decode.js'
 import { EVM_ADDRESS_RE } from './address-check.js'
 import {
@@ -26,9 +32,6 @@ import {
  *   loginProof  Krao's own wallet link or sign-in message; asked for by a
  *             Mini App (any origin that is not Krao's), it is phishing
  */
-
-/** Statement of the PDS's wallet sign-in challenge (getWalletChallenge) */
-const KRAO_SIGN_IN_STATEMENT = 'Sign in to Krao.'
 
 const ORDER_DOMAINS = ['seaport', 'blur exchange', 'looksrareprotocol']
 const ORDER_TYPES = ['OrderComponents', 'BulkOrder', 'Order', 'Root', 'Maker']
@@ -187,14 +190,13 @@ export async function inspectSignature(
         const kraoProof =
           siwe.domain === LINK_DOMAIN ||
           siwe.statement === LINK_STATEMENT ||
-          siwe.statement === KRAO_SIGN_IN_STATEMENT
+          siwe.statement === SIGN_IN_STATEMENT
         if (kraoProof) kind = 'loginProof'
         if (kraoProof && !fromKrao) {
           warnings.push({
             code: 'walletProofPhishing',
             severity: 'danger',
-            message:
-              'This message links or signs in your wallet to a Krao account. Only Krao itself asks for it',
+            message: `This message links or signs in your wallet to a ${BRAND.name} account. Only ${BRAND.name} itself asks for it`,
           })
         } else if (
           input.origin &&
@@ -296,7 +298,7 @@ export async function inspectSignature(
         severity: known ? 'warning' : 'danger',
         message: known
           ? 'Turns your account into a smart account run by this contract'
-          : 'Hands control of your account to a contract Krao does not know',
+          : `Hands control of your account to a contract ${BRAND.name} does not know`,
         address: delegate,
       })
     } else {

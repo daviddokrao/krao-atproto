@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { brandDid, brandUrl } from '@krao/brand'
 import { KraoChat } from './index.js'
 
 // Decree 147: sending needs a phone verified with the rewards service
@@ -15,10 +16,10 @@ const chat = await KraoChat.create({
   // Rehearsals and dev only: identity lookups to private hosts over http
   insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: Number(process.env.KRAO_CHAT_PORT ?? 2590),
-  serviceDid: process.env.KRAO_CHAT_DID ?? 'did:web:chat.krao.net',
+  serviceDid: process.env.KRAO_CHAT_DID ?? brandDid('chat'),
   dbLocation: process.env.KRAO_CHAT_DB ?? 'krao-chat.sqlite',
   plcUrl: process.env.KRAO_PLC_URL ?? 'https://plc.directory',
-  appviewUrl: process.env.KRAO_APPVIEW_URL ?? 'https://api.krao.net',
+  appviewUrl: process.env.KRAO_APPVIEW_URL ?? brandUrl('api'),
   publicUrl: process.env.KRAO_CHAT_PUBLIC_URL,
   moderatorDids: (process.env.KRAO_CHAT_MODERATOR_DIDS ?? '')
     .split(',')

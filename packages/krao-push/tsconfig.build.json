@@ -3,6 +3,7 @@
   "include": ["./src"],
   "exclude": ["./src/**/*.test.ts"],
   "references": [
+    { "path": "../krao-brand/tsconfig.build.json" },
     { "path": "../identity/tsconfig.build.json" },
     { "path": "../sync/tsconfig.build.json" },
   ],

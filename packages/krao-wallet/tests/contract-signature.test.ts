@@ -5,6 +5,8 @@ import {
   DEPLOYLESS_CHECK_LENGTH,
   ERC1271_MAGIC_VALUE,
   type EvmJsonRpc,
+  LINK_DOMAIN,
+  LINK_STATEMENT,
   RpcResponseError,
   RpcTransportError,
   bytesToHex,
@@ -149,10 +151,10 @@ function mockChain(opts: {
 
 function linkMessage(address: string) {
   return formatSignInMessage({
-    domain: 'krao.net',
+    domain: LINK_DOMAIN,
     chain: 'Ethereum',
     address,
-    statement: 'Link this wallet to my Krao account.',
+    statement: LINK_STATEMENT,
     uri: DID,
     version: '1',
     chainId: '8453',

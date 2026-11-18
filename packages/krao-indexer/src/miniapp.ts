@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import { sql } from 'kysely'
 import { AtUri } from '@atproto/syntax'
 import { utf8Prefix } from './abi-decode.js'
@@ -82,7 +83,7 @@ export function checkMiniAppUrl(
     }
   })
   if (webOrigins.includes(url.origin)) {
-    return { reason: "url may not be on Krao's own web app origin" }
+    return { reason: `url may not be on ${BRAND.name}'s own web app origin` }
   }
   return { origin: url.origin, href: url.href }
 }

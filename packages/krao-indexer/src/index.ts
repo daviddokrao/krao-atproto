@@ -1,5 +1,6 @@
 import { once } from 'node:events'
 import type http from 'node:http'
+import { brandDid, webUrl as brandWebUrl } from '@krao/brand'
 import { rpcForChains } from '@krao/wallet'
 import { IdResolver } from '@atproto/identity'
 import {
@@ -293,7 +294,7 @@ export class KraoIndexer {
     // Mini Apps may not be served from Krao's own web app origin
     indexer.miniAppRules = {
       devMode: cfg.devMode,
-      webOrigins: [cfg.webUrl ?? 'https://krao.net'],
+      webOrigins: [cfg.webUrl ?? brandWebUrl()],
     }
     const tokens = new TokenCatalog(db, {
       rpc: rpcs.get('eip155:8453'),
@@ -324,7 +325,7 @@ export class KraoIndexer {
           moderator: new OzoneAdminClient(
             cfg.ozone.url,
             cfg.ozone.adminPassword,
-            cfg.gateDid ?? 'did:web:gate.krao.net',
+            cfg.gateDid ?? brandDid('gate'),
           ),
           audit,
         })
@@ -337,7 +338,7 @@ export class KraoIndexer {
       createApp(db, rpcs, idResolver, {
         handleResolverUrl: cfg.handleResolverUrl,
         appviewUrl: cfg.appviewUrl,
-        gateDid: cfg.gateDid ?? 'did:web:gate.krao.net',
+        gateDid: cfg.gateDid ?? brandDid('gate'),
         feedGenDid: cfg.feedGenDid,
         publicUrl: cfg.publicUrl,
         gateMediaSecret: cfg.gateMediaSecret,

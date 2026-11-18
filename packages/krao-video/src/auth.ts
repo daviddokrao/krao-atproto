@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http'
+import { BRAND } from '@krao/brand'
 import type { IdResolver } from '@atproto/identity'
 import {
   AuthRequiredError,
@@ -77,7 +78,7 @@ export class VideoAuth {
     const pdsUrl = this.pdses.internalUrl(data.pds)
     if (!pdsUrl) {
       throw new ForbiddenError(
-        'Video uploads are only available to accounts on Krao',
+        `Video uploads are only available to accounts on ${BRAND.name}`,
         'UploadForbidden',
       )
     }

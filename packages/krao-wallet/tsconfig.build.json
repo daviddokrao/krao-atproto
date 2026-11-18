@@ -1,5 +1,6 @@
 {
   "extends": ["../../tsconfig/node.tsconfig.json"],
+  "references": [{ "path": "../krao-brand/tsconfig.build.json" }],
   "include": ["./src"],
   "exclude": ["./src/**/*.test.ts"],
   "compilerOptions": {

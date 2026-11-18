@@ -2,6 +2,8 @@ import { ed25519 } from '@noble/curves/ed25519'
 import { secp256k1 } from '@noble/curves/secp256k1'
 import * as ui8 from 'uint8arrays'
 import {
+  LINK_DOMAIN,
+  LINK_STATEMENT,
   type SignInMessage,
   evmAddressFromPublicKey,
   formatSignInMessage,
@@ -49,9 +51,9 @@ function linkMessage(
   overrides: Partial<SignInMessage> & Pick<SignInMessage, 'address'>,
 ): string {
   return formatSignInMessage({
-    domain: 'krao.net',
+    domain: LINK_DOMAIN,
     chain: 'Ethereum',
-    statement: 'Link this wallet to my Krao account.',
+    statement: LINK_STATEMENT,
     uri: DID,
     version: '1',
     chainId: '8453',

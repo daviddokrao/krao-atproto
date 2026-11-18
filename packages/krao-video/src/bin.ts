@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import { brandDid, brandUrl } from '@krao/brand'
 import { KraoVideo } from './index.js'
 
 const envInt = (name: string) =>
   process.env[name] ? Number(process.env[name]) : undefined
 
-const pdsUrls = (process.env.KRAO_VIDEO_PDS_URLS ?? 'https://pds.krao.net')
+const pdsUrls = (process.env.KRAO_VIDEO_PDS_URLS ?? brandUrl('pds'))
   .split(',')
   .map((url) => url.trim())
   .filter(Boolean)
@@ -13,7 +14,7 @@ const video = KraoVideo.create({
   // Rehearsals and dev only: identity lookups to private hosts over http
   insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: envInt('KRAO_VIDEO_PORT') ?? 2591,
-  serviceDid: process.env.KRAO_VIDEO_DID ?? 'did:web:video.krao.net',
+  serviceDid: process.env.KRAO_VIDEO_DID ?? brandDid('video'),
   dataDir: process.env.KRAO_VIDEO_DATA_DIR ?? 'krao-video-data',
   plcUrl: process.env.KRAO_PLC_URL ?? 'https://plc.directory',
   pdsUrls,

@@ -1,3 +1,4 @@
+import { BRAND, webUrl as brandWebUrl } from '@krao/brand'
 import cors from 'cors'
 import express, { type Express } from 'express'
 import type { IdResolver } from '@atproto/identity'
@@ -183,7 +184,7 @@ export function createApp(
     feedGenDid,
     publicUrl,
     klipyApiKey,
-    webUrl = 'https://krao.net',
+    webUrl = brandWebUrl(),
   } = opts
   const server = createServer([], {})
   const mediaSigner = new MediaSigner(opts.gateMediaSecret)
@@ -934,7 +935,7 @@ export function createApp(
   app.post('/s/link', rateLimit(20))
   // Plain landing text so uptime checks on the bare host get a 200
   app.get('/', (_req, res) => {
-    res.type('text/plain').send('Krao indexer. Health: /_health')
+    res.type('text/plain').send(`${BRAND.name} indexer. Health: /_health`)
   })
   app.get('/_health', async (_req, res) => {
     try {

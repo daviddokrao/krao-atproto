@@ -3,6 +3,7 @@
  * service each account's language (net.krao.push.setLanguage, through the
  * rewards service); without one, pushes are in English.
  */
+import { BRAND } from '@krao/brand'
 
 export type Lang = 'en' | 'vi'
 
@@ -129,8 +130,8 @@ export const kraoText = {
         ? 'Điểm giới thiệu đang chờ của bạn giờ đã có thể được duyệt.'
         : 'Pending referral points can now be approved.'
       : lang === 'vi'
-        ? 'Mở Krao để xem cần làm gì tiếp theo.'
-        : 'Open Krao to see what to do next.',
+        ? `Mở ${BRAND.name} để xem cần làm gì tiếp theo.`
+        : `Open ${BRAND.name} to see what to do next.`,
 }
 
 /** Reasons whose push shows the post they are about (the subject) */

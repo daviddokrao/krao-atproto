@@ -11,6 +11,25 @@
  * rewards service (KRAO_REWARDS_URL), whose dev-env codes are readable.
  */
 import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+/**
+ * Brand values (name, domain): the one source, see DESIGN-brand.md. Found next
+ * to this script in krao-atproto, else from the current directory (a copy of
+ * this script may live outside the repo); KRAO_BRAND_JSON overrides both.
+ */
+const BRAND_PATHS = [
+  process.env.KRAO_BRAND_JSON,
+  fileURLToPath(new URL('../packages/krao-brand/brand.json', import.meta.url)),
+  'packages/krao-brand/brand.json',
+  'krao-atproto/packages/krao-brand/brand.json',
+].filter(Boolean)
+const BRAND_PATH = BRAND_PATHS.find((p) => existsSync(p))
+if (!BRAND_PATH) {
+  throw new Error(`brand.json not found, tried: ${BRAND_PATHS.join(', ')}`)
+}
+const BRAND = JSON.parse(readFileSync(BRAND_PATH, 'utf8'))
 
 const PDS =
   process.argv.slice(2).find((a) => !a.startsWith('--')) ||
@@ -26,7 +45,7 @@ const PASSWORD = 'krao-dev-pass'
 const USERS = [
   {
     handle: 'krao.test',
-    displayName: 'Krao Network',
+    displayName: `${BRAND.name} Network`,
     description: 'Mạng xã hội phi tập trung cho cộng đồng web3 🌐',
   },
   {
@@ -54,8 +73,8 @@ const USERS = [
 
 const POSTS = {
   'krao.test': [
-    'Chào mừng đến với Krao Network! Mạng xã hội phi tập trung trên AT Protocol, dành cho cộng đồng web3. #Krao #web3',
-    'Đã có trên Krao: đăng nhập bằng ví, tip bằng token, avatar NFT có xác minh và nội dung giới hạn theo token. Bạn thích tính năng nào nhất? #Krao #web3',
+    `Chào mừng đến với ${BRAND.name} Network! Mạng xã hội phi tập trung trên AT Protocol, dành cho cộng đồng web3. #${BRAND.name} #web3`,
+    `Đã có trên ${BRAND.name}: đăng nhập bằng ví, tip bằng token, avatar NFT có xác minh và nội dung giới hạn theo token. Bạn thích tính năng nào nhất? #${BRAND.name} #web3`,
   ],
   'defi-minh.test': [
     'Gas trên Base hôm nay rẻ bất ngờ. Đã rebalance xong LP position, phí còn chưa tới 0.01 USD. #Base #DeFi',
@@ -64,7 +83,7 @@ const POSTS = {
   ],
   'nft-lan.test': [
     'Vừa mint xong collection generative art đầu tiên, 100% on-chain SVG. Mỗi tác phẩm được sinh từ block hash lúc mint. #NFT',
-    'Ước gì có thể dùng NFT làm avatar ở đây và được xác minh quyền sở hữu thật sự. Krao làm được không?',
+    `Ước gì có thể dùng NFT làm avatar ở đây và được xác minh quyền sở hữu thật sự. ${BRAND.name} làm được không?`,
   ],
   'dev-hung.test': [
     'Tip tối ưu gas: dùng custom errors thay cho require string. Tiết kiệm đáng kể khi deploy lẫn khi revert.',
@@ -73,7 +92,7 @@ const POSTS = {
   ],
   'dao-mai.test': [
     'Proposal mới về phân bổ treasury đã lên snapshot. Voting kết thúc sau 3 ngày, mọi người nhớ vote nhé. #DAO #web3',
-    'Token-gated discussion sẽ giúp DAO thảo luận nội bộ mà vẫn ở trên một mạng mở. Rất mong Krao có tính năng này.',
+    `Token-gated discussion sẽ giúp DAO thảo luận nội bộ mà vẫn ở trên một mạng mở. Rất mong ${BRAND.name} có tính năng này.`,
   ],
 }
 
@@ -249,17 +268,17 @@ const FEEDS = [
   {
     rkey: 'popular',
     displayName: 'Nổi bật',
-    description: 'Bài được thích và đăng lại nhiều trong tuần trên Krao.',
+    description: `Bài được thích và đăng lại nhiều trong tuần trên ${BRAND.name}.`,
   },
   {
     rkey: 'latest',
     displayName: 'Mới nhất',
-    description: 'Bài mới nhất từ cộng đồng Krao.',
+    description: `Bài mới nhất từ cộng đồng ${BRAND.name}.`,
   },
   {
     rkey: 'vietnamese',
     displayName: 'Tiếng Việt',
-    description: 'Bài viết tiếng Việt mới nhất trên Krao.',
+    description: `Bài viết tiếng Việt mới nhất trên ${BRAND.name}.`,
   },
   // "Holders of $X" (M33): posts of accounts whose verified wallets hold the
   // token; the rkey is holders-<symbol in lower case>
@@ -332,8 +351,8 @@ async function verifyOfficialAccount(subject, user) {
       rkey: 'self',
       record: {
         $type: 'app.bsky.actor.profile',
-        displayName: 'Krao Verify',
-        description: 'Tài khoản xác minh chính thức của Krao.',
+        displayName: `${BRAND.name} Verify`,
+        description: `Tài khoản xác minh chính thức của ${BRAND.name}.`,
       },
     },
   })
@@ -397,8 +416,7 @@ async function seedMiniApp(session) {
         record: {
           $type: 'net.krao.miniapp.app',
           name: 'Bỏ phiếu nhanh',
-          description:
-            'Mini App mẫu của Krao: biết bạn là ai, kết nối ví, ký phiếu và ủng hộ bằng ETH.',
+          description: `Mini App mẫu của ${BRAND.name}: biết bạn là ai, kết nối ví, ký phiếu và ủng hộ bằng ETH.`,
           url: MINIAPP_URL,
           ...(upload.blob ? { icon: upload.blob } : {}),
           permissions: ['identity', 'wallet', 'sign', 'transaction'],
@@ -452,7 +470,7 @@ async function seedMiniApp(session) {
   if (app.status !== 'approved') {
     await createRecord(session, 'app.bsky.feed.post', {
       $type: 'app.bsky.feed.post',
-      text: 'Thử Mini App đầu tiên trên Krao: Bỏ phiếu nhanh 🗳️',
+      text: `Thử Mini App đầu tiên trên ${BRAND.name}: Bỏ phiếu nhanh 🗳️`,
       langs: ['vi'],
       embed: {
         $type: 'net.krao.embed.miniapp',
