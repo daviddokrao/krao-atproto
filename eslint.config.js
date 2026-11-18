@@ -29,6 +29,7 @@ export default [
       'packages/bsky/src/lexicons/**',
       'packages/ozone/src/lexicons/**',
       'packages/sync/src/lexicons/**',
+      'packages/krao-*/src/lexicons/**',
 
       // others
       'packages/api/src/moderation/const/labels.ts',
@@ -129,6 +130,7 @@ export default [
   {
     files: [
       '**/vite.config.js',
+      'deploy/*.mjs',
       'packages/dev-env/bin.js',
       'packages/krao-e2e/*.mjs',
       'packages/lex-cli/bin.js',
