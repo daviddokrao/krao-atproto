@@ -13,10 +13,11 @@ services:
       NODE_ENV: development
       DB_POSTGRES_URL: postgresql://pg:password@kraonet-backend-postgres:5432/postgres
       REDIS_HOST: kraonet-backend-redis:6379
-      KRAO_DEV_PDS_HOSTNAME: pds.krao.net
-      KRAO_DEV_WEB_URL: https://krao.net
-      KRAO_DEV_APPVIEW_URL: https://api.krao.net
-      KRAO_DEV_VIDEO_URL: https://video.krao.net
+      # KRAO_DOMAIN defaults to packages/krao-brand/brand.json's domain
+      KRAO_DEV_PDS_HOSTNAME: pds.${KRAO_DOMAIN:-krao.net}
+      KRAO_DEV_WEB_URL: https://${KRAO_DOMAIN:-krao.net}
+      KRAO_DEV_APPVIEW_URL: https://api.${KRAO_DOMAIN:-krao.net}
+      KRAO_DEV_VIDEO_URL: https://video.${KRAO_DOMAIN:-krao.net}
       KRAO_DEV_RPC_URL: http://kraonet-backend-anvil:8545
       KRAO_RPC_URL: http://kraonet-backend-anvil:8545
       # Testers cannot read the dev-env's SMS codes (they go to the log), so

@@ -10,8 +10,23 @@
  *
  * Env: KRAO_LABELER_PDS_URL (default https://pds.<KRAO_DOMAIN>),
  * KRAO_LABELER_IDENTIFIER (default mod.<KRAO_DOMAIN>), KRAO_LABELER_PASSWORD.
+ * KRAO_DOMAIN defaults to brand.json's domain.
  */
 import { readFile } from 'node:fs/promises'
+
+const BRAND = JSON.parse(
+  await readFile(
+    new URL('../../packages/krao-brand/brand.json', import.meta.url),
+    'utf8',
+  ),
+)
+
+/** labeler-labels.json, with {brandName} filled in */
+export function parseLabels(text, brandName = BRAND.name) {
+  // Stringified, so a name with quotes cannot break the JSON
+  const name = JSON.stringify(brandName).slice(1, -1)
+  return JSON.parse(text.replaceAll('{brandName}', name))
+}
 
 export function mergeLabels(record, extra) {
   const policies = record.policies ?? { labelValues: [] }
@@ -79,10 +94,10 @@ export async function setLabelerLabels({
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const domain = process.env.KRAO_DOMAIN
+  const domain = process.env.KRAO_DOMAIN || BRAND.domain
   const password = process.env.KRAO_LABELER_PASSWORD
   if (!password) throw new Error('KRAO_LABELER_PASSWORD is required')
-  const extra = JSON.parse(
+  const extra = parseLabels(
     await readFile(new URL('./labeler-labels.json', import.meta.url), 'utf8'),
   )
   const result = await setLabelerLabels({
