@@ -24,6 +24,11 @@
           "type": "ref",
           "ref": "net.krao.chain.defs#verificationStatus"
         },
+        "reason": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Why the wallet does not count, when its status is invalid (for example: another account linked it first)."
+        },
         "createdAt": {
           "type": "string",
           "format": "datetime"

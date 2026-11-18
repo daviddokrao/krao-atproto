@@ -33,6 +33,7 @@ export class KraoChat {
     public cfg: KraoChatConfig,
     public db: Database,
     private app: ReturnType<typeof createApp>,
+    private service: ChatService,
   ) {}
 
   static async create(cfg: KraoChatConfig): Promise<KraoChat> {
@@ -50,20 +51,32 @@ export class KraoChat {
       publicUrl: cfg.publicUrl,
       moderatorDids: cfg.moderatorDids,
     })
-    return new KraoChat(cfg, db, app)
+    return new KraoChat(cfg, db, app, service)
   }
 
   get url() {
     return `http://localhost:${this.cfg.port}`
   }
 
+  private pruneTimer?: NodeJS.Timeout
+
   async start(): Promise<http.Server> {
     this.server = this.app.listen(this.cfg.port)
     await once(this.server, 'listening')
+    // The event log has one row per member per event: keep 90 days of it
+    this.pruneTimer = setInterval(
+      () =>
+        void this.service.pruneLog().catch((err: unknown) => {
+          console.error('Krao chat: log pruning failed', err)
+        }),
+      60 * 60 * 1000,
+    )
+    this.pruneTimer.unref()
     return this.server
   }
 
   async destroy(): Promise<void> {
+    clearInterval(this.pruneTimer)
     if (this.server) {
       this.server.close()
       await once(this.server, 'close')

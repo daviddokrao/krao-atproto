@@ -122,7 +122,32 @@ export class KraoReferral {
       .execute()
   }
 
-  private async post(path: string, body: unknown) {
+  /**
+   * The account was deleted. Not in a transaction (account deletion runs
+   * step by step); written after the account rows are gone.
+   */
+  async recordDeletion(did: string) {
+    await this.db.db
+      .insertInto('krao_takedown_outbox')
+      .values({
+        did,
+        applied: 1,
+        kind: 'deleted',
+        createdAt: currentDatetimeString(),
+        attempts: 0,
+        lastError: null,
+        deliveredAt: null,
+        failedAt: null,
+      })
+      .execute()
+  }
+
+  private async post(
+    path: string,
+    body: unknown,
+    /** More statuses that mean "never", eg 404 for a route an older build lacks */
+    rejected: number[] = [],
+  ) {
     const res = await fetch(new URL(path, this.cfg.url), {
       method: 'POST',
       headers: {
@@ -132,7 +157,7 @@ export class KraoReferral {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
-    if (REJECTED_STATUSES.has(res.status)) {
+    if (REJECTED_STATUSES.has(res.status) || rejected.includes(res.status)) {
       throw new RejectedError(`HTTP ${res.status}: ${await res.text()}`)
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -230,10 +255,14 @@ export class KraoReferral {
       .execute()
     for (const row of rows) {
       try {
-        await this.post('/internal/takedowns', {
-          did: row.did,
-          applied: row.applied === 1,
-        })
+        if (row.kind === 'deleted') {
+          await this.post('/internal/deletions', { did: row.did }, [404])
+        } else {
+          await this.post('/internal/takedowns', {
+            did: row.did,
+            applied: row.applied === 1,
+          })
+        }
         await this.db.db
           .updateTable('krao_takedown_outbox')
           .set({ deliveredAt: currentDatetimeString(), lastError: null })

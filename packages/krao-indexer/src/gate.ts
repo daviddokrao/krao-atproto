@@ -1,7 +1,8 @@
 import { AtUri } from '@atproto/syntax'
 import { type EvmRpc, parseAssetId } from './chain.js'
-import type { Database, GateRuleTable } from './db.js'
+import { type Database, type GateRuleTable, visibleDid } from './db.js'
 import { erc1155BalanceOf, erc721OwnerOf, parseTokenId } from './nft.js'
+import { ownedEvmAddresses } from './wallets.js'
 
 export const GATE_RULE_COLLECTION = 'net.krao.gate.rule'
 
@@ -151,6 +152,8 @@ export async function getRulesForSubjects(db: Database, subjects: string[]) {
     .selectFrom('gate_rule')
     .selectAll()
     .where('subject', 'in', subjects)
+    // A hidden (taken down) author's gated content is not served
+    .where(visibleDid('did'))
     .orderBy('createdAt', 'desc')
     .execute()
   const latest = new Map<string, GateRuleTable>()
@@ -211,21 +214,9 @@ export async function subjectsWithContent(db: Database, subjects: string[]) {
   return new Set(rows.map((r) => r.subject))
 }
 
-/** Verified EVM addresses linked to an account */
+/** EVM addresses an account owns (see ownedEvmAddresses), sorted */
 async function linkedEvmAddresses(db: Database, did: string) {
-  const rows = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', did)
-    .where('status', '=', 'verified')
-    .execute()
-  return [
-    ...new Set(
-      rows
-        .filter((r) => r.account.startsWith('eip155:'))
-        .map((r) => r.account.split(':')[2].toLowerCase()),
-    ),
-  ]
+  return [...(await ownedEvmAddresses(db, did))].sort()
 }
 
 /*

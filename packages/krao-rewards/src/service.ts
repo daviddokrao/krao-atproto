@@ -453,6 +453,10 @@ export class RewardsService {
       createdAt: string
     },
   ) {
+    // A taken down account neither earns nor brings anyone points. Checked
+    // before the event is marked as handled, so it can run again once the
+    // takedown is lifted (see liftTakedown)
+    if (await this.isTakenDown(tx, event.actorDid)) return
     const inserted = await tx
       .insertInto('reward_event')
       .values({
@@ -465,8 +469,6 @@ export class RewardsService {
       .onConflict((oc) => oc.doNothing())
       .executeTakeFirst()
     if (!Number(inserted.numInsertedOrUpdatedRows)) return
-    // A taken down account neither earns nor brings anyone points
-    if (await this.isTakenDown(tx, event.actorDid)) return
 
     const at = now()
     const rules = (
@@ -768,6 +770,7 @@ export class RewardsService {
   /**
    * The takedown was lifted: the account can earn again. Points taken back
    * stay taken back; admins restore them by hand if the takedown was wrong.
+   * A KYC approval that came during the takedown counts now.
    */
   async liftTakedown(did: string) {
     await this.db.transaction().execute(async (tx) => {
@@ -775,9 +778,66 @@ export class RewardsService {
         .deleteFrom('taken_down')
         .where('did', '=', did)
         .executeTakeFirst()
-      if (Number(lifted.numDeletedRows)) {
-        await this.audit(tx, 'system', 'takedown.lift', did)
+      if (!Number(lifted.numDeletedRows)) return
+      await this.audit(tx, 'system', 'takedown.lift', did)
+      if ((await this.kycRecord(did, tx))?.status === 'approved') {
+        await this.runKycApproved(tx, did)
+        await this.settle(tx, [did])
       }
+    })
+  }
+
+  /**
+   * The account was deleted. Its codes stop working and it earns nothing
+   * more (like a takedown), and pending points that waited for it (its own,
+   * and its referrer's that needed its KYC) are void. Points already
+   * approved stay: unlike a takedown, deleting an account is no abuse.
+   */
+  async accountDeleted(did: string) {
+    await this.db.transaction().execute(async (tx) => {
+      await tx
+        .insertInto('taken_down')
+        .values({ did, createdAt: now() })
+        .onConflict((oc) => oc.doNothing())
+        .execute()
+      await tx
+        .updateTable('points_entry')
+        .set({
+          status: 'void',
+          decidedAt: now(),
+          note: 'The account was deleted',
+        })
+        .where('status', '=', 'pending')
+        .where((eb) =>
+          eb.or([
+            eb('did', '=', did),
+            eb.and([
+              eb('relatedDid', '=', did),
+              eb('vesting', 'like', '%kyc:related%'),
+            ]),
+          ]),
+        )
+        .execute()
+      await this.audit(tx, 'system', 'account.deleted', did)
+    })
+  }
+
+  /** Runs the kyc.approved rules for `did` (once per account) */
+  private async runKycApproved(tx: Db, did: string) {
+    const referral = await tx
+      .selectFrom('referral')
+      .selectAll()
+      .where('did', '=', did)
+      .executeTakeFirst()
+    await this.handleEvent(tx, {
+      id: `kyc.approved:${did}`,
+      type: 'kyc.approved',
+      actorDid: did,
+      referrerDid: referral?.referrerDid ?? null,
+      referrer2Did: referral?.referrer2Did ?? null,
+      codeKind: referral?.codeKind ?? null,
+      campaignId: referral?.campaignId ?? null,
+      createdAt: now(),
     })
   }
 
@@ -847,21 +907,7 @@ export class RewardsService {
         duplicate: update.duplicate || undefined,
       })
       if (update.status === 'approved') {
-        const referral = await tx
-          .selectFrom('referral')
-          .selectAll()
-          .where('did', '=', did)
-          .executeTakeFirst()
-        await this.handleEvent(tx, {
-          id: `kyc.approved:${did}`,
-          type: 'kyc.approved',
-          actorDid: did,
-          referrerDid: referral?.referrerDid ?? null,
-          referrer2Did: referral?.referrer2Did ?? null,
-          codeKind: referral?.codeKind ?? null,
-          campaignId: referral?.campaignId ?? null,
-          createdAt: now(),
-        })
+        await this.runKycApproved(tx, did)
         await this.settle(tx, [did])
       } else if (update.status === 'rejected') {
         await this.revokePoints(

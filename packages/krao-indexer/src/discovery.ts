@@ -1,5 +1,10 @@
 import { sql } from 'kysely'
-import type { Database, FeedFollowTable, FeedTagTable } from './db.js'
+import {
+  type Database,
+  type FeedFollowTable,
+  type FeedTagTable,
+  visibleDid,
+} from './db.js'
 
 export const FOLLOW_COLLECTION = 'app.bsky.graph.follow'
 export const STARTER_PACK_COLLECTION = 'app.bsky.graph.starterpack'
@@ -116,6 +121,7 @@ export async function suggestedStarterPacks(
   let qb = db
     .selectFrom('feed_starter_pack')
     .select('uri')
+    .where(visibleDid('did'))
     .orderBy('indexedAt', 'desc')
     .limit(opts.limit)
   if (opts.viewer) {
@@ -162,6 +168,12 @@ export async function suggestedAccounts(
     for (const f of follows) exclude.add(f.subject)
   }
   if (relativeTo) exclude.add(relativeTo)
+  for (const { did } of await db
+    .selectFrom('hidden_actor')
+    .select('did')
+    .execute()) {
+    exclude.add(did)
+  }
 
   const base = scores ?? (await accountScores(db))
   const score = new Map(base.score)
@@ -260,6 +272,7 @@ export async function trendingTags(
       sql<string>`group_concat(distinct did)`.as('dids'),
     ])
     .where('indexedAt', '>=', since)
+    .where(visibleDid('did'))
     .groupBy('tag')
     .orderBy('postCount', 'desc')
     .orderBy('lastAt', 'desc')

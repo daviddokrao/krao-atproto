@@ -1,4 +1,5 @@
 import { InvalidRequestError } from '@atproto/xrpc-server'
+import { sql } from 'kysely'
 import { countGraphemes } from 'unicode-segmenter/grapheme'
 import type { Appview, AppviewProfile } from './appview.js'
 import { isChatDisabled } from './moderation.js'
@@ -8,6 +9,7 @@ import type {
   MemberStatus,
   MemberTable,
   MessageTable,
+  ReactionTable,
 } from './db.js'
 import { currentRev, nextRev, randomId } from './rev.js'
 
@@ -639,6 +641,8 @@ export class ChatService {
     did: string,
     profile: AppviewProfile | null | undefined,
     kind?: Json,
+    /** A moderator cut the account off from chat */
+    chatDisabled = false,
   ): Json {
     return {
       did,
@@ -649,21 +653,46 @@ export class ChatService {
       labels: profile?.labels ?? [],
       ...(profile?.createdAt ? { createdAt: profile.createdAt } : {}),
       ...(profile?.verification ? { verification: profile.verification } : {}),
-      chatDisabled: false,
+      chatDisabled,
       ...(kind ? { kind } : {}),
     }
   }
 
-  async memberViews(convo: ConvoTable, members: MemberTable[]) {
-    const shown =
-      convo.kind === 'direct'
-        ? members
-        : members.filter((m) => m.state === 'active')
+  /** Members a convo view lists: everyone in a direct convo, active ones in a group */
+  private shownMembers(convo: ConvoTable, members: MemberTable[]) {
+    return convo.kind === 'direct'
+      ? members
+      : members.filter((m) => m.state === 'active')
+  }
+
+  /** DIDs among `dids` a moderator cut off from chat */
+  private async chatDisabledDids(dids: string[]) {
+    if (!dids.length) return new Set<string>()
+    const rows = await this.db
+      .selectFrom('actor_access')
+      .select('did')
+      .where('did', 'in', [...new Set(dids)])
+      .where('allowAccess', '=', 0)
+      .execute()
+    return new Set(rows.map((r) => r.did))
+  }
+
+  async memberViews(
+    convo: ConvoTable,
+    members: MemberTable[],
+    prefetched?: {
+      profiles: Map<string, AppviewProfile | null>
+      disabled: Set<string>
+    },
+  ) {
+    const shown = this.shownMembers(convo, members)
     const addedBy = shown.map((m) => m.addedBy).filter((d): d is string => !!d)
-    const profiles = await this.appview.getProfiles([
-      ...shown.map((m) => m.did),
-      ...addedBy,
-    ])
+    const profiles =
+      prefetched?.profiles ??
+      (await this.appview.getProfiles([...shown.map((m) => m.did), ...addedBy]))
+    const disabled =
+      prefetched?.disabled ??
+      (await this.chatDisabledDids(shown.map((m) => m.did)))
     return shown.map((m) =>
       this.profileView(
         m.did,
@@ -682,6 +711,7 @@ export class ChatService {
                   }
                 : {}),
             },
+        disabled.has(m.did),
       ),
     )
   }
@@ -747,8 +777,17 @@ export class ChatService {
         : []
       ).map((r) => [r.id, r]),
     )
-    const member = await this.getMember(rows[0].convoId, viewer)
-    const joinedRev = member?.joinedRev ?? ''
+    const convoIds = [...new Set(rows.map((r) => r.convoId))]
+    const joinedRevs = new Map(
+      (
+        await this.db
+          .selectFrom('member')
+          .select(['convoId', 'joinedRev'])
+          .where('did', '=', viewer)
+          .where('convoId', 'in', convoIds)
+          .execute()
+      ).map((m) => [m.convoId, m.joinedRev]),
+    )
     const embeds = await this.embedViews(
       [...rows, ...replies.values()].map((r) => r.embed),
     )
@@ -761,7 +800,7 @@ export class ChatService {
       if (withReply && row.replyTo) {
         if (!reply || hidden.has(reply.id)) {
           replyTo = reply ? this.deletedView(reply) : undefined
-        } else if (reply.rev < joinedRev) {
+        } else if (reply.rev < (joinedRevs.get(row.convoId) ?? '')) {
           replyTo = { $type: T.beforeJoined }
         } else {
           replyTo = view(reply, false)
@@ -937,55 +976,142 @@ export class ChatService {
     })
 
   async convoView(convo: ConvoTable, viewer: string): Promise<Json> {
-    const members = await this.listMembers(convo.id)
-    const me = members.find((m) => m.did === viewer)
-    if (!me) throw new InvalidRequestError('Convo not found', 'InvalidConvo')
-    const last = await this.db
-      .selectFrom('message')
+    const [view] = await this.convoViews([convo], viewer)
+    return view
+  }
+
+  /**
+   * Views of `convos` for `viewer`, in the same order. One set of queries
+   * for the whole page: members, each convo's last message and reaction
+   * (window functions), unread counts, and one AppView profile lookup.
+   */
+  async convoViews(convos: ConvoTable[], viewer: string): Promise<Json[]> {
+    if (!convos.length) return []
+    const ids = convos.map((c) => c.id)
+    const allMembers = await this.db
+      .selectFrom('member')
       .selectAll()
-      .where('convoId', '=', convo.id)
-      .where('rev', '>=', me.joinedRev)
-      .orderBy('rev', 'desc')
-      .limit(1)
-      .executeTakeFirst()
-    const [lastMessage] = last ? await this.messageViews([last], viewer) : []
-    const lastReactionRow = await this.db
-      .selectFrom('reaction')
-      .selectAll()
-      .where('convoId', '=', convo.id)
-      .orderBy('rev', 'desc')
-      .limit(1)
-      .executeTakeFirst()
-    let lastReaction: Json | undefined
-    if (lastReactionRow && (!last || lastReactionRow.rev > last.rev)) {
-      const target = await this.getMessage(convo.id, lastReactionRow.messageId)
-      const [message] = target ? await this.messageViews([target], viewer) : []
-      if (message?.$type === T.messageView) {
-        lastReaction = {
-          $type: T.messageAndReactionView,
-          message,
-          reaction: {
-            value: lastReactionRow.value,
-            sender: { did: lastReactionRow.did },
-            createdAt: lastReactionRow.createdAt,
-          },
-        }
+      .where('convoId', 'in', ids)
+      .execute()
+    const membersOf = new Map<string, MemberTable[]>()
+    for (const m of allMembers) {
+      membersOf.set(m.convoId, [...(membersOf.get(m.convoId) ?? []), m])
+    }
+    // The latest row per convo: max(rev) is one seek on the (convoId, rev)
+    // indexes, where a window function would rank every row
+    const lastMessages = new Map(
+      (
+        await sql<MessageTable>`select * from message m where m."convoId" in (${sql.join(
+          ids,
+        )}) and m.rev = (select max(rev) from message where "convoId" = m."convoId")`.execute(
+          this.db,
+        )
+      ).rows.map((r) => [r.convoId, r]),
+    )
+    const lastReactions = new Map(
+      (
+        await sql<ReactionTable>`select * from reaction r where r."convoId" in (${sql.join(
+          ids,
+        )}) and r.rev = (select max(rev) from reaction where "convoId" = r."convoId")`.execute(
+          this.db,
+        )
+      ).rows.map((r) => [r.convoId, r]),
+    )
+    // One convo (most routes): count just that one
+    const unread = new Map<string, number>()
+    if (convos.length === 1) {
+      const me = membersOf.get(ids[0])?.find((m) => m.did === viewer)
+      if (me) unread.set(ids[0], await this.unreadCount(ids[0], me))
+    } else {
+      for (const u of await this.unreadConvos(viewer)) {
+        unread.set(u.convoId, u.unread)
       }
     }
-    return {
-      id: convo.id,
-      rev: convo.rev,
-      members: await this.memberViews(convo, members),
-      ...(lastMessage ? { lastMessage } : {}),
-      ...(lastReaction ? { lastReaction } : {}),
-      muted: !!me.muted,
-      status: me.status,
-      unreadCount: await this.unreadCount(convo.id, me),
-      kind:
-        convo.kind === 'direct'
-          ? { $type: T.directConvo }
-          : await this.groupConvoKind(convo, me),
+
+    // Each convo's visible last message, and the messages last reacted to
+    const lastRows = new Map<string, MessageTable>()
+    for (const convo of convos) {
+      const me = membersOf.get(convo.id)?.find((m) => m.did === viewer)
+      const last = lastMessages.get(convo.id)
+      if (me && last && last.rev >= me.joinedRev) lastRows.set(convo.id, last)
     }
+    const joinedRevOf = (convoId: string) =>
+      membersOf.get(convoId)?.find((m) => m.did === viewer)?.joinedRev ?? ''
+    const targetIds = [...lastReactions.values()]
+      .filter((r) => {
+        const last = lastRows.get(r.convoId)
+        return (!last || r.rev > last.rev) && r.rev >= joinedRevOf(r.convoId)
+      })
+      .map((r) => r.messageId)
+    // Not messages from before the viewer joined (a group's history)
+    const targets = (
+      targetIds.length
+        ? await this.db
+            .selectFrom('message')
+            .selectAll()
+            .where('id', 'in', targetIds)
+            .execute()
+        : []
+    ).filter((m) => m.rev >= joinedRevOf(m.convoId))
+    const rowsToView = [...lastRows.values(), ...targets]
+    const views = new Map(
+      (await this.messageViews(rowsToView, viewer)).map((v, i) => [
+        rowsToView[i].id,
+        v,
+      ]),
+    )
+
+    // One profile lookup for every member shown on the page
+    const shownDids = convos.flatMap((c) =>
+      this.shownMembers(c, membersOf.get(c.id) ?? []).flatMap((m) =>
+        m.addedBy ? [m.did, m.addedBy] : [m.did],
+      ),
+    )
+    const profiles = await this.appview.getProfiles(shownDids)
+    const disabled = await this.chatDisabledDids(shownDids)
+
+    const out: Json[] = []
+    for (const convo of convos) {
+      const members = membersOf.get(convo.id) ?? []
+      const me = members.find((m) => m.did === viewer)
+      if (!me) throw new InvalidRequestError('Convo not found', 'InvalidConvo')
+      const last = lastRows.get(convo.id)
+      const lastMessage = last ? views.get(last.id) : undefined
+      const reactionRow = lastReactions.get(convo.id)
+      let lastReaction: Json | undefined
+      if (reactionRow && (!last || reactionRow.rev > last.rev)) {
+        const message = views.get(reactionRow.messageId)
+        if (message?.$type === T.messageView) {
+          lastReaction = {
+            $type: T.messageAndReactionView,
+            message,
+            reaction: {
+              value: reactionRow.value,
+              sender: { did: reactionRow.did },
+              createdAt: reactionRow.createdAt,
+            },
+          }
+        }
+      }
+      out.push({
+        id: convo.id,
+        rev: convo.rev,
+        members: await this.memberViews(convo, members, {
+          profiles,
+          disabled,
+        }),
+        ...(lastMessage ? { lastMessage } : {}),
+        ...(lastReaction ? { lastReaction } : {}),
+        muted: !!me.muted,
+        status: me.status,
+        unreadCount: unread.get(convo.id) ?? 0,
+        kind:
+          convo.kind === 'direct'
+            ? { $type: T.directConvo }
+            : await this.groupConvoKind(convo, me),
+      })
+    }
+    return out
   }
 
   /*
@@ -1037,12 +1163,23 @@ export class ChatService {
       qb = qb.where('convo.id', 'in', unread)
     }
     const rows = await qb.limit(opts.limit).execute()
-    const convos: Json[] = []
-    for (const row of rows) convos.push(await this.convoView(row, viewer))
+    const convos = await this.convoViews(rows, viewer)
     return {
       convos,
       cursor: rows.length >= opts.limit ? rows.at(-1)?.rev : undefined,
     }
+  }
+
+  /**
+   * Drop log entries older than `maxAgeMs` (90 days). Clients sync from a
+   * recent cursor; one that old has long reloaded its convo list.
+   */
+  async pruneLog(maxAgeMs = 90 * 24 * 60 * 60 * 1000) {
+    // Revs are microsecond timestamps in base 36 (see rev.ts)
+    const cutoff = (BigInt(Date.now() - maxAgeMs) * 1000n)
+      .toString(36)
+      .padStart(12, '0')
+    await this.db.deleteFrom('log').where('rev', '<', cutoff).execute()
   }
 
   async getLog(viewer: string, cursor?: string) {

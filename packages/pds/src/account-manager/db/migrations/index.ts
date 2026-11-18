@@ -10,6 +10,7 @@ import * as mig009 from './009-wallet-challenge.js'
 import * as mig010 from './010-krao-referral-outbox.js'
 import * as mig011 from './011-krao-takedown-outbox.js'
 import * as mig012 from './012-krao-outbox-failed.js'
+import * as mig013 from './013-krao-outbox-kind.js'
 
 export default {
   '001': mig001,
@@ -24,4 +25,5 @@ export default {
   '010': mig010,
   '011': mig011,
   '012': mig012,
+  '013': mig013,
 }

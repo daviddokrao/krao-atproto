@@ -1,6 +1,7 @@
 import type { EvmRpc } from './chain.js'
-import type { Database, NftAvatarTable } from './db.js'
+import { type Database, type NftAvatarTable, visibleDid } from './db.js'
 import { readLimited, safeFetch } from './safe-fetch.js'
+import { ownedEvmAddresses } from './wallets.js'
 
 export const NFT_AVATAR_COLLECTION = 'net.krao.actor.nftAvatar'
 
@@ -204,14 +205,12 @@ async function checkNftAvatar(
     return { status: 'invalid', reason: 'Wallet must be an EVM account' }
   }
 
-  const linked = await db
-    .selectFrom('wallet')
-    .select('account')
-    .where('did', '=', row.did)
-    .where('status', '=', 'verified')
-    .execute()
-  if (!linked.some((w) => w.account.split(':')[2] === walletAddress)) {
-    return { status: 'invalid', reason: 'Wallet is not linked to the account' }
+  if (!(await ownedEvmAddresses(db, row.did)).has(walletAddress)) {
+    return {
+      status: 'invalid',
+      reason:
+        'Wallet is not linked to the account, or another account linked it first',
+    }
   }
 
   const rpc = rpcs.get(row.chain)
@@ -245,12 +244,16 @@ async function checkNftAvatar(
       standard: standard ?? undefined,
     }
   }
-  const metadata = await getNftMetadata(
-    rpc,
-    row.contract,
-    tokenId,
-    standard === 'erc1155' ? 'erc1155' : 'erc721',
-  )
+  // Ownership is what changes; the metadata of a token rarely does, and a
+  // new avatar record starts without it
+  const metadata = row.image
+    ? undefined
+    : await getNftMetadata(
+        rpc,
+        row.contract,
+        tokenId,
+        standard === 'erc1155' ? 'erc1155' : 'erc721',
+      )
   return { status: 'verified', standard: standard ?? undefined, metadata }
 }
 
@@ -303,6 +306,7 @@ export async function getNftAvatarsForDids(db: Database, dids: string[]) {
     .selectFrom('nft_avatar')
     .selectAll()
     .where('did', 'in', dids)
+    .where(visibleDid('did'))
     .execute()
 }
 

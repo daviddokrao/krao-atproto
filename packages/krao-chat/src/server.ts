@@ -10,6 +10,7 @@ import {
 } from '@atproto/xrpc-server'
 import { sql } from 'kysely'
 import { catchAsyncErrors, errorHandler } from './async-routes.js'
+import { ChatLimits, DAY, NEW_CONVOS_PER_DAY } from './limits.js'
 import { addGroupRoutes } from './group.js'
 import { chat } from './lexicons/index.js'
 import { addModerationMethods, isChatDisabled } from './moderation.js'
@@ -67,6 +68,7 @@ export function createApp(opts: {
 }): Express {
   const { service, idResolver, serviceDid } = opts
   const server = createServer([], {})
+  const limits = new ChatLimits()
 
   /*
    * Users reach the chat service through their PDS, which forwards each call
@@ -95,6 +97,7 @@ export function createApp(opts: {
         'ChatDisabled',
       )
     }
+    limits.take(did, nsid)
     return { credentials: { did } }
   }
 
@@ -126,6 +129,7 @@ export function createApp(opts: {
           .execute()
       } else {
         await service.assertCanMessage(viewer, other)
+        limits.take(viewer, 'new-direct-convo', NEW_CONVOS_PER_DAY, DAY)
         await service.createDirectConvo(viewer, other)
         existing = await service.findDirectConvo(viewer, other)
       }

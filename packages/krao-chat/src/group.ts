@@ -899,8 +899,7 @@ export function addGroupRoutes(
         .limit(limit)
       if (params.cursor) qb = qb.where('convo.rev', '<', params.cursor)
       const rows = await qb.execute()
-      const convos = []
-      for (const row of rows) convos.push(await service.convoView(row, viewer))
+      const convos = await service.convoViews(rows, viewer)
       return json({
         convos,
         cursor: rows.length >= limit ? rows.at(-1)?.rev : undefined,

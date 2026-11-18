@@ -451,7 +451,11 @@ export class AccountManager {
   }
 
   async deleteAccount(did: DidString) {
-    return accountHelpers.deleteAccount(this.db, did)
+    await accountHelpers.deleteAccount(this.db, did)
+    if (this.kraoReferral) {
+      await this.kraoReferral.recordDeletion(did)
+      this.kraoReferral.deliverSoon()
+    }
   }
 
   async takedownAccount(
