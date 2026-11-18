@@ -97,6 +97,11 @@ const indexer = await KraoIndexer.create({
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean),
+  // Service and moderator accounts never suggested to follow
+  unsuggestedDids: (process.env.KRAO_UNSUGGESTED_DIDS ?? '')
+    .split(',')
+    .map((did) => did.trim())
+    .filter(Boolean),
   // Development only: Mini Apps served from http://localhost
   devMode: process.env.KRAO_DEV_MODE === 'true',
   // Krao's PDS (Mini App icons); default: KRAO_FIREHOSE_URL as http

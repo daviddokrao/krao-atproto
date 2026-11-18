@@ -93,6 +93,29 @@ describe('with a database', () => {
     expect(dids).not.toContain('did:b')
   })
 
+  it('never suggests accounts that only follow, like moderators', async () => {
+    for (const did of ['did:a', 'did:b']) await posted(did)
+    // did:mod follows everyone and is followed, but never posted
+    await follow('did:mod', 'did:a')
+    await follow('did:mod', 'did:b')
+    await follow('did:b', 'did:mod')
+
+    const dids = await suggestedAccounts(db, { limit: 10 })
+    expect(dids).not.toContain('did:mod')
+    expect(dids).toContain('did:a')
+  })
+
+  it('never suggests excluded accounts, even when they post', async () => {
+    for (const did of ['did:a', 'did:team']) await posted(did)
+    await follow('did:a', 'did:team')
+
+    const dids = await suggestedAccounts(db, {
+      limit: 10,
+      exclude: new Set(['did:team']),
+    })
+    expect(dids).toEqual(['did:a'])
+  })
+
   it('puts friends of friends first when relative to an account', async () => {
     for (const did of ['did:a', 'did:b', 'did:c', 'did:d', 'did:e']) {
       await posted(did)

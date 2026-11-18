@@ -109,6 +109,29 @@ check(
   suggestions.ok && !suggestions.data.actors?.some((a) => a.did === minh.did),
   suggestions.data.error ?? suggestions.data.message,
 )
+// mod.test and triage.test (dev-env moderators) follow people but never post
+check(
+  'suggestions leave out accounts that never posted, like moderators',
+  users.ok &&
+    !users.data.actors?.some((a) =>
+      ['mod.test', 'triage.test'].includes(a.handle),
+    ),
+  JSON.stringify(users.data.actors?.map((a) => a.handle)),
+)
+
+// The app's "Discover new feeds" page
+const popular = await xrpc(
+  APPVIEW,
+  'app.bsky.unspecced.getPopularFeedGenerators',
+  { query: { limit: 50 } },
+)
+check(
+  'the feeds page lists the Krao feeds',
+  popular.ok &&
+    popular.data.feeds?.some((f) => f.creator.did === krao.did) &&
+    !popular.data.cursor,
+  popular.data.error ?? JSON.stringify(popular.data).slice(0, 200),
+)
 
 const feeds = await xrpc(APPVIEW, 'app.bsky.unspecced.getSuggestedFeeds', {
   query: { limit: 10 },

@@ -70,6 +70,12 @@ export type KraoRewardsConfig = {
     secrets: PhoneSecrets
     /** Allowed prefixes and SMS caps (see DEFAULT_PHONE_LIMITS) */
     limits?: Partial<PhoneLimits>
+    /**
+     * Whether the PDS and chat refuse accounts with no verified number, as
+     * they do in production (default). Only tells the app (getStatus), so it
+     * does not ask for a number a demo does not need.
+     */
+    required?: boolean
   }
   /**
    * Development and rehearsals only: with the log SMS driver, the codes sent
@@ -157,6 +163,7 @@ export class KraoRewards {
         requireSecondApprover: cfg.manualReview?.requireSecondApprover ?? false,
       },
       phone,
+      phoneRequired: () => cfg.phone?.required !== false,
       pushDevices: push ? (did) => push.devices(did) : undefined,
       pushLanguage: push
         ? (did, language) => push.setLanguage(did, language)

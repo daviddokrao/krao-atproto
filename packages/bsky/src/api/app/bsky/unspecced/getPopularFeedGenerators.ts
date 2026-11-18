@@ -72,6 +72,18 @@ export default function (server: Server, ctx: AppContext) {
                 .catch(asInvalidRequest())
               uris = res.uris as AtUriString[]
             }
+          } else if (ctx.topicsClient ?? ctx.irisClient) {
+            /*
+             * Krao: the feeds come from the Krao indexer (as for
+             * getSuggestedFeeds), since nothing fills the suggested_feed
+             * table. It returns one page.
+             */
+            if (cursor) return { feeds: [] }
+            const res = await (ctx.topicsClient ?? ctx.irisClient)!.call(
+              app.bsky.unspecced.getSuggestedFeedsSkeleton,
+              { limit: Math.min(limit, 25), viewer: viewer ?? undefined },
+            )
+            uris = res.feeds
           } else {
             const res = await ctx.dataplane.getSuggestedFeeds({
               actorDid: viewer ?? undefined,

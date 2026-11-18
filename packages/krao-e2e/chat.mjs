@@ -236,13 +236,36 @@ check(
   muted.data.convo?.muted === true && unmuted.data.convo?.muted === false,
 )
 
-const availability = await call(
-  stranger,
-  'chat.bsky.convo.getConvoAvailability',
-  {
+/*
+ * The seed lets anyone message its accounts: krao.test takes messages only
+ * from accounts it follows for this check, then goes back to anyone
+ */
+async function setAllowIncoming(session, allowIncoming) {
+  const res = await fetch(new URL('/xrpc/com.atproto.repo.putRecord', PDS), {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${session.accessJwt}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: 'chat.bsky.actor.declaration',
+      rkey: 'self',
+      record: { $type: 'chat.bsky.actor.declaration', allowIncoming },
+    }),
+  })
+  if (!res.ok) throw new Error(`putRecord declaration: ${res.status}`)
+}
+await setAllowIncoming(krao, 'following')
+// The chat service caches profiles (and so this setting) for 30 seconds
+let availability
+for (let i = 0; i < 160; i++) {
+  availability = await call(stranger, 'chat.bsky.convo.getConvoAvailability', {
     query: { members: [krao.did] },
-  },
-)
+  })
+  if (availability.data.canChat === false) break
+  await new Promise((r) => setTimeout(r, 250))
+}
 const blockedStart = await call(
   stranger,
   'chat.bsky.convo.getConvoForMembers',
@@ -255,6 +278,16 @@ check(
   availability.data.canChat === false &&
     blockedStart.data.error === 'NotFollowedBySender',
   blockedStart.data.error,
+)
+await setAllowIncoming(krao, 'all')
+// The seed accounts take messages from anyone, eg a brand-new account
+const openToAll = await call(stranger, 'chat.bsky.convo.getConvoAvailability', {
+  query: { members: [minh.did] },
+})
+check(
+  'a new account can message the seed accounts',
+  openToAll.data.canChat === true,
+  JSON.stringify(openToAll.data),
 )
 
 await call(minh, 'chat.bsky.convo.leaveConvo', { body: { convoId } })

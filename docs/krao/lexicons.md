@@ -2107,6 +2107,7 @@ Type: **object**
 | --- | --- | --- | --- |
 | `verified` | boolean | yes |  |
 | `available` | boolean |  | Whether codes can be sent (an SMS provider is set up). |
+| `required` | boolean |  | Whether posting and chat need a verified phone number. Missing means they do. |
 | `verifiedAt` | string (datetime) |  |  |
 | `maskedPhone` | string |  | The verified number with most digits hidden, eg +84******678. |
 

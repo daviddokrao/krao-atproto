@@ -130,8 +130,10 @@ check(
 
 const before = await rewardsCall(ana, 'net.krao.phone.getStatus')
 check(
-  'getStatus: not verified, codes available',
-  before.data.verified === false && before.data.available === true,
+  'getStatus: not verified, codes available, a number required',
+  before.data.verified === false &&
+    before.data.available === true &&
+    before.data.required === true,
   JSON.stringify(before.data),
 )
 const invalid = await rewardsCall(ana, 'net.krao.phone.requestCode', {
