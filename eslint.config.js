@@ -144,6 +144,13 @@ export default [
     },
   },
   {
+    // Run inside the Krao production image, which has their dependencies
+    files: ['services/krao/**/*.mjs'],
+    rules: {
+      'import-x/no-unresolved': 'off',
+    },
+  },
+  {
     files: ['**/*.js', '**/*.cjs', '**/*.cts'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
