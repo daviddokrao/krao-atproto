@@ -13,10 +13,24 @@
     "status": "status",
     "plc": "plc",
     "gate": "gate",
+    "geolocation": "ip",
+    "liveEvents": "live-events",
+    "appConfig": "app-config",
+    "updates": "updates",
+    "go": "go",
     "mod": "mod"
   },
   "nsid": "net.krao",
-  "app": { "id": "io.krao.app", "scheme": "krao", "slug": "krao" },
-  "emails": { "support": "support@krao.net", "noreply": "noreply@krao.net" },
-  "social": { "officialHandle": "krao.net" }
+  "app": {
+    "id": "io.krao.app",
+    "scheme": "krao",
+    "slug": "krao"
+  },
+  "emails": {
+    "support": "support@krao.net",
+    "noreply": "noreply@krao.net"
+  },
+  "social": {
+    "officialHandle": "krao.net"
+  }
 }
