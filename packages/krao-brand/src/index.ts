@@ -13,7 +13,7 @@ export type Brand = {
   domain: string
   /** Subdomain of each public service: `<hosts.x>.<domain>` */
   hosts: Record<BrandHostKey, string>
-  /** Lexicon namespace (changed by scripts/rebrand.mjs, not read at runtime) */
+  /** Lexicon namespace (changed by scripts/krao-rebrand.mjs, not read at runtime) */
   nsid: string
   app: { id: string; scheme: string; slug: string }
   emails: { support: string; noreply: string }
