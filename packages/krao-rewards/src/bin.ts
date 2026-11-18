@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { brandDid } from '@krao/brand'
 import {
   HttpSmsProvider,
   KraoRewards,
@@ -84,7 +85,7 @@ const rewards = await KraoRewards.create({
   // Rehearsals and dev only: identity lookups to private hosts over http
   insecureFetch: process.env.KRAO_INSECURE_FETCH === 'true',
   port: Number(env.KRAO_REWARDS_PORT ?? 2592),
-  serviceDid: env.KRAO_REWARDS_DID ?? 'did:web:rewards.krao.net',
+  serviceDid: env.KRAO_REWARDS_DID ?? brandDid('rewards'),
   dbLocation: env.KRAO_REWARDS_DB ?? 'krao-rewards.sqlite',
   plcUrl: env.KRAO_PLC_URL ?? 'https://plc.directory',
   internalToken,

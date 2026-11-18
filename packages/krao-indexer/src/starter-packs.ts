@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { BRAND } from '@krao/brand'
 import express, { type Express } from 'express'
 import sharp from 'sharp'
 import type { Database } from './db.js'
@@ -176,7 +177,7 @@ export async function renderStarterPackCard(card: {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">
   <rect width="1200" height="630" fill="#0E8C6E"/>
   <circle cx="1080" cy="120" r="36" fill="#FFC233"/>
-  <text x="80" y="140" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#FFC233" font-weight="bold">Krao · Starter pack</text>
+  <text x="80" y="140" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#FFC233" font-weight="bold">${escapeXml(BRAND.name)} · Starter pack</text>
   <text x="80" y="300" font-family="DejaVu Sans, sans-serif" font-size="72" fill="#FFFFFF" font-weight="bold">${name}</text>
   <text x="80" y="380" font-family="DejaVu Sans, sans-serif" font-size="32" fill="#E6F4EF">${description}</text>
   <text x="80" y="540" font-family="DejaVu Sans, sans-serif" font-size="34" fill="#FFFFFF">bởi ${creator}${escapeXml(members)}</text>

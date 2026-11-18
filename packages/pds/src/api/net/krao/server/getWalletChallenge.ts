@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import {
   InvalidAccountError,
+  SIGN_IN_STATEMENT,
   type WalletAccount,
   formatSignInMessage,
   normalizeAccountId,
@@ -33,7 +34,7 @@ export default function (server: Server, ctx: AppContext) {
         domain: publicUrl.host,
         chain: account.namespace === 'eip155' ? 'Ethereum' : 'Solana',
         address: account.address,
-        statement: 'Sign in to Krao.',
+        statement: SIGN_IN_STATEMENT,
         uri: publicUrl.origin,
         version: '1',
         chainId: account.reference,

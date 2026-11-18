@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import {
   addressAt,
   decodeAbiString,
@@ -830,7 +831,7 @@ export async function commonWarnings(
     warnings.push({
       code: 'unsafeOrigin',
       severity: 'danger',
-      message: "The site asking is on Krao's list of unsafe domains",
+      message: `The site asking is on ${BRAND.name}'s list of unsafe domains`,
     })
   }
   const addresses = [...new Set(opts.addresses.map(lower))]
@@ -842,8 +843,7 @@ export async function commonWarnings(
         warnings.push({
           code: 'lookalikeAddress',
           severity: 'danger',
-          message:
-            "This address looks like another Krao account's verified wallet: check every character",
+          message: `This address looks like another ${BRAND.name} account's verified wallet: check every character`,
           address: result.address,
         })
       }
@@ -952,7 +952,7 @@ export async function simulateTransaction(
     warnings.push({
       code: 'simulationUnavailable',
       severity: 'warning',
-      message: 'Krao could not run this transaction to check it',
+      message: `${BRAND.name} could not run this transaction to check it`,
     })
   } else if (!ok) {
     warnings.push({
@@ -971,7 +971,7 @@ export async function simulateTransaction(
       severity: known ? 'warning' : 'danger',
       message: known
         ? 'Turns your account into a smart account run by this contract'
-        : 'Hands control of your account to a contract Krao does not know',
+        : `Hands control of your account to a contract ${BRAND.name} does not know`,
       address: delegate,
     })
   }
@@ -986,8 +986,7 @@ export async function simulateTransaction(
       code: 'eip7702Delegation',
       // A trace shows what that code does here; a decoded call does not
       severity: method === 'trace' ? 'warning' : 'danger',
-      message:
-        'Your account is already run by a contract Krao does not know: it can move your assets',
+      message: `Your account is already run by a contract ${BRAND.name} does not know: it can move your assets`,
       address: current,
     })
   }
@@ -1012,7 +1011,7 @@ export async function simulateTransaction(
       warnings.push({
         code: 'unknownContract',
         severity: 'info',
-        message: 'Krao does not know this contract',
+        message: `${BRAND.name} does not know this contract`,
         address: to,
       })
     }

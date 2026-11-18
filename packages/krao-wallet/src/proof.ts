@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import { InvalidAccountError, parseAccountId, sameAddress } from './account.js'
 import { verifyAccountSignature } from './contract-signature.js'
 import { InvalidMessageError, parseSignInMessage } from './message.js'
@@ -17,8 +18,11 @@ export type ProofResult = { ok: true } | { ok: false; reason: string }
  * Wallets warn when a site asks to sign a message for another domain, so a
  * phishing site cannot quietly get a link proof naming its own account.
  */
-export const LINK_DOMAIN = 'krao.net'
-export const LINK_STATEMENT = 'Link this wallet to my Krao account.'
+export const LINK_DOMAIN = BRAND.domain
+export const LINK_STATEMENT = `Link this wallet to my ${BRAND.name} account.`
+
+/** Statement of the PDS's wallet sign-in challenge (getWalletChallenge) */
+export const SIGN_IN_STATEMENT = `Sign in to ${BRAND.name}.`
 
 const PROOF_TYPE = { eip155: 'siwe', solana: 'siws' } as const
 const MESSAGE_CHAIN = { eip155: 'Ethereum', solana: 'Solana' } as const
@@ -59,7 +63,9 @@ export async function verifyWalletProof(params: {
       return fail('Message chain ID does not match the account')
     }
     if (msg.domain !== LINK_DOMAIN || msg.statement !== LINK_STATEMENT) {
-      return fail('Message was not written by Krao for linking a wallet')
+      return fail(
+        `Message was not written by ${BRAND.name} for linking a wallet`,
+      )
     }
     if (msg.uri !== did && !msg.resources.includes(did)) {
       return fail('Message does not name the DID')

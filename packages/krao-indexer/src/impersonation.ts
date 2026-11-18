@@ -1,3 +1,4 @@
+import { BRAND } from '@krao/brand'
 import type { IdResolver } from '@atproto/identity'
 import type { AdminAuditLog } from './admin-roles.js'
 import { fetchAvatarHash, similarAvatars } from './avatar-hash.js'
@@ -639,13 +640,13 @@ export class OzoneAdminClient implements ImpersonationModerator {
       $type: 'tools.ozone.moderation.defs#modEventLabel',
       createLabelVals: [IMPERSONATION_LABEL],
       negateLabelVals: [],
-      comment: `Krao: possible impersonation of ${whom} (name and avatar or handle look alike)`,
+      comment: `${BRAND.name}: possible impersonation of ${whom} (name and avatar or handle look alike)`,
     })
     if (report) {
       await this.emit(did, {
         $type: 'tools.ozone.moderation.defs#modEventReport',
         reportType: 'tools.ozone.report.defs#reasonMisleadingImpersonation',
-        comment: `Krao automatic check: may impersonate the verified account ${whom}`,
+        comment: `${BRAND.name} automatic check: may impersonate the verified account ${whom}`,
       })
     }
   }
@@ -655,8 +656,7 @@ export class OzoneAdminClient implements ImpersonationModerator {
       $type: 'tools.ozone.moderation.defs#modEventLabel',
       createLabelVals: [],
       negateLabelVals: [IMPERSONATION_LABEL],
-      comment:
-        'Krao: no longer looks like a verified account (name or avatar changed); label removed automatically',
+      comment: `${BRAND.name}: no longer looks like a verified account (name or avatar changed); label removed automatically`,
     })
   }
 }
