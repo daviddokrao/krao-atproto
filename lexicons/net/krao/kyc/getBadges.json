@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.kyc.getBadges",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Verification badges of accounts. \"human\": the account verified a phone number or its identity and chose to show it; how it verified is never disclosed. Public and rate limited.",
+      "parameters": {
+        "type": "params",
+        "required": ["dids"],
+        "properties": {
+          "dids": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 50,
+            "items": { "type": "string", "format": "did" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["actors"],
+          "properties": {
+            "actors": {
+              "type": "array",
+              "description": "Only the accounts that have a badge.",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.kyc.defs#actorBadges"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

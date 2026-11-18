@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.getStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The caller's membership of a creator, if the caller ever wrote a payment to them. Requires service auth for the indexer (the gate service DID); the caller is the member.",
+      "parameters": {
+        "type": "params",
+        "required": ["creator"],
+        "properties": {
+          "creator": { "type": "string", "format": "at-identifier" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "membership": {
+              "type": "ref",
+              "ref": "net.krao.membership.defs#membershipView"
+            }
+          }
+        }
+      }
+    }
+  }
+}

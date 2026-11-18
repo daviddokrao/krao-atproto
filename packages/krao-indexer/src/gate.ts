@@ -22,7 +22,36 @@ export type NftHoldingCondition = {
   tokenId?: string
 }
 
-export type GateCondition = TokenBalanceCondition | NftHoldingCondition
+/** Members of a Krao community (see community.ts) */
+export type CommunityMemberCondition = {
+  $type: 'net.krao.gate.defs#communityMember'
+  community: string
+}
+
+/** Active members of a creator (see membership.ts) */
+export type MembershipCondition = {
+  $type: 'net.krao.gate.defs#membership'
+  creator: string
+  plan?: string
+}
+
+/** Conditions checked on the viewer's wallets */
+export type ChainCondition = TokenBalanceCondition | NftHoldingCondition
+
+export type GateCondition =
+  ChainCondition | CommunityMemberCondition | MembershipCondition
+
+/** What isEligible needs beyond the chain */
+export type EligibilityContext = {
+  /** Whether `did` is a member in good standing of the community */
+  isCommunityMember?: (community: string, did: string) => Promise<boolean>
+  /** Whether `did` is an active member of the creator (of `plan`, if set) */
+  isCreatorMember?: (
+    creator: string,
+    plan: string | undefined,
+    did: string,
+  ) => Promise<boolean>
+}
 
 /**
  * Turn an net.krao.gate.rule record into a row. Returns null when the rule
@@ -62,6 +91,36 @@ export function gateRuleRowFromRecord(
 }
 
 function isCondition(c: unknown): c is GateCondition {
+  const v = c as Record<string, unknown>
+  if (v?.$type === 'net.krao.gate.defs#communityMember') {
+    if (typeof v.community !== 'string') return false
+    try {
+      return new AtUri(v.community).collection === 'net.krao.community.profile'
+    } catch {
+      return false
+    }
+  }
+  if (v?.$type === 'net.krao.gate.defs#membership') {
+    if (typeof v.creator !== 'string' || !v.creator.startsWith('did:')) {
+      return false
+    }
+    if (v.plan === undefined) return true
+    if (typeof v.plan !== 'string') return false
+    try {
+      const plan = new AtUri(v.plan)
+      return (
+        plan.host === v.creator &&
+        plan.collection === 'net.krao.membership.plan'
+      )
+    } catch {
+      return false
+    }
+  }
+  return isChainCondition(c)
+}
+
+/** A token balance or NFT condition (gates, community access) */
+export function isChainCondition(c: unknown): c is ChainCondition {
   const v = c as Record<string, unknown>
   if (v?.$type === 'net.krao.gate.defs#tokenBalance') {
     return typeof v.asset === 'string' && typeof v.minAmount === 'string'
@@ -231,58 +290,78 @@ const eligibilityCache = new Map<string, number>()
 
 /**
  * Whether `viewer` meets the gate. The author always does. Balances are summed
- * across all of the viewer's verified wallets.
+ * across all of the viewer's verified wallets; community and membership
+ * conditions ask `ctx` (without one they are never met).
  */
 export async function isEligible(
   db: Database,
   rpcs: Map<string, EvmRpc>,
   rule: GateRuleTable,
   viewer: string,
+  ctx: EligibilityContext = {},
 ): Promise<boolean> {
   if (viewer === rule.did) return true
-  const addresses = await linkedEvmAddresses(db, viewer)
-  if (!addresses.length) return false
-  const key = [
-    rule.uri,
-    rule.match,
-    rule.conditions,
-    viewer,
-    ...addresses,
-  ].join('|')
-  const now = Date.now()
-  if ((eligibilityCache.get(key) ?? 0) > now) return true
-
   const conditions = JSON.parse(rule.conditions) as GateCondition[]
-  const check = (condition: GateCondition) =>
-    meetsCondition(rpcs, condition, addresses).catch(() => false)
-  let eligible: boolean
-  if (rule.match === 'any') {
-    eligible = false
-    for (const condition of conditions) {
-      if (await check(condition)) {
-        eligible = true
-        break
-      }
+  const chainOnly = conditions.every(isChainCondition)
+  const addresses = await linkedEvmAddresses(db, viewer)
+  if (!addresses.length && chainOnly) return false
+  // A ban must close the gate right away: only chain checks are cached
+  const key = chainOnly
+    ? [rule.uri, rule.match, rule.conditions, viewer, ...addresses].join('|')
+    : undefined
+  const now = Date.now()
+  if (key && (eligibilityCache.get(key) ?? 0) > now) return true
+
+  const check = async (condition: GateCondition) => {
+    if (condition.$type === 'net.krao.gate.defs#communityMember') {
+      return ctx.isCommunityMember
+        ? ctx.isCommunityMember(condition.community, viewer).catch(() => false)
+        : false
     }
-  } else {
-    eligible = true
-    for (const condition of conditions) {
-      if (!(await check(condition))) {
-        eligible = false
-        break
-      }
+    if (condition.$type === 'net.krao.gate.defs#membership') {
+      // Never cached (not a chain condition): expiry closes the gate at once
+      return ctx.isCreatorMember
+        ? ctx
+            .isCreatorMember(condition.creator, condition.plan, viewer)
+            .catch(() => false)
+        : false
     }
+    if (!addresses.length) return false
+    return meetsCondition(rpcs, condition, addresses).catch(() => false)
   }
-  if (eligible) {
+  const eligible = await matchConditions(conditions, rule.match, check)
+  if (eligible && key) {
     if (eligibilityCache.size >= ELIGIBILITY_CACHE_MAX) eligibilityCache.clear()
     eligibilityCache.set(key, now + ELIGIBLE_TTL_MS)
   }
   return eligible
 }
 
-async function meetsCondition(
+/** All (or with match 'any', any one) of the conditions pass `check` */
+export async function matchConditions<T>(
+  conditions: T[],
+  match: string,
+  check: (condition: T) => Promise<boolean>,
+): Promise<boolean> {
+  if (match === 'any') {
+    for (const condition of conditions) {
+      if (await check(condition)) return true
+    }
+    return false
+  }
+  for (const condition of conditions) {
+    if (!(await check(condition))) return false
+  }
+  return true
+}
+
+/**
+ * Whether the wallets at `addresses` together meet a chain condition. RPC
+ * failures of balance calls throw; failed contract calls count as no.
+ */
+export async function meetsCondition(
   rpcs: Map<string, EvmRpc>,
-  condition: GateCondition,
+  condition: ChainCondition,
   addresses: string[],
 ): Promise<boolean> {
   if (condition.$type === 'net.krao.gate.defs#tokenBalance') {

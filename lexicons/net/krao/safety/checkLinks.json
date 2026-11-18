@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.safety.checkLinks",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check links against Krao's list of phishing and wallet-draining domains (an open list synced by the indexer, plus domains Krao admins add). Public and rate limited.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["urls"],
+          "properties": {
+            "urls": {
+              "type": "array",
+              "minLength": 1,
+              "maxLength": 20,
+              "items": { "type": "string", "maxLength": 2048 },
+              "description": "URLs, or bare hosts."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["results"],
+          "properties": {
+            "results": {
+              "type": "array",
+              "description": "One result per URL, in the order given.",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.safety.defs#linkResult"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

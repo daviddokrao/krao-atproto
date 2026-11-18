@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.analytics.getFunnel",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The sign-up funnel of the accounts created between since and until (default: the last 30 days): how many of them verified a phone, passed KYC, linked a wallet and sent a first verified tip, whenever and in whatever order. Rewards admins only (service auth).",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "since": { "type": "string", "format": "datetime" },
+          "until": { "type": "string", "format": "datetime" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["since", "until", "steps"],
+          "properties": {
+            "since": { "type": "string", "format": "datetime" },
+            "until": { "type": "string", "format": "datetime" },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.analytics.defs#funnelStep"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

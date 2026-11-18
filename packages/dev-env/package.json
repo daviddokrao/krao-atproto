@@ -49,6 +49,7 @@
     "@did-plc/server": "^0.0.1",
     "@krao/chat": "workspace:^",
     "@krao/indexer": "workspace:^",
+    "@krao/plc-mirror": "workspace:^",
     "@krao/push": "workspace:^",
     "@krao/rewards": "workspace:^",
     "@krao/video": "workspace:^",

@@ -18,7 +18,13 @@
           "type": "ref",
           "ref": "net.krao.rewards.admin.defs#rule"
         }
-      }
+      },
+      "errors": [
+        {
+          "name": "MultiLevelReferral",
+          "description": "Referral rewards are one level only: the beneficiary must be the actor or its referrer."
+        }
+      ]
     }
   }
 }

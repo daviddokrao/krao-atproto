@@ -1,0 +1,82 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.defs",
+  "description": "Creator memberships: plans (net.krao.membership.plan) in the creator's repo, payments (net.krao.membership.payment) in the member's repo, checked on Base by Krao's indexer.",
+  "defs": {
+    "planView": {
+      "type": "object",
+      "required": [
+        "uri",
+        "cid",
+        "creator",
+        "name",
+        "priceUsdc",
+        "active",
+        "memberCount"
+      ],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "creator": { "type": "string", "format": "did" },
+        "name": { "type": "string", "maxLength": 640, "maxGraphemes": 64 },
+        "description": {
+          "type": "string",
+          "maxLength": 5000,
+          "maxGraphemes": 500
+        },
+        "priceUsdc": {
+          "type": "string",
+          "description": "USDC base units (6 decimals) for 30 days.",
+          "maxLength": 20
+        },
+        "perks": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 1000, "maxGraphemes": 100 },
+          "maxLength": 5
+        },
+        "active": {
+          "type": "boolean",
+          "description": "False when the creator turned the plan off, or it is beyond the 3 active plans an account may have."
+        },
+        "memberCount": {
+          "type": "integer",
+          "description": "Members whose current 30-day period was paid for with this plan."
+        }
+      }
+    },
+    "membershipView": {
+      "type": "object",
+      "required": ["creator", "member", "plan", "status", "since"],
+      "properties": {
+        "creator": { "type": "string", "format": "did" },
+        "member": { "type": "string", "format": "did" },
+        "plan": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The plan of the current period (active), of the last one (expired), or of the payment being checked (pending, invalid)."
+        },
+        "status": {
+          "type": "string",
+          "description": "'active': paid up; 'expired': had paid, no longer; 'pending': a payment is being checked; 'invalid': the last payment was refused (see reason).",
+          "knownValues": ["active", "expired", "pending", "invalid"],
+          "maxLength": 32
+        },
+        "since": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Start of the unbroken run of paid periods (active, expired), or when the payment was written (pending, invalid)."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "End of the paid periods (active, expired)."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the payment is pending or invalid.",
+          "maxLength": 300
+        }
+      }
+    }
+  }
+}

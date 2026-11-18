@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.phone.verifyCode",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check the code sent by net.krao.phone.requestCode. On success the number is the viewer's verified phone (replacing an earlier one). Requires service auth for the rewards service.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["phone", "code"],
+          "properties": {
+            "phone": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "The number the code was sent to."
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 16
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "net.krao.phone.defs#status" }
+      },
+      "errors": [
+        {
+          "name": "InvalidPhone",
+          "description": "Not a phone number in E.164 form."
+        },
+        {
+          "name": "PhoneNotSupported",
+          "description": "Numbers of this country cannot be verified here."
+        },
+        { "name": "InvalidCode", "description": "The code is wrong." },
+        {
+          "name": "CodeExpired",
+          "description": "No code is waiting for this number, or it expired."
+        },
+        {
+          "name": "TooManyAttempts",
+          "description": "Too many wrong codes: ask for a new one."
+        },
+        {
+          "name": "PhoneTaken",
+          "description": "Another account verified this number."
+        },
+        {
+          "name": "PhoneUnavailable",
+          "description": "Phone verification is not set up on this service."
+        }
+      ]
+    }
+  }
+}

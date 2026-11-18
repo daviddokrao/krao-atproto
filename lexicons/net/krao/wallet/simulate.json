@@ -1,0 +1,95 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.wallet.simulate",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Preview a transaction before the wallet signs it: run it on Krao's node (debug_traceCall with callTracer) to list what the signer would lose and receive and which approvals it grants, with safety warnings. When the node cannot trace, the calldata is only decoded ('decode'). Base only. Requires service auth for the indexer; rate limited per account and per IP.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["chain", "from", "to"],
+          "properties": {
+            "chain": {
+              "type": "string",
+              "description": "CAIP-2 chain id; only eip155:8453 (Base).",
+              "maxLength": 64
+            },
+            "from": { "type": "string", "maxLength": 42 },
+            "to": { "type": "string", "maxLength": 42 },
+            "data": {
+              "type": "string",
+              "description": "0x-prefixed calldata.",
+              "maxLength": 262144
+            },
+            "value": {
+              "type": "string",
+              "description": "Native value in wei, decimal (0x hex is accepted too).",
+              "maxLength": 80
+            },
+            "authorizationList": {
+              "type": "array",
+              "description": "EIP-7702 authorizations sent with the transaction.",
+              "maxLength": 16,
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.wallet.defs#authorization"
+              }
+            },
+            "origin": {
+              "type": "string",
+              "description": "The https origin of the Mini App asking, if any.",
+              "maxLength": 512
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["ok", "method", "changes", "approvals", "warnings"],
+          "properties": {
+            "ok": {
+              "type": "boolean",
+              "description": "False when the transaction reverts or the node could not run it."
+            },
+            "revertReason": { "type": "string", "maxLength": 1000 },
+            "method": {
+              "type": "string",
+              "knownValues": ["trace", "decode"],
+              "maxLength": 16
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.wallet.defs#balanceChange"
+              }
+            },
+            "approvals": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "net.krao.wallet.defs#approval" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "net.krao.wallet.defs#warning" }
+            },
+            "gasEstimate": {
+              "type": "string",
+              "description": "Gas, decimal.",
+              "maxLength": 80
+            },
+            "usdOut": {
+              "type": "string",
+              "description": "What the outgoing assets are worth in US dollars at the catalog's prices, when known.",
+              "maxLength": 80
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "UnsupportedChain" }, { "name": "InvalidAddress" }]
+    }
+  }
+}

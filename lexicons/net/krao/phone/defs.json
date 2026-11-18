@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.phone.defs",
+  "defs": {
+    "status": {
+      "type": "object",
+      "required": ["verified"],
+      "properties": {
+        "verified": { "type": "boolean" },
+        "available": {
+          "type": "boolean",
+          "description": "Whether codes can be sent (an SMS provider is set up)."
+        },
+        "verifiedAt": { "type": "string", "format": "datetime" },
+        "maskedPhone": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The verified number with most digits hidden, eg +84******678."
+        }
+      }
+    }
+  }
+}

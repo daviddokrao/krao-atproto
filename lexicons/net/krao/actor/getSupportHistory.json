@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.actor.getSupportHistory",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "An account's verified tips and membership payments, sent or received, the newest first. Tips marked anonymous are left out in both directions. Public. NotFound for accounts that are taken down or deactivated.",
+      "parameters": {
+        "type": "params",
+        "required": ["actor", "direction"],
+        "properties": {
+          "actor": { "type": "string", "format": "at-identifier" },
+          "direction": {
+            "type": "string",
+            "knownValues": ["sent", "received"],
+            "maxLength": 16
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 25
+          },
+          "cursor": { "type": "string", "maxLength": 512 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.actor.defs#supportItemView"
+              }
+            },
+            "cursor": { "type": "string", "maxLength": 512 }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}

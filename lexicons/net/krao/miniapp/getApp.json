@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.miniapp.getApp",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "A Mini App and its review status. Clients run it only when the status is 'approved'.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "format": "at-uri" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["app"],
+          "properties": {
+            "app": { "type": "ref", "ref": "net.krao.miniapp.defs#miniAppView" }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}

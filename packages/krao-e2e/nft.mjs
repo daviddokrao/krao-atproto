@@ -36,6 +36,8 @@ const resolveHello = () =>
 
 /** ERC-721 transferFrom, impersonating `from` on Anvil */
 async function transferNft(from, to) {
+  // The owner may be a fresh wallet left by the community group, with no gas
+  await rpc('anvil_setBalance', [from, '0x56bc75e2d63100000'])
   await rpc('anvil_impersonateAccount', [from])
   await rpc('eth_sendTransaction', [
     {

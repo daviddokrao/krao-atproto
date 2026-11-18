@@ -14,6 +14,7 @@ packages/bsync/src/proto
 
 # codegen
 packages/api/src/client
+docs/krao/lexicons.md
 
 # @atproto/lex
 packages/lexicon-resolver/src/lexicons

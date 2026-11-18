@@ -1,3 +1,4 @@
+import { type Lang, langOf } from './compose.js'
 import type { Database, Platform } from './db.js'
 import type { PushMessage, Sender } from './senders.js'
 
@@ -68,6 +69,71 @@ export class PushService {
       .where('did', '=', did)
       .where('token', '=', token)
       .execute()
+  }
+
+  /** The account was deleted: its devices get nothing more */
+  async deleteAccount(did: string) {
+    await this.db.deleteFrom('device_token').where('did', '=', did).execute()
+    await this.db
+      .deleteFrom('account_language')
+      .where('did', '=', did)
+      .execute()
+  }
+
+  /** Sets the language of the account's pushes; returns the one used */
+  async setLanguage(did: string, language: string): Promise<Lang> {
+    const tag = language.trim().toLowerCase()
+    await this.db
+      .insertInto('account_language')
+      .values({ did, language: tag, updatedAt: new Date().toISOString() })
+      .onConflict((oc) =>
+        oc.column('did').doUpdateSet({
+          language: tag,
+          updatedAt: new Date().toISOString(),
+        }),
+      )
+      .execute()
+    return langOf(tag)
+  }
+
+  /** The push language of each account (English when none was set) */
+  async languages(dids: string[]): Promise<Map<string, Lang>> {
+    const langs = new Map<string, Lang>(dids.map((did) => [did, 'en']))
+    if (!dids.length) return langs
+    const rows = await this.db
+      .selectFrom('account_language')
+      .select(['did', 'language'])
+      .where('did', 'in', [...new Set(dids)])
+      .execute()
+    for (const row of rows) langs.set(row.did, langOf(row.language))
+    return langs
+  }
+
+  async language(did: string): Promise<Lang> {
+    return (await this.languages([did])).get(did) ?? 'en'
+  }
+
+  /** The account's devices by platform, without tokens (data exports) */
+  async deviceSummary(did: string) {
+    const rows = await this.db
+      .selectFrom('device_token')
+      .select('platform')
+      .where('did', '=', did)
+      .execute()
+    const platforms: Record<string, number> = {}
+    for (const { platform } of rows) {
+      platforms[platform] = (platforms[platform] ?? 0) + 1
+    }
+    const lang = await this.db
+      .selectFrom('account_language')
+      .select('language')
+      .where('did', '=', did)
+      .executeTakeFirst()
+    return {
+      count: rows.length,
+      platforms,
+      ...(lang ? { language: lang.language } : {}),
+    }
   }
 
   async setAgeRestricted(did: string, ageRestricted: boolean) {

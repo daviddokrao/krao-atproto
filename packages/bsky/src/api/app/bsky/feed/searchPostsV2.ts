@@ -59,9 +59,11 @@ export default function (server: Server, ctx: AppContext) {
         ),
       })
       const isV2Enabled =
+        ctx.cfg.searchV2Enabled ||
         hydrateCtx.features.checkGate(
           hydrateCtx.features.Gate.SearchV2Enable,
-        ) || resolveSearchV2Override(req, ctx.cfg)
+        ) ||
+        resolveSearchV2Override(req, ctx.cfg)
       if (!isV2Enabled) {
         throw new InvalidRequestError('Search v2 is not enabled')
       }

@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.admin.listRoles",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every account with a Krao admin role, and where each role comes from. Admins only (service auth for the rewards service).",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["members"],
+          "properties": {
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.admin.defs#member"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -45,9 +45,16 @@ uses, stores each video as a blob on the author's PDS, and serves it as HLS.
 
 ## State
 
-- **In memory:** upload sessions, job statuses and daily quotas. A restart
-  drops uploads in flight (clients start over) and resets the day's counts.
-- **On disk:** HLS output under `dataDir`. Keep it on a persistent volume.
+- **In memory:** upload sessions and daily quotas. A restart drops uploads
+  still being sent (clients start over) and resets the day's counts.
+- **SQLite (`<dataDir>/jobs.sqlite`):** the job queue. Finished uploads
+  waiting or being processed are picked up again after a restart (from the
+  uploaded file; an HLS encode that finished is reused), up to 3 starts per
+  job, and `getJobStatus` keeps answering for finished jobs for 24 hours.
+  A job is still bound to its upload token: if the restart outlasts it, the
+  job fails with a message to post again.
+- **On disk:** uploads and HLS output under `dataDir`. Keep it on a
+  persistent volume.
 
 ## Configuration (`bin.ts`)
 

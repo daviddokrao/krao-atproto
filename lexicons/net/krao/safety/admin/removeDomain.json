@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.safety.admin.removeDomain",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Remove the admin entry (block or allow) of a domain. Entries of the synced list and the built-in seed stay. Logged. Safety admins only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["domain"],
+          "properties": {
+            "domain": { "type": "string", "maxLength": 253 }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["removed"],
+          "properties": {
+            "removed": {
+              "type": "boolean",
+              "description": "Whether an admin entry was removed."
+            }
+          }
+        }
+      }
+    }
+  }
+}

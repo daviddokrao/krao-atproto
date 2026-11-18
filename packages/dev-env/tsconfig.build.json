@@ -4,6 +4,7 @@
   "references": [
     { "path": "../krao-chat/tsconfig.build.json" },
     { "path": "../krao-indexer/tsconfig.build.json" },
+    { "path": "../krao-plc-mirror/tsconfig.build.json" },
     { "path": "../krao-push/tsconfig.build.json" },
     { "path": "../krao-rewards/tsconfig.build.json" },
     { "path": "../krao-video/tsconfig.build.json" },

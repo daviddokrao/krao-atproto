@@ -69,6 +69,13 @@ export default function (server: Server, ctx: AppContext) {
           }
           throw cause
         })
+        // Krao: posts imported need a verified phone, like posts written
+        await ctx.accountManager.kraoPhone?.assertCanWrite(
+          did,
+          diff.writes
+            .filter((w) => w.action !== WriteOpAction.Delete)
+            .map((w) => w.collection),
+        )
         diff.commit.rev = rev
         await store.repo.storage.applyCommit(diff.commit, currRepo === null)
 

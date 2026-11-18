@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.token.getToken",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "A token of Krao's catalog by its cashtag symbol, with its last price.",
+      "parameters": {
+        "type": "params",
+        "required": ["symbol"],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "The symbol, with or without '$'; case is ignored.",
+            "maxLength": 17
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["token"],
+          "properties": {
+            "token": { "type": "ref", "ref": "net.krao.token.defs#tokenView" }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "NotFound",
+          "description": "No token with this symbol in the catalog."
+        }
+      ]
+    }
+  }
+}

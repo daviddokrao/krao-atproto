@@ -170,6 +170,7 @@ export class AppviewNotifications {
     }
     if (!shown.length) return 0
     const profiles = await this.appview.profiles(shown.map((r) => r.author))
+    const langs = await this.push.languages(shown.map((r) => r.did))
     const texts = await this.appview.postTexts(
       shown.flatMap((r) =>
         SHOWS_SUBJECT.has(r.reason) && r.reasonSubject
@@ -187,7 +188,8 @@ export class AppviewNotifications {
         await this.push.claim(`n:${r.id}`)
         continue
       }
-      const title = socialTitle(r.reason, nameOf(author)) as string
+      const lang = langs.get(r.did) ?? 'en'
+      const title = socialTitle(r.reason, nameOf(author, lang), lang) as string
       const text = SHOWS_SUBJECT.has(r.reason)
         ? texts.get(r.reasonSubject ?? '')
         : texts.get(r.recordUri)

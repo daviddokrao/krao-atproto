@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.admin.getAuditLog",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Admin actions across Krao's services (rewards, indexer, chat, automatic moderation), newest first. Admins only (service auth for the rewards service).",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "service": {
+            "type": "string",
+            "knownValues": ["rewards", "indexer", "chat", "moderation"]
+          },
+          "actor": {
+            "type": "string",
+            "format": "did"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["entries"],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.admin.defs#auditEntry"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    }
+  }
+}

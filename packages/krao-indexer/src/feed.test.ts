@@ -3,9 +3,11 @@ import { type Database, createDb, migrateDb } from './db.js'
 import {
   feedInteractionRowFromRecord,
   feedPostRowFromRecord,
+  getLatestPosts,
   getPopularPosts,
   popularScore,
   upsertFeedInteraction,
+  upsertFeedPost,
 } from './feed.js'
 
 const HOUR = 3_600_000
@@ -71,6 +73,7 @@ describe('getPopularPosts', () => {
         did: 'did:a',
         indexedAt: at,
         createdAt: createdAt ?? at,
+        vi: 0,
       })
       .execute()
   }
@@ -109,5 +112,56 @@ describe('getPopularPosts', () => {
 
   it('refuses a malformed cursor', async () => {
     await expect(getPopularPosts(db, 10, 'abc', NOW)).rejects.toThrow()
+  })
+})
+
+describe('the "Tiếng Việt" feed', () => {
+  let db: Database
+
+  beforeEach(async () => {
+    db = createDb(':memory:')
+    await migrateDb(db)
+  })
+
+  afterEach(async () => {
+    await db.destroy()
+  })
+
+  const index = async (uri: string, did: string, record: unknown) => {
+    const row = feedPostRowFromRecord(uri, uri, did, record)
+    if (row) await upsertFeedPost(db, row)
+  }
+
+  it('lists Vietnamese posts only, newest first, without unsafe links or hidden accounts', async () => {
+    await index('at://a/p/1', 'did:a', { text: 'Chúc mừng năm mới!' })
+    await index('at://a/p/2', 'did:a', { text: 'Happy new year!' })
+    await index('at://a/p/3', 'did:a', { text: 'gm', langs: ['vi'] })
+    await index('at://a/p/4', 'did:a', { text: 'Nhận quà miễn phí tại đây' })
+    await index('at://b/p/5', 'did:b', { text: 'Bài của tài khoản bị khoá' })
+    await db
+      .insertInto('unsafe_post')
+      .values({
+        uri: 'at://a/p/4',
+        did: 'did:a',
+        domain: 'drainer.test',
+        flaggedAt: new Date().toISOString(),
+      })
+      .execute()
+    await db
+      .insertInto('hidden_actor')
+      .values({ did: 'did:b', status: 'takendown', since: '2026-10-16' })
+      .execute()
+    const page = await getLatestPosts(db, 10, undefined, { vietnamese: true })
+    expect(page.posts.sort()).toEqual(['at://a/p/1', 'at://a/p/3'])
+    // The latest feed is unchanged
+    const latest = await getLatestPosts(db, 10)
+    expect(latest.posts).toHaveLength(4)
+  })
+
+  it('follows an edit that changes the language', async () => {
+    await index('at://a/p/1', 'did:a', { text: 'Hello', langs: ['vi'] })
+    await index('at://a/p/1', 'did:a', { text: 'Hello', langs: ['en'] })
+    const page = await getLatestPosts(db, 10, undefined, { vietnamese: true })
+    expect(page.posts).toEqual([])
   })
 })

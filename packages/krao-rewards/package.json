@@ -28,13 +28,14 @@
     "kysely": "^0.29.2"
   },
   "devDependencies": {
+    "@atproto/crypto": "workspace:^",
     "@types/better-sqlite3": "^7.6.11",
     "@types/cors": "^2.8.12",
     "@types/express": "^4.17.13",
     "vitest": "^4.1.10"
   },
   "scripts": {
-    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include 'net.krao.referral.*' 'net.krao.points.*' 'net.krao.kyc.*' 'net.krao.rewards.*'",
+    "codegen:lex": "lex build --clear --indexFile --lexicons ../../lexicons --include 'net.krao.referral.*' 'net.krao.points.*' 'net.krao.kyc.*' 'net.krao.rewards.*' 'net.krao.phone.*' 'net.krao.account.*' 'net.krao.push.*' 'net.krao.analytics.*' 'net.krao.admin.*'",
     "prebuild": "pnpm run '/^(codegen:.+)$/'",
     "build": "tsc --build tsconfig.build.json",
     "test": "vitest run",

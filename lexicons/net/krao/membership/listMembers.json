@@ -1,0 +1,45 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.listMembers",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Members of the caller's plans (accounts with a verified payment), the latest expiry first. Only the creator sees them: requires service auth for the indexer (the gate service DID).",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Only active or only expired members; both when not set.",
+            "knownValues": ["active", "expired"],
+            "maxLength": 32
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["members"],
+          "properties": {
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.membership.defs#membershipView"
+              }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

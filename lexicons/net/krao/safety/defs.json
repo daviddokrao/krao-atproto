@@ -1,0 +1,74 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.safety.defs",
+  "defs": {
+    "linkResult": {
+      "type": "object",
+      "required": ["url", "unsafe"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The URL as it was given."
+        },
+        "unsafe": {
+          "type": "boolean",
+          "description": "Whether the link leads to a known phishing or wallet-draining site."
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 253,
+          "description": "The listed domain the link's host matched (the host itself or a parent domain)."
+        },
+        "reason": { "type": "string", "maxLength": 300 }
+      }
+    },
+    "addressResult": {
+      "type": "object",
+      "required": ["address", "lookalikes"],
+      "properties": {
+        "address": {
+          "type": "string",
+          "maxLength": 42,
+          "description": "The address, lowercase."
+        },
+        "owner": {
+          "type": "string",
+          "format": "did",
+          "description": "The account this address is a verified wallet of, if any."
+        },
+        "matchesExpected": {
+          "type": "boolean",
+          "description": "With expectedDid: whether the owner is that account."
+        },
+        "lookalikes": {
+          "type": "array",
+          "description": "Verified wallets of other accounts that share the first 4 and last 4 hex characters but are a different address (possible address poisoning).",
+          "items": { "type": "ref", "ref": "#lookalike" }
+        }
+      }
+    },
+    "lookalike": {
+      "type": "object",
+      "required": ["address", "did"],
+      "properties": {
+        "address": { "type": "string", "maxLength": 42 },
+        "did": { "type": "string", "format": "did" }
+      }
+    },
+    "domainView": {
+      "type": "object",
+      "required": ["domain", "source", "addedAt"],
+      "properties": {
+        "domain": { "type": "string", "maxLength": 253 },
+        "source": {
+          "type": "string",
+          "knownValues": ["list", "admin", "admin_allow", "seed"],
+          "description": "list: the synced open phishing list; admin: blocked by a Krao admin; admin_allow: allowed by a Krao admin (overrides list and seed entries); seed: built in."
+        },
+        "reason": { "type": "string", "maxLength": 300 },
+        "addedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

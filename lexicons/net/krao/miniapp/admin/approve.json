@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.miniapp.admin.approve",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Approve a Mini App at its current version: `cid` must be the record's current CID, so a change made during review is not approved by mistake. Also lifts a revocation. Safety admins only (logged); requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "cid"],
+          "properties": {
+            "uri": { "type": "string", "format": "at-uri" },
+            "cid": { "type": "string", "format": "cid" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["app"],
+          "properties": {
+            "app": { "type": "ref", "ref": "net.krao.miniapp.defs#miniAppView" }
+          }
+        }
+      },
+      "errors": [
+        { "name": "NotFound" },
+        {
+          "name": "CidMismatch",
+          "description": "The record changed: review its current version."
+        },
+        { "name": "InvalidApp", "description": "The record breaks the rules." },
+        {
+          "name": "UnsafeDomain",
+          "description": "The app's domain is on Krao's unsafe domain list."
+        }
+      ]
+    }
+  }
+}

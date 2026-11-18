@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.listMyCommunities",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Communities the caller owns, moderates or joined (including memberships that are pending or ineligible), the most recent first, each with the caller's state as last checked by the indexer. Requires service auth for the indexer (the gate service DID).",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["communities"],
+          "properties": {
+            "communities": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.community.defs#communityView"
+              }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

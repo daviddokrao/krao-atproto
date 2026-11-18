@@ -101,9 +101,16 @@ export function readEnv() {
     // appview
     // Krao indexer, used to find which account linked a wallet
     kraoIndexerUrl: envStr('PDS_KRAO_INDEXER_URL'),
+    // EVM chain where smart wallets (ERC-1271/6492) sign in, eg Base
+    kraoEvmRpcUrl: envStr('PDS_KRAO_EVM_RPC_URL'),
+    kraoEvmChainId: envInt('PDS_KRAO_EVM_CHAIN_ID'),
+    // Smart wallet sign-in checks per IP per 5 minutes (default 20)
+    kraoContractChecksPerIp: envInt('PDS_KRAO_CONTRACT_CHECKS_PER_IP'),
     // Krao rewards service: invite codes are its referral codes when set
     kraoRewardsUrl: envStr('PDS_KRAO_REWARDS_URL'),
     kraoRewardsToken: envStr('PDS_KRAO_REWARDS_TOKEN'),
+    // Posting needs a phone number verified with the rewards service
+    kraoPhoneRequired: envBool('PDS_KRAO_PHONE_REQUIRED'),
 
     bskyAppViewUrl: envStr('PDS_BSKY_APP_VIEW_URL'),
     bskyAppViewDid: envStr('PDS_BSKY_APP_VIEW_DID'),

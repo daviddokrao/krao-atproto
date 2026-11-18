@@ -11,6 +11,12 @@
  *   BSKY_DB_POOL_SIZE          connections (default 20)
  *   BSKY_REPO_PROVIDER         firehose to index, e.g. wss://pds.krao.net (required)
  *   BSKY_DATAPLANE_PORT        internal data plane port (default 2585)
+ *   KRAO_TRUSTED_VERIFIER_DIDS comma-separated accounts whose
+ *                              app.bsky.graph.verification records count
+ *                              (blue check); when set, the only ones
+ *   KRAO_LABELER_URL           Krao's labeler (its Ozone, eg http://ozone:3000)
+ *   KRAO_LABELER_DID           its DID: its labels (subscribeLabels) go into
+ *                              the data plane, where views read them
  */
 import assert from 'node:assert'
 import {
@@ -18,6 +24,7 @@ import {
   BsyncSubscription,
   DataPlaneServer,
   Database,
+  KraoLabelSubscription,
   RepoSubscription,
   ServerConfig,
 } from '@atproto/bsky'
@@ -49,6 +56,8 @@ const main = async () => {
   await db.pool.query(
     'create table if not exists krao_subscription_cursor (service varchar primary key, cursor bigint not null)',
   )
+
+  await applyTrustedVerifiers(db, process.env.KRAO_TRUSTED_VERIFIER_DIDS)
 
   const config = ServerConfig.readEnv({
     dataplaneUrls: [`http://localhost:${dataplanePort}`],
@@ -90,21 +99,57 @@ const main = async () => {
     },
   })
 
+  // Labels from Krao's labeler: Bluesky fills the label table with another
+  // service; without this, no label of Krao's Ozone reaches the views
+  const labelerUrl = process.env.KRAO_LABELER_URL
+  const labelerDid = process.env.KRAO_LABELER_DID
+  const labelSub =
+    labelerUrl && labelerDid
+      ? new KraoLabelSubscription({ db, service: labelerUrl, labelerDid })
+      : undefined
+
   await server.start()
   bsyncSub.start()
   void sub.start()
+  labelSub?.start()
   console.log(`Krao AppView listening on ${config.port}`)
 
   const shutdown = async () => {
     await server.destroy()
     await bsyncSub.destroy()
     await sub.destroy()
+    await labelSub?.destroy()
     await dataplane.destroy()
     await db.close()
     process.exit(0)
   }
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
+}
+
+/**
+ * Bluesky marks trusted verifiers by hand in the data plane's actor table;
+ * Krao sets them from the environment at start. An account the AppView has
+ * not seen yet gets its row now (with an old indexedAt, so its handle is
+ * still indexed when it shows up).
+ */
+async function applyTrustedVerifiers(db: Database, env: string | undefined) {
+  if (!env?.trim()) return
+  const dids = env
+    .split(',')
+    .map((did) => did.trim())
+    .filter((did) => did.startsWith('did:'))
+  await db.pool.query(
+    'update actor set "trustedVerifier" = false where "trustedVerifier" and not (did = any($1::varchar[]))',
+    [dids],
+  )
+  for (const did of dids) {
+    await db.pool.query(
+      'insert into actor (did, "indexedAt", "trustedVerifier") values ($1, $2, true) on conflict (did) do update set "trustedVerifier" = true',
+      [did, new Date(0).toISOString()],
+    )
+  }
+  if (dids.length) console.log(`Krao trusted verifiers: ${dids.join(', ')}`)
 }
 
 main()

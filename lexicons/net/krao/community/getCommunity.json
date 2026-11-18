@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.getCommunity",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "A community with its member count. With service auth for the indexer (the gate service DID), also the caller's membership state, checked on-chain or with Krao's verification for 'condition' and 'verified' communities. Without auth, no viewer state. Rate limited.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "format": "at-uri" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["community"],
+          "properties": {
+            "community": {
+              "type": "ref",
+              "ref": "net.krao.community.defs#communityView"
+            },
+            "feedGeneratorDid": {
+              "type": "string",
+              "format": "did",
+              "description": "The DID a community feed generator record (app.bsky.feed.generator, rkey community-<slug>) must name to be served: the indexer's feed generator DID. Absent when the indexer serves no feeds."
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}

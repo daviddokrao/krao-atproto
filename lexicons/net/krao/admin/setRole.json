@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.admin.setRole",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Grant or remove a Krao admin role, logged. Roles from the configuration cannot be removed, and admins cannot remove their own `admin` role. Takes effect at the indexer within a minute. Admins only (service auth for the rewards service).",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did", "role", "enabled"],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "role": {
+              "type": "ref",
+              "ref": "net.krao.admin.defs#role"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "net.krao.admin.defs#member"
+        }
+      },
+      "errors": [
+        { "name": "UnknownRole" },
+        { "name": "EnvRole" },
+        { "name": "OwnAdminRole" }
+      ]
+    }
+  }
+}

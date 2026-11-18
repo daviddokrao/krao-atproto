@@ -13,7 +13,9 @@ Everything Krao runs, on one host, from one image:
 | `video`                 | video uploads and HLS                                                                | `video.<domain>`                     |
 | `rewards`               | referral codes, points, KYC                                                          | `rewards.<domain>`                   |
 | `push`                  | device tokens and push notifications (in place of Bluesky's courier)                 | –                                    |
+| `plc-mirror`            | checked copy of plc.directory that DIDs resolve through (`deploy/plc-mirror.md`)     | –                                    |
 | `backup`                | daily backups                                                                        | –                                    |
+| `monitor`               | health checks and alerts (`monitor/`)                                                | `127.0.0.1:2594` on the host         |
 | `postgres`              | AppView, bsync and Ozone data                                                        | –                                    |
 | `caddy`                 | TLS and routing (`Caddyfile`)                                                        | ports 80/443                         |
 
@@ -63,10 +65,21 @@ Postgres ones too. Updates are `git pull` then `up -d --build`.
    screen and `docker compose up -d`.
 2. **Feeds.** From a Krao account, create the `app.bsky.feed.generator`
    records `latest` and `popular` with `did: did:web:idx.<domain>` (as
-   `deploy/seed-local.mjs` does for the demo).
-3. **Moderation.** Publish the labeler record for Ozone's DID and add the
-   moderators, following Ozone's own setup guide.
-4. **The app** builds against these settings (`krao-app/.env`):
+   `deploy/seed-local.mjs` does for the demo). Put that account's DID in
+   `KRAO_OFFICIAL_FEED_DIDS`: token pages link only its `holders-<symbol>`
+   feeds.
+3. **Lexicons.** Publish `lexicons/net/krao` in the same account and add
+   the `_lexicon` TXT records (`deploy/dns-lexicon.md`), so OAuth clients
+   can ask for `include:net.krao.authWeb3` / `authMiniApp`. Mini Apps are
+   reviewed by the safety admins (`docs/krao/miniapps.md`).
+4. **Moderation.** Publish the labeler record for Ozone's DID and add the
+   moderators, following Ozone's own setup guide. Then add Krao's own labels
+   (`labeler-labels.json`, eg `impersonation-suspect` from the indexer's
+   impersonation checks):
+   `docker run --rm --env-file .env -e KRAO_LABELER_PASSWORD=... krao-backend node services/krao/set-labeler-labels.mjs`.
+   Admin roles beyond `.env` are granted in the app (Krao admin > Roles);
+   every admin action is in its log (`net.krao.admin.getAuditLog`).
+5. **The app** builds against these settings (`krao-app/.env`):
 
    ```
    EXPO_PUBLIC_DEFAULT_SERVICE=https://pds.<domain>
@@ -101,7 +114,9 @@ Without keys, `push` only logs what it would send. For real pushes put in
 The AppView hands device tokens to `push` as its courier; `push` reads the
 AppView's notifications (likes, replies, follows, ...) and Krao's own events
 (chat messages, tips, points, KYC), applies each person's push settings,
-blocks and mutes, and sends. Pushes are in English for now.
+blocks and mutes, and sends. Pushes are in Vietnamese for accounts whose app
+language is Vietnamese (the app calls `net.krao.push.setLanguage` on
+`rewards`, which passes it to `push`), in English otherwise.
 
 ## Backups
 
@@ -123,6 +138,59 @@ docker compose up -d postgres
 docker compose run --rm backup node services/krao/restore.mjs /backups/krao-backup-<time>.tar
 docker compose up -d
 ```
+
+## Monitoring
+
+`monitor` (`monitor/monitor.mjs`, same image) checks every minute:
+
+- the health endpoint of `pds`, `appview`, `ozone`, `bsync`, `indexer`,
+  `chat`, `video`, `rewards` and `push`. **`rewards` down is urgent:**
+  sign-up (referral codes) and phone verification fail closed, so nobody
+  can sign up, post or chat;
+- the PLC mirror's lag behind plc.directory
+  (`KRAO_MONITOR_PLC_MIRROR_MAX_LAG_SEC`) and operations it refused;
+- the indexer's firehose freshness (no event for
+  `KRAO_MONITOR_FIREHOSE_MAX_AGE_SEC`; a quiet network looks the same) and
+  its failed events;
+- disk use of every data volume (`KRAO_MONITOR_DISK_MAX_PERCENT`);
+- the age of the newest backup archive (`KRAO_MONITOR_BACKUP_MAX_AGE_HOURS`).
+
+A check alerts after two failed rounds in a row, once, then every
+`KRAO_ALERT_REPEAT_HOURS` while it stays down, and once more when it
+recovers. Alerts go to `KRAO_ALERT_WEBHOOK_URL` as JSON
+(`{source, domain, text, events: [{check, status, detail}]}`), or as a
+Telegram message with `KRAO_ALERT_FORMAT=telegram` (URL
+`https://api.telegram.org/bot<token>/sendMessage`,
+`KRAO_ALERT_TELEGRAM_CHAT_ID`). Without a URL they are only in
+`docker compose logs monitor`. A webhook that fails gets the alert again on
+the next round.
+
+```bash
+curl -s http://127.0.0.1:2594/status   # every check, from the host
+node --test services/krao/monitor/monitor.test.mjs
+```
+
+The monitor runs on the host it watches: also point an outside uptime check
+at `https://pds.<domain>/xrpc/_health`.
+
+**When an alert comes:**
+
+- **A service is down:** `docker compose ps`, then
+  `docker compose logs --tail 200 <service>`; `docker compose up -d
+<service>` restarts it. Video jobs survive a restart (they are in
+  `video`'s `jobs.sqlite`); so do chat, rewards and push data.
+- **Indexer failed events:** the error of each is in the `failed_event`
+  table of `indexer.sqlite` (often an RPC that was down while a smart wallet
+  link was checked). Once the cause is fixed, a safety admin
+  (`KRAO_SAFETY_ADMIN_DIDS`) calls `net.krao.indexer.admin.replayFailedEvents`
+  (service auth for `did:web:idx.<domain>`): it indexes them again from the
+  PDS and returns `{replayed, failed, remaining}`.
+- **Indexer firehose silent:** compare with recent posts; if the network is
+  busy, restart `indexer` (it resumes from its cursor).
+- **Disk:** `docker system df`; old images (`docker image prune`), backups
+  in `KRAO_BACKUP_DIR`, then more disk.
+- **Backup too old:** `docker compose logs backup`; run one by hand (see
+  Backups).
 
 ## Rehearsal
 

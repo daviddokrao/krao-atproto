@@ -1,6 +1,7 @@
 import { InvalidAccountError, parseAccountId, sameAddress } from './account.js'
+import { verifyAccountSignature } from './contract-signature.js'
 import { InvalidMessageError, parseSignInMessage } from './message.js'
-import { verifySignature } from './signature.js'
+import type { EvmRpcForChain } from './rpc.js'
 
 /** The `walletProof` object from `net.krao.chain.defs`. */
 export type WalletProof = {
@@ -29,12 +30,17 @@ const MESSAGE_CHAIN = { eip155: 'Ethereum', solana: 'Solana' } as const
  * or one of the resources) so it cannot be replayed for another account, and
  * the signature must be valid. Link proofs are permanent attestations, so the
  * message's expiration time is not enforced here.
+ *
+ * With `rpc`, EVM proofs from contract wallets (ERC-1271, ERC-6492,
+ * EIP-7702) are checked on the account's chain; that may throw when the
+ * chain cannot be reached. Plain accounts are always checked offline.
  */
-export function verifyWalletProof(params: {
+export async function verifyWalletProof(params: {
   did: string
   account: string
   proof: WalletProof
-}): ProofResult {
+  rpc?: EvmRpcForChain
+}): Promise<ProofResult> {
   const { did, proof } = params
   try {
     const account = parseAccountId(params.account)
@@ -58,7 +64,11 @@ export function verifyWalletProof(params: {
     if (msg.uri !== did && !msg.resources.includes(did)) {
       return fail('Message does not name the DID')
     }
-    if (!verifySignature(account, proof.message, proof.signature)) {
+    if (
+      !(await verifyAccountSignature(account, proof.message, proof.signature, {
+        rpc: params.rpc,
+      }))
+    ) {
       return fail('Invalid signature')
     }
     return { ok: true }

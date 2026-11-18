@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.token.admin.samplePrices",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Read every catalog price now and add it to the price history, without waiting for the next 5-minute round. Token admins only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": { "type": "object", "properties": {} }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["sampled", "failed"],
+          "properties": {
+            "sampled": {
+              "type": "integer",
+              "description": "Tokens whose price was read."
+            },
+            "failed": {
+              "type": "integer",
+              "description": "Tokens whose pool could not be read."
+            }
+          }
+        }
+      }
+    }
+  }
+}

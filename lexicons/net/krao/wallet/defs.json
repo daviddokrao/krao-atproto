@@ -1,0 +1,120 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.wallet.defs",
+  "defs": {
+    "tokenInfo": {
+      "type": "object",
+      "description": "A token contract, with what Krao knows about it (its catalog, else the contract's own symbol(), name() and decimals()).",
+      "required": ["address"],
+      "properties": {
+        "address": { "type": "string", "maxLength": 42 },
+        "symbol": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 256 },
+        "decimals": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    },
+    "balanceChange": {
+      "type": "object",
+      "description": "An asset the signer would lose ('out') or receive ('in').",
+      "required": ["direction", "kind"],
+      "properties": {
+        "direction": {
+          "type": "string",
+          "knownValues": ["out", "in"],
+          "maxLength": 16
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": ["native", "erc20", "erc721", "erc1155"],
+          "maxLength": 16
+        },
+        "token": { "type": "ref", "ref": "#tokenInfo" },
+        "amount": {
+          "type": "string",
+          "description": "In the smallest unit (wei for native ETH), decimal.",
+          "maxLength": 80
+        },
+        "tokenId": { "type": "string", "maxLength": 80 },
+        "counterparty": {
+          "type": "string",
+          "description": "The other side of the transfer, when there is one.",
+          "maxLength": 42
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "description": "A right to move the signer's assets that the transaction or signature grants.",
+      "required": ["kind", "token", "spender", "unlimited"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "'erc20': approve/increaseAllowance; 'approvalForAll': every NFT of a collection; 'permit': an EIP-2612 or Permit2 permit.",
+          "knownValues": ["erc20", "approvalForAll", "permit"],
+          "maxLength": 32
+        },
+        "token": { "type": "ref", "ref": "#tokenInfo" },
+        "spender": { "type": "string", "maxLength": 42 },
+        "amount": {
+          "type": "string",
+          "description": "In the token's smallest unit, decimal.",
+          "maxLength": 80
+        },
+        "unlimited": { "type": "boolean" }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "required": ["code", "severity"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "knownValues": [
+            "reverts",
+            "unlimitedApproval",
+            "approvalForAll",
+            "eip7702Delegation",
+            "unknownContract",
+            "lookalikeAddress",
+            "unsafeOrigin",
+            "simulationUnavailable",
+            "walletProofPhishing",
+            "chainMismatch",
+            "marketplaceOrder",
+            "blindSignature"
+          ],
+          "maxLength": 64
+        },
+        "severity": {
+          "type": "string",
+          "knownValues": ["info", "warning", "danger"],
+          "maxLength": 16
+        },
+        "message": { "type": "string", "maxLength": 1000 },
+        "address": {
+          "type": "string",
+          "description": "The address the warning is about, when there is one.",
+          "maxLength": 42
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "description": "An EIP-7702 authorization: the account's code would become a delegation to this contract.",
+      "required": ["address"],
+      "properties": {
+        "address": { "type": "string", "maxLength": 42 },
+        "chainId": {
+          "type": "string",
+          "description": "Decimal or 0x hex.",
+          "maxLength": 80
+        },
+        "nonce": {
+          "type": "string",
+          "description": "Decimal or 0x hex.",
+          "maxLength": 80
+        }
+      }
+    }
+  }
+}

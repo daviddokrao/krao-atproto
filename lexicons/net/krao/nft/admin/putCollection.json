@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.nft.admin.putCollection",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add an NFT collection to Krao's approved list, or rename one. The contract is checked on chain (ERC-721 or ERC-1155); without a name, its on-chain name() is used. Safety admins only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["chain", "contract"],
+          "properties": {
+            "chain": { "type": "string", "maxLength": 128 },
+            "contract": { "type": "string", "maxLength": 128 },
+            "name": { "type": "string", "maxLength": 640 }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["collection"],
+          "properties": {
+            "collection": {
+              "type": "ref",
+              "ref": "net.krao.nft.defs#collectionView"
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "UnsupportedChain" },
+        { "name": "InvalidCollection" }
+      ]
+    }
+  }
+}

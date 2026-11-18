@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.indexer.admin.replayFailedEvents",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Index again the firehose events whose handler kept failing (the indexer's failedEvents), oldest first, from the current state of the PDS: records that still exist are indexed, records that are gone are deleted, accounts take their current status. Events that index are removed from the list; others stay with their new error. Indexer admins (the safety admins) only; requires service auth for the indexer.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100,
+              "description": "Most events to replay in this call."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["replayed", "failed", "remaining"],
+          "properties": {
+            "replayed": {
+              "type": "integer",
+              "description": "Events indexed and removed from the list."
+            },
+            "failed": {
+              "type": "integer",
+              "description": "Events that failed again."
+            },
+            "remaining": {
+              "type": "integer",
+              "description": "Events still in the list, including the ones that failed again."
+            }
+          }
+        }
+      }
+    }
+  }
+}

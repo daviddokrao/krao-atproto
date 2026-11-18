@@ -76,6 +76,8 @@ export default function (server: Server, ctx: AppContext) {
       if (did !== auth.credentials.did) {
         throw new AuthRequiredError()
       }
+      // Krao: posting may need a verified phone
+      await ctx.accountManager.kraoPhone?.assertCanWrite(did, [collection])
 
       // We can't compute permissions based on the request payload ("input") in
       // the 'auth' phase, so we do it here.

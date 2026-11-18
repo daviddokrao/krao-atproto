@@ -1,0 +1,86 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.creator.defs",
+  "defs": {
+    "supporterView": {
+      "type": "object",
+      "description": "One supporter of a creator. An anonymous supporter (tips whose record asked for it) never carries a DID.",
+      "required": ["anonymous", "totalUsd", "tipCount"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did",
+          "description": "Absent when anonymous."
+        },
+        "anonymous": { "type": "boolean" },
+        "totalUsd": {
+          "type": "string",
+          "description": "Sum in US dollars with 2 decimals, eg '12.50'. USDC counts as one dollar; other assets at the indexer's current catalog price (assets without one count as 0).",
+          "maxLength": 32
+        },
+        "tipCount": {
+          "type": "integer",
+          "description": "Number of verified tips and membership payments counted."
+        }
+      }
+    },
+    "usdTotal": {
+      "type": "object",
+      "required": ["count", "totalUsd"],
+      "properties": {
+        "count": { "type": "integer" },
+        "totalUsd": {
+          "type": "string",
+          "description": "US dollars with 2 decimals.",
+          "maxLength": 32
+        }
+      }
+    },
+    "memberStats": {
+      "type": "object",
+      "required": ["active", "new30d", "expired30d"],
+      "properties": {
+        "active": { "type": "integer" },
+        "new30d": {
+          "type": "integer",
+          "description": "Members whose first paid period started in the last 30 days."
+        },
+        "expired30d": {
+          "type": "integer",
+          "description": "Members whose membership ran out in the last 30 days and was not renewed."
+        }
+      }
+    },
+    "followerStats": {
+      "type": "object",
+      "required": ["now"],
+      "properties": {
+        "now": {
+          "type": "integer",
+          "description": "Follower count from Krao's AppView (or, when it does not answer, follows by Krao accounts the indexer saw)."
+        },
+        "change30d": {
+          "type": "integer",
+          "description": "Net change over 30 days in follows by Krao accounts the indexer saw: new follows still in place, minus older follows removed. Absent when the indexer does not index follows."
+        }
+      }
+    },
+    "dailyStats": {
+      "type": "object",
+      "required": ["date", "tipsUsd", "newMembers"],
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "UTC day, YYYY-MM-DD.",
+          "maxLength": 10
+        },
+        "tipsUsd": {
+          "type": "string",
+          "description": "US dollars with 2 decimals.",
+          "maxLength": 32
+        },
+        "newMembers": { "type": "integer" }
+      }
+    }
+  }
+}

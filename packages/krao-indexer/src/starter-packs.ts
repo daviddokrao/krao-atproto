@@ -24,6 +24,7 @@ export function shortLinkTarget(path: unknown, webUrl: string): string | null {
     typeof path !== 'string' ||
     !path.startsWith('/') ||
     path.length > MAX_PATH_LENGTH ||
+    // eslint-disable-next-line no-control-regex -- control characters are what it rejects
     /[\\\x00-\x1f\x7f]/.test(path)
   ) {
     return null

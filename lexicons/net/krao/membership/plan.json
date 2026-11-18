@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.membership.plan",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A monthly membership plan offered by the account (the creator). Members pay the price in USDC on Base straight to a wallet the creator linked; Krao takes no fee and holds no funds. At most 3 plans of an account count as active; the indexer treats further active plans as inactive.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "priceUsdc", "active", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 640,
+            "maxGraphemes": 64
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 5000,
+            "maxGraphemes": 500
+          },
+          "priceUsdc": {
+            "type": "string",
+            "description": "Price of 30 days of membership in USDC base units (6 decimals) as a decimal integer string, from 1000000 ($1) to 1000000000 ($1000).",
+            "maxLength": 20
+          },
+          "perks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1000,
+              "maxGraphemes": 100
+            },
+            "maxLength": 5
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether new members can join or renew. Existing memberships run until they expire."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

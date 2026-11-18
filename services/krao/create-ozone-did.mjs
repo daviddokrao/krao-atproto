@@ -9,8 +9,8 @@
  * Env: KRAO_DOMAIN, KRAO_PLC_URL, OZONE_SIGNING_KEY_HEX, and
  * OZONE_ROTATION_KEY_HEX (keep it offline afterwards: it controls the DID).
  */
-import { Secp256k1Keypair } from '@atproto/crypto'
 import { Client } from '@did-plc/lib'
+import { Secp256k1Keypair } from '@atproto/crypto'
 
 const need = (name) => {
   const value = process.env[name]

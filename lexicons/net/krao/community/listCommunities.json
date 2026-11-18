@@ -1,0 +1,49 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.community.listCommunities",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Communities, the most members first ('popular') or the newest first ('new'), optionally matching a search text. Public and rate limited.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Only communities whose name, slug or description contains this text."
+          },
+          "sort": {
+            "type": "string",
+            "knownValues": ["popular", "new"],
+            "default": "popular"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["communities"],
+          "properties": {
+            "communities": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.community.defs#communityView"
+              }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

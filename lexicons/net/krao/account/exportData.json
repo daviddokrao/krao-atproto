@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.account.exportData",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Everything this Krao service holds about the viewer, as JSON. Each Krao service that keeps personal data answers it (rewards, indexer, chat); call each with service auth addressed to it. The rewards service includes what the push service holds.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["service", "did", "exportedAt", "data"],
+          "properties": {
+            "service": {
+              "type": "string",
+              "knownValues": ["rewards", "indexer", "chat"],
+              "description": "Which service answered."
+            },
+            "did": { "type": "string", "format": "did" },
+            "exportedAt": { "type": "string", "format": "datetime" },
+            "data": {
+              "type": "unknown",
+              "description": "The service's data, by kind. Its shape is the service's own."
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -191,12 +191,29 @@ export const envToCfg = (env: ServerEnvironment): ServerConfig => {
   }
 
   const kraoCfg: ServerConfig['krao'] = env.kraoIndexerUrl
-    ? { indexerUrl: env.kraoIndexerUrl }
+    ? {
+        indexerUrl: env.kraoIndexerUrl,
+        evmRpc: env.kraoEvmRpcUrl
+          ? {
+              url: env.kraoEvmRpcUrl,
+              chainId: `eip155:${env.kraoEvmChainId ?? 8453}`,
+              checksPerIp: env.kraoContractChecksPerIp ?? 20,
+            }
+          : undefined,
+      }
     : null
 
   const kraoRewardsCfg: ServerConfig['kraoRewards'] = env.kraoRewardsUrl
-    ? { url: env.kraoRewardsUrl, token: env.kraoRewardsToken ?? '' }
+    ? {
+        url: env.kraoRewardsUrl,
+        token: env.kraoRewardsToken ?? '',
+        phoneRequired: env.kraoPhoneRequired ?? false,
+      }
     : null
+  assert(
+    !env.kraoPhoneRequired || kraoRewardsCfg,
+    'PDS_KRAO_PHONE_REQUIRED needs the Krao rewards service (PDS_KRAO_REWARDS_URL)',
+  )
 
   let bskyAppViewCfg: ServerConfig['bskyAppView'] = null
   if (env.bskyAppViewUrl) {
@@ -545,6 +562,16 @@ export type RateLimitsConfig =
 
 export type KraoConfig = {
   indexerUrl: string
+  /**
+   * JSON-RPC endpoint of one EVM chain (CAIP-2 id, default Base), to check
+   * signatures of smart contract wallets. Plain wallets need none.
+   */
+  evmRpc?: {
+    url: string
+    chainId: string
+    /** Contract wallet sign-in checks per IP per 5 minutes */
+    checksPerIp: number
+  }
 }
 
 /**
@@ -555,6 +582,8 @@ export type KraoRewardsConfig = {
   url: string
   /** Shared secret for its /internal routes */
   token: string
+  /** Posting needs a phone number verified with the service (Decree 147) */
+  phoneRequired: boolean
 }
 
 export type BksyAppViewConfig = {

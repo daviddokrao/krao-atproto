@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.miniapp.app",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A Mini App: a web app that runs inside Krao (sandboxed frame or WebView) and talks to it over postMessage. It runs only once Krao's reviewers approved this exact version (CID); changing the record sends it back for review.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "url", "permissions", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxGraphemes": 64,
+            "maxLength": 640
+          },
+          "description": {
+            "type": "string",
+            "maxGraphemes": 300,
+            "maxLength": 3000
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Where the Mini App is served: https, on an origin other than Krao's web app.",
+            "maxLength": 2048
+          },
+          "icon": {
+            "type": "blob",
+            "accept": ["image/png", "image/jpeg", "image/webp"],
+            "maxSize": 1000000
+          },
+          "permissions": {
+            "type": "array",
+            "description": "What the Mini App may ask for: 'identity' (who the user is), 'wallet' (a linked wallet address), 'sign' (message signatures), 'transaction' (transactions). Each is confirmed by the user.",
+            "maxLength": 4,
+            "items": {
+              "type": "string",
+              "knownValues": ["identity", "wallet", "sign", "transaction"],
+              "maxLength": 32
+            }
+          },
+          "chains": {
+            "type": "array",
+            "description": "CAIP-2 chains the Mini App uses; Krao supports eip155:8453 (Base).",
+            "maxLength": 8,
+            "items": { "type": "string", "maxLength": 64 }
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,7 @@ import { ConnectError, createPromiseClient } from '@connectrpc/connect'
 import { createConnectTransport } from '@connectrpc/connect-node'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AppviewClient } from './appview.js'
+import { PREFERENCE_KEY, langOf, nameOf, socialTitle } from './compose.js'
 import { type Database, createDb, migrateDb } from './db.js'
 import { Service } from './proto/courier_connect.js'
 import { AppPlatform } from './proto/courier_pb.js'
@@ -80,6 +81,33 @@ describe('krao-push server', () => {
       },
       body: JSON.stringify(body),
     })
+
+  it('counts devices by platform for exports, and forgets deleted accounts', async () => {
+    const client = courier()
+    for (const [token, platform] of [
+      ['tok-a', AppPlatform.IOS],
+      ['tok-b', AppPlatform.ANDROID],
+    ] as const) {
+      await client.registerDeviceToken({
+        did: 'did:example:dan',
+        token,
+        appId: 'io.krao.app',
+        platform,
+      })
+    }
+    const devices = () =>
+      fetch(`${base}/internal/devices?did=did:example:dan`, {
+        headers: { authorization: `Bearer ${INTERNAL}` },
+      }).then((r) => r.json())
+    expect(await devices()).toEqual({
+      count: 2,
+      platforms: { ios: 1, android: 1 },
+    })
+    const denied = await fetch(`${base}/internal/devices?did=did:example:dan`)
+    expect(denied.status).toBe(401)
+    await new PushService(db, {}).deleteAccount('did:example:dan')
+    expect(await devices()).toEqual({ count: 0, platforms: {} })
+  })
 
   it('registers and unregisters device tokens for the AppView', async () => {
     const client = courier()
@@ -192,6 +220,100 @@ describe('krao-push server', () => {
       status: 'approved',
     })
     expect(android.recent.at(-1)?.msg.data.reason).toBe('krao-kyc')
+  })
+
+  it('writes pushes in the language the account set', async () => {
+    const client = courier()
+    await client.registerDeviceToken({
+      did: 'did:example:vy',
+      token: 'tok-vy',
+      appId: 'io.krao.app',
+      platform: AppPlatform.ANDROID,
+    })
+    const setLanguage = (body: unknown, token = INTERNAL) =>
+      fetch(`${base}/internal/language`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      })
+    expect(
+      (await setLanguage({ did: 'did:example:vy', language: 'vi' }, 'x'))
+        .status,
+    ).toBe(401)
+    expect(
+      (await setLanguage({ did: 'did:example:vy', language: '<b>' })).status,
+    ).toBe(400)
+
+    // English until the app says otherwise
+    await notify({
+      kind: 'points',
+      id: 'p1',
+      recipientDid: 'did:example:vy',
+      points: 100,
+    })
+    expect(android.recent.at(-1)?.msg).toMatchObject({
+      title: 'Your points were approved',
+      body: '+100 points',
+    })
+
+    const res = await setLanguage({ did: 'did:example:vy', language: 'vi-VN' })
+    expect(await res.json()).toEqual({ language: 'vi' })
+    await notify({
+      kind: 'points',
+      id: 'p2',
+      recipientDid: 'did:example:vy',
+      points: 100,
+    })
+    expect(android.recent.at(-1)?.msg).toMatchObject({
+      title: 'Điểm của bạn đã được duyệt',
+      body: '+100 điểm',
+    })
+    await notify({
+      kind: 'chat',
+      id: 'm9',
+      recipientDids: ['did:example:vy'],
+      senderDid: 'did:example:alice',
+      convoId: 'c1',
+      messageId: 'm9',
+      reaction: '❤️',
+    })
+    expect(android.recent.at(-1)?.msg.body).toBe(
+      'Đã bày tỏ cảm xúc ❤️ với tin nhắn của bạn',
+    )
+    const devices = await fetch(`${base}/internal/devices?did=did:example:vy`, {
+      headers: { authorization: `Bearer ${INTERNAL}` },
+    }).then((r) => r.json())
+    expect(devices).toEqual({
+      count: 1,
+      platforms: { android: 1 },
+      language: 'vi-vn',
+    })
+  })
+})
+
+describe('push text', () => {
+  it('has English and Vietnamese for every notification reason', () => {
+    for (const reason of Object.keys(PREFERENCE_KEY)) {
+      const en = socialTitle(reason, 'An', 'en')
+      const vi = socialTitle(reason, 'An', 'vi')
+      expect(en).toBeTruthy()
+      expect(vi).toBeTruthy()
+      expect(vi).not.toBe(en)
+    }
+    expect(socialTitle('like', 'An', 'vi')).toBe('An đã thích bài của bạn')
+    expect(socialTitle('chat', 'An', 'vi')).toBeNull()
+  })
+
+  it('picks Vietnamese only for vi language tags', () => {
+    expect(langOf('vi')).toBe('vi')
+    expect(langOf('VI-vn')).toBe('vi')
+    expect(langOf('en-US')).toBe('en')
+    expect(langOf('fr')).toBe('en')
+    expect(langOf(undefined)).toBe('en')
+    expect(nameOf(undefined, 'vi')).toBe('Ai đó')
   })
 })
 

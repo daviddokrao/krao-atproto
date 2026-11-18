@@ -60,6 +60,8 @@ export default function (server: Server, ctx: AppContext) {
       if (did !== auth.credentials.did) {
         throw new AuthRequiredError()
       }
+      // Krao: posting may need a verified phone
+      await ctx.accountManager.kraoPhone?.assertCanWrite(did, [collection])
 
       if (auth.credentials.type === 'oauth') {
         auth.credentials.permissions.assertRepo({

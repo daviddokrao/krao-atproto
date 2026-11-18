@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bỏ phiếu nhanh</title>
+    <!--
+      Krao's sample Mini App (dev-env: http://localhost:2595/). One file, no
+      dependencies: it talks to the Krao app that hosts it over postMessage,
+      as docs/krao/miniapps.md describes.
+        Mini App -> Krao: {krao: 1, id, method, params}   and {krao: 1, event: 'ready'}
+        Krao -> Mini App: {krao: 1, id, result}  or  {krao: 1, id, error: {code, message}}
+      In a web frame messages are objects; in the native app's WebView they
+      go through window.ReactNativeWebView.postMessage as JSON text.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #0b0f19;
+        --muted: #5b6474;
+        --card: #f3f5f9;
+        --accent: #1f6feb;
+        --danger: #d1242f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --fg: #e6edf3;
+          --muted: #8b949e;
+          --card: #161b22;
+          --accent: #4493f8;
+          --danger: #f85149;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.45 system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      button {
+        display: block;
+        width: 100%;
+        margin: 0 0 10px;
+        padding: 12px 14px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        text-align: left;
+        cursor: pointer;
+      }
+      button.danger {
+        background: var(--danger);
+      }
+      button.plain {
+        background: var(--card);
+        color: var(--fg);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      #log {
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: 10px;
+        background: var(--card);
+        font:
+          12px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+        min-height: 64px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Bỏ phiếu nhanh</h1>
+    <p>Mini App mẫu của Krao: danh tính, ví, chữ ký và giao dịch.</p>
+
+    <button data-action="whoami">Cho biết tôi là ai</button>
+    <button data-action="wallet">Kết nối ví</button>
+    <button data-action="vote">Ký phiếu</button>
+    <button data-action="tip">Ủng hộ 0.0001 ETH</button>
+    <button data-action="approve" class="danger">
+      Thử approve USDC vô hạn
+    </button>
+    <button data-action="close" class="plain">Đóng</button>
+
+    <div id="log" aria-live="polite">Đang chờ Krao…</div>
+
+    <script>
+      'use strict'
+      // Where the tip goes: ?to=0x… or krao.test's dev wallet (Anvil #0)
+      var params = new URLSearchParams(location.search)
+      var TIP_TO = /^0x[0-9a-fA-F]{40}$/.test(params.get('to') || '')
+        ? params.get('to')
+        : '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+      var USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+      // An address nobody should approve: Krao shows the preview in red
+      var STRANGER = '0x00000000000000000000000000000000deadbeef'
+      var MAX_UINT256 = 'f'.repeat(64)
+
+      var log = document.getElementById('log')
+      function show(label, value) {
+        log.textContent =
+          label +
+          '\n' +
+          (typeof value === 'string' ? value : JSON.stringify(value, null, 2))
+      }
+
+      var native = window.ReactNativeWebView
+      function send(message) {
+        if (native) native.postMessage(JSON.stringify(message))
+        else if (window.parent !== window)
+          window.parent.postMessage(message, '*')
+      }
+
+      var pending = {}
+      var nextId = 1
+      function call(method, params) {
+        var id = 'r' + nextId++
+        return new Promise(function (resolve, reject) {
+          pending[id] = { resolve: resolve, reject: reject }
+          send({ krao: 1, id: id, method: method, params: params })
+        })
+      }
+
+      function onMessage(event) {
+        // In a frame, only the page that embeds this one may answer
+        if (!native && event.source !== window.parent) return
+        var msg = event.data
+        if (typeof msg === 'string') {
+          try {
+            msg = JSON.parse(msg)
+          } catch (e) {
+            return
+          }
+        }
+        if (!msg || msg.krao !== 1 || !pending[msg.id]) return
+        var p = pending[msg.id]
+        delete pending[msg.id]
+        if (msg.error) p.reject(msg.error)
+        else p.resolve(msg.result)
+      }
+      window.addEventListener('message', onMessage)
+      // Android's WebView delivers messages on document
+      document.addEventListener('message', onMessage)
+
+      var wallet = null
+      var actions = {
+        whoami: function () {
+          return call('getContext').then(function (ctx) {
+            show('Bạn là @' + ctx.user.handle, ctx)
+          })
+        },
+        wallet: function () {
+          return call('requestWallet').then(function (res) {
+            wallet = res
+            show('Ví đã kết nối', res)
+          })
+        },
+        vote: function () {
+          var message =
+            'Bỏ phiếu nhanh: tôi chọn "Có" (' + new Date().toISOString() + ')'
+          return call('signMessage', { message: message }).then(function (res) {
+            show('Đã ký phiếu', { message: message, signature: res.signature })
+          })
+        },
+        tip: function () {
+          return call('sendTransaction', {
+            to: TIP_TO,
+            value: '100000000000000',
+          }).then(function (res) {
+            show('Đã gửi 0.0001 ETH', res)
+          })
+        },
+        approve: function () {
+          // approve(STRANGER, MAX_UINT256) on USDC
+          var data =
+            '0x095ea7b3' +
+            STRANGER.slice(2).toLowerCase().padStart(64, '0') +
+            MAX_UINT256
+          return call('sendTransaction', { to: USDC, data: data }).then(
+            function (res) {
+              show('Giao dịch đã gửi (không nên!)', res)
+            },
+          )
+        },
+        close: function () {
+          return call('close')
+        },
+      }
+
+      document
+        .querySelectorAll('button[data-action]')
+        .forEach(function (button) {
+          button.addEventListener('click', function () {
+            var action = actions[button.dataset.action]
+            button.disabled = true
+            action()
+              .catch(function (err) {
+                show('Lỗi: ' + ((err && err.code) || 'Failed'), err)
+              })
+              .then(function () {
+                button.disabled = false
+              })
+          })
+        })
+
+      send({ krao: 1, event: 'ready' })
+      show(
+        'Sẵn sàng',
+        native
+          ? 'Krao (ứng dụng)'
+          : window.parent !== window
+            ? 'Krao (web)'
+            : 'Mở ngoài Krao: các nút không hoạt động',
+      )
+    </script>
+  </body>
+</html>

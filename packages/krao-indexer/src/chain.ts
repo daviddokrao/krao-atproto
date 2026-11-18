@@ -3,6 +3,8 @@
  * read calls the indexer needs, so no client library is pulled in.
  */
 
+import { readLimited } from './safe-fetch.js'
+
 /** keccak256("Transfer(address,address,uint256)") */
 const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -29,6 +31,7 @@ export type TransferCheck =
 
 type Receipt = {
   status: string
+  blockNumber: string
   from: string
   to: string | null
   logs: { address: string; topics: string[]; data: string }[]
@@ -40,22 +43,61 @@ type Transaction = {
   value: string
 }
 
+/** The largest answer EvmRpc.request reads */
+export const RPC_REQUEST_MAX_BYTES = 8 * 1024 * 1024
+
+/** A JSON-RPC error the node answered with (not a transport failure) */
+export class RpcError extends Error {
+  constructor(
+    message: string,
+    public code?: number,
+    public data?: unknown,
+  ) {
+    super(message)
+  }
+}
+
 export class EvmRpc {
   constructor(private url: string) {}
 
-  private async call<T>(method: string, params: unknown[]): Promise<T> {
+  private async call<T>(
+    method: string,
+    params: unknown[],
+    maxBytes?: number,
+  ): Promise<T> {
     const res = await fetch(this.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       signal: AbortSignal.timeout(10_000),
     })
-    const body = (await res.json()) as {
+    const body = (
+      maxBytes === undefined
+        ? await res.json()
+        : JSON.parse(
+            (await readLimited(res as never, maxBytes)).toString('utf8'),
+          )
+    ) as {
       result?: T
-      error?: { message: string }
+      error?: { message: string; code?: number; data?: unknown }
     }
-    if (body.error) throw new Error(`${method}: ${body.error.message}`)
+    if (body.error) {
+      throw new RpcError(
+        `${method}: ${body.error.message}`,
+        body.error.code,
+        body.error.data,
+      )
+    }
     return body.result as T
+  }
+
+  /**
+   * Any JSON-RPC method (eg debug_traceCall); node errors throw RpcError,
+   * transport failures and answers over RPC_REQUEST_MAX_BYTES other errors
+   * (calls and traces of user-given transactions can answer with a lot)
+   */
+  request<T>(method: string, params: unknown[]): Promise<T> {
+    return this.call<T>(method, params, RPC_REQUEST_MAX_BYTES)
   }
 
   /** Native coin balance at the latest block */
@@ -71,6 +113,121 @@ export class EvmRpc {
       return await this.call<string>('eth_call', [{ to, data }, 'latest'])
     } catch {
       return null
+    }
+  }
+
+  /**
+   * eth_call against the latest block: null when the call reverts, throws
+   * when the node cannot answer (so callers keep what they knew)
+   */
+  async tryCall(to: string, data: string): Promise<string | null> {
+    try {
+      return await this.call<string>('eth_call', [{ to, data }, 'latest'])
+    } catch (err) {
+      if (/revert|invalid opcode|out of gas/i.test(String(err))) return null
+      throw err
+    }
+  }
+
+  /** The latest block number */
+  async blockNumber(): Promise<bigint> {
+    return BigInt(await this.call<string>('eth_blockNumber', []))
+  }
+
+  /**
+   * The asset balance of `address` at `block` (eg a poll's snapshot). Node
+   * failures throw; a token contract that reverts counts as no balance.
+   */
+  async balanceAt(
+    asset: ParsedAsset,
+    address: string,
+    block: bigint,
+  ): Promise<bigint> {
+    const tag = '0x' + block.toString(16)
+    if (asset.kind === 'native') {
+      return BigInt(await this.call<string>('eth_getBalance', [address, tag]))
+    }
+    let res: string
+    try {
+      res = await this.call<string>('eth_call', [
+        {
+          to: asset.contract,
+          data: '0x70a08231' + address.replace(/^0x/, '').padStart(64, '0'),
+        },
+        tag,
+      ])
+    } catch (err) {
+      if (/revert/i.test(String((err as Error)?.message))) return 0n
+      throw err
+    }
+    return res && res !== '0x' ? BigInt(res.slice(0, 66)) : 0n
+  }
+
+  /** Unix time (seconds) of a block, or of the latest one */
+  async blockTime(block = 'latest'): Promise<number> {
+    const res = await this.call<{ timestamp: string } | null>(
+      'eth_getBlockByNumber',
+      [block, false],
+    )
+    if (!res) throw new Error('eth_getBlockByNumber: block not found')
+    return Number(BigInt(res.timestamp))
+  }
+
+  /**
+   * The ERC-20 `contract` amount `txHash` moved from any of `from` to any of
+   * `to` (lowercase addresses), summed, with the transaction's block time
+   * (unix seconds). Pending while not mined; invalid when it reverted or
+   * moved nothing between them.
+   */
+  async tokenTransfers(params: {
+    contract: string
+    txHash: string
+    from: Set<string>
+    to: Set<string>
+  }): Promise<
+    | { status: 'found'; amount: bigint; blockTime: number }
+    | { status: 'pending' | 'invalid'; reason: string }
+  > {
+    const { txHash } = params
+    const contract = params.contract.toLowerCase()
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      return { status: 'invalid', reason: 'Malformed transaction hash' }
+    }
+    const receipt = await this.call<Receipt | null>(
+      'eth_getTransactionReceipt',
+      [txHash],
+    )
+    if (!receipt) {
+      return { status: 'pending', reason: 'Transaction not mined yet' }
+    }
+    if (receipt.status !== '0x1') {
+      return { status: 'invalid', reason: 'Transaction reverted' }
+    }
+    let amount = 0n
+    for (const log of receipt.logs) {
+      const from = topicAddress(log.topics[1])
+      const to = topicAddress(log.topics[2])
+      if (
+        log.address.toLowerCase() === contract &&
+        log.topics[0] === TRANSFER_TOPIC &&
+        from &&
+        to &&
+        params.from.has(from) &&
+        params.to.has(to)
+      ) {
+        amount += BigInt(log.data)
+      }
+    }
+    if (amount === 0n) {
+      return {
+        status: 'invalid',
+        reason: 'No matching token transfer in transaction',
+      }
+    }
+    return {
+      status: 'found',
+      amount,
+      blockTime: await this.blockTime(receipt.blockNumber),
     }
   }
 

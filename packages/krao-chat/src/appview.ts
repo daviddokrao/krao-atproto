@@ -30,6 +30,12 @@ export type Relationship = {
 }
 
 const PROFILE_TTL_MS = 30_000
+/**
+ * Accounts the AppView does not know yet are often brand new (it indexes them
+ * a moment after sign-up): remember that only briefly, or they could not be
+ * messaged for the whole TTL
+ */
+const PROFILE_MISS_TTL_MS = 3_000
 const PROFILE_CACHE_MAX = 10_000
 const FETCH_TIMEOUT_MS = 5_000
 
@@ -65,8 +71,8 @@ export class Appview {
     const missing: string[] = []
     for (const did of new Set(dids)) {
       const cached = this.profiles.get(did)
-      if (cached && now - cached.at < PROFILE_TTL_MS)
-        out.set(did, cached.profile)
+      const ttl = cached?.profile ? PROFILE_TTL_MS : PROFILE_MISS_TTL_MS
+      if (cached && now - cached.at < ttl) out.set(did, cached.profile)
       else missing.push(did)
     }
     for (let i = 0; i < missing.length; i += 25) {

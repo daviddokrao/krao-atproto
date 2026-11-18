@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.safety.checkAddresses",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check EVM addresses against the wallets Krao accounts verified: who owns each one, and which verified wallets of other accounts look like it (same first 4 and last 4 hex characters, a different address), a sign of address poisoning. Public and rate limited.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["addresses"],
+          "properties": {
+            "addresses": {
+              "type": "array",
+              "minLength": 1,
+              "maxLength": 20,
+              "items": { "type": "string", "maxLength": 42 },
+              "description": "0x-prefixed EVM addresses (any case)."
+            },
+            "expectedDid": {
+              "type": "string",
+              "format": "did",
+              "description": "The account the caller believes the addresses belong to, eg a tip recipient."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["results"],
+          "properties": {
+            "results": {
+              "type": "array",
+              "description": "One result per address, in the order given.",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.safety.defs#addressResult"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidAddress",
+          "description": "An address is not a 0x-prefixed 40 hex character EVM address."
+        }
+      ]
+    }
+  }
+}

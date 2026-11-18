@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.gate.moderation.getContent",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "The gated content of a post, for moderators reviewing a report, whatever the gate conditions. Every call is logged (net.krao.gate.moderation.listAccessLog). Served by the gate service; requires service auth from a moderator account or moderation service it trusts.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "format": "at-uri" },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the content is read, eg a report id. Kept in the access log."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": { "type": "ref", "ref": "net.krao.gate.defs#gatedContent" }
+      },
+      "errors": [
+        {
+          "name": "NotFound",
+          "description": "No gated content exists for this post."
+        }
+      ]
+    }
+  }
+}

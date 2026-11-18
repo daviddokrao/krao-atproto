@@ -59,8 +59,8 @@
         },
         "signature": {
           "type": "string",
-          "description": "Signature encoded as 0x-prefixed hex (EVM) or base58 (Solana).",
-          "maxLength": 1024
+          "description": "Signature encoded as 0x-prefixed hex (EVM) or base58 (Solana). Smart contract wallets sign with ERC-1271, or ERC-6492 before they are deployed.",
+          "maxLength": 8192
         }
       }
     },

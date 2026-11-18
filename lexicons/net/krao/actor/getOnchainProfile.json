@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.actor.getOnchainProfile",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "An account's on-chain profile tab: its verified Basename/ENS name, the verified wallets it owns, NFTs those wallets hold (from Krao's approved collections, plus its verified NFT avatar; read on-chain, cached for minutes) and totals of its verified public support (anonymous tips are left out). Public. NotFound for accounts that are taken down or deactivated.",
+      "parameters": {
+        "type": "params",
+        "required": ["actor"],
+        "properties": {
+          "actor": { "type": "string", "format": "at-identifier" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did", "wallets", "nfts", "support"],
+          "properties": {
+            "did": { "type": "string", "format": "did" },
+            "primaryName": {
+              "type": "ref",
+              "ref": "net.krao.actor.defs#primaryNameView"
+            },
+            "wallets": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.actor.defs#onchainWalletView"
+              }
+            },
+            "nfts": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "net.krao.actor.defs#onchainNftView"
+              }
+            },
+            "support": {
+              "type": "ref",
+              "ref": "net.krao.actor.defs#supportSummaryView"
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}

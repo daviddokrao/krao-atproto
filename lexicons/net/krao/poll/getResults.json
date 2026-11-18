@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "net.krao.poll.getResults",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "One poll with its results (hidden while an 'afterEnd' poll is open) and, with service auth for the indexer (the gate service DID), the caller's vote. Auth is optional; rate limited.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The net.krao.poll.poll record."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["poll"],
+          "properties": {
+            "poll": { "type": "ref", "ref": "net.krao.poll.defs#pollView" }
+          }
+        }
+      },
+      "errors": [{ "name": "NotFound" }]
+    }
+  }
+}
